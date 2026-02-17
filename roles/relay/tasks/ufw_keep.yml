@@ -1,0 +1,77 @@
+---
+# UFW keep mode - maintain UFW as firewall authority
+
+- name: Ensure UFW is installed
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+- name: Allow SSH through UFW before enabling
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+    comment: "SSH access"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+- name: Set default forward policy to ACCEPT in /etc/default/ufw
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^DEFAULT_FORWARD_POLICY='
+    line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+    state: present
+  notify: reload ufw
+
+- name: Allow entry port UDP through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ port_a_udp }}"
+    proto: udp
+    comment: "VPN Relay entry port UDP"
+
+- name: Allow entry port TCP through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ port_a_tcp }}"
+    proto: tcp
+    comment: "VPN Relay entry port TCP"
+
+- name: Inject NAT rules into /etc/ufw/before.rules
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before.rules
+    insertbefore: '^\*filter'
+    marker: "# {mark} VPN-RELAY NAT RULES"
+    block: |
+      *nat
+      :PREROUTING ACCEPT [0:0]
+      :POSTROUTING ACCEPT [0:0]
+      # UDP relay (AWG/WireGuard)
+      -A PREROUTING -i {{ wan_if_final }} -p udp --dport {{ port_a_udp }} -j DNAT --to-destination {{ ip_b }}:{{ port_b_udp }}
+      -A POSTROUTING -o {{ wan_if_final }} -p udp -d {{ ip_b }} --dport {{ port_b_udp }} -j MASQUERADE
+      # TCP relay (XRay)
+      -A PREROUTING -i {{ wan_if_final }} -p tcp --dport {{ port_a_tcp }} -j DNAT --to-destination {{ ip_b }}:{{ port_b_tcp }}
+      -A POSTROUTING -o {{ wan_if_final }} -p tcp -d {{ ip_b }} --dport {{ port_b_tcp }} -j MASQUERADE
+      COMMIT
+    state: present
+  notify: reload ufw
+
+- name: Inject FORWARD rules into ufw-before-forward chain
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before.rules
+    insertafter: '^-A ufw-before-forward -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT'
+    marker: "# {mark} VPN-RELAY FORWARD RULES"
+    block: |
+      # UDP forward to Server B
+      -A ufw-before-forward -i {{ wan_if_final }} -p udp -d {{ ip_b }} --dport {{ port_b_udp }} -j ACCEPT
+      # UDP forward from Server B (established/related)
+      -A ufw-before-forward -i {{ wan_if_final }} -p udp -s {{ ip_b }} --sport {{ port_b_udp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      # TCP forward to Server B
+      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -d {{ ip_b }} --dport {{ port_b_tcp }} -j ACCEPT
+      # TCP forward from Server B (established/related)
+      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -s {{ ip_b }} --sport {{ port_b_tcp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    state: present
+  notify: reload ufw

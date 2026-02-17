@@ -1,0 +1,16 @@
+# Ansible inventory with real server addresses
+inventory/inventory.ini
+inventory/host_vars/
+
+# Local variable overrides with real IPs and credentials
+inventory/group_vars/all.yml
+
+# XRay/V2Ray client config with real credentials
+config.json
+
+# Ansible runtime files
+*.retry
+.ansible/
+
+# Claude Code IDE settings
+.claude/

@@ -1,0 +1,46 @@
+{
+    "inbounds": [
+        {
+            "listen": "127.0.0.1",
+            "port": 10808,
+            "protocol": "socks",
+            "settings": {
+                "udp": true
+            }
+        }
+    ],
+    "log": {
+        "loglevel": "error"
+    },
+    "outbounds": [
+        {
+            "protocol": "vless",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "YOUR_RELAY_SERVER_IP",
+                        "port": 8443,
+                        "users": [
+                            {
+                                "encryption": "none",
+                                "flow": "xtls-rprx-vision",
+                                "id": "YOUR_VLESS_UUID"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "realitySettings": {
+                    "fingerprint": "chrome",
+                    "publicKey": "YOUR_REALITY_PUBLIC_KEY",
+                    "serverName": "www.googletagmanager.com",
+                    "shortId": "YOUR_REALITY_SHORT_ID",
+                    "spiderX": ""
+                },
+                "security": "reality"
+            }
+        }
+    ]
+}

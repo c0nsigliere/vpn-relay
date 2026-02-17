@@ -1,0 +1,74 @@
+---
+# Verification tasks - display current relay configuration status
+
+- name: Display configured WAN interface
+  ansible.builtin.debug:
+    msg: "WAN Interface: {{ wan_if_final | default(ansible_default_ipv4.interface) }}"
+  changed_when: false
+
+- name: Display relay configuration summary
+  ansible.builtin.debug:
+    msg: |
+      Relay Configuration:
+        Mode: {{ manage_ufw }}
+        WAN Interface: {{ wan_if_final | default(ansible_default_ipv4.interface) }}
+        UDP Relay: {{ ansible_default_ipv4.address }}:{{ port_a_udp }} -> {{ ip_b }}:{{ port_b_udp }}
+        TCP Relay: {{ ansible_default_ipv4.address }}:{{ port_a_tcp }} -> {{ ip_b }}:{{ port_b_tcp }}
+  changed_when: false
+
+- name: Show NAT PREROUTING rules
+  ansible.builtin.command:
+    cmd: iptables -t nat -S PREROUTING
+  register: prerouting_rules
+  changed_when: false
+
+- name: Display PREROUTING rules
+  ansible.builtin.debug:
+    var: prerouting_rules.stdout_lines
+  changed_when: false
+
+- name: Show NAT POSTROUTING rules
+  ansible.builtin.command:
+    cmd: iptables -t nat -S POSTROUTING
+  register: postrouting_rules
+  changed_when: false
+
+- name: Display POSTROUTING rules
+  ansible.builtin.debug:
+    var: postrouting_rules.stdout_lines
+  changed_when: false
+
+- name: Show FORWARD chain rules
+  ansible.builtin.command:
+    cmd: iptables -S FORWARD
+  register: forward_rules
+  changed_when: false
+
+- name: Display FORWARD rules
+  ansible.builtin.debug:
+    var: forward_rules.stdout_lines
+  changed_when: false
+
+- name: Check UFW status
+  ansible.builtin.command:
+    cmd: ufw status verbose
+  register: ufw_status
+  changed_when: false
+  failed_when: false
+
+- name: Display UFW status
+  ansible.builtin.debug:
+    var: ufw_status.stdout_lines
+  when: ufw_status.rc == 0
+  changed_when: false
+
+- name: Verify IP forwarding is enabled
+  ansible.builtin.command:
+    cmd: sysctl net.ipv4.ip_forward
+  register: ip_forward_status
+  changed_when: false
+
+- name: Display IP forwarding status
+  ansible.builtin.debug:
+    var: ip_forward_status.stdout
+  changed_when: false

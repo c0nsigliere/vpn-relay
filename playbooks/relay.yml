@@ -1,0 +1,21 @@
+---
+# Main playbook to configure VPN relay servers
+#
+# Usage:
+#   ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2"
+#
+# With specific options:
+#   ansible-playbook playbooks/relay.yml \
+#     -e "ip_b=10.0.0.2" \
+#     -e "port_a_udp=51821" \
+#     -e "port_a_tcp=8443" \
+#     -e "manage_ufw=keep"
+#
+# Run specific tags:
+#   ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --tags verify
+
+- name: Configure VPN Relay Servers
+  hosts: relay_servers
+  become: true
+  roles:
+    - relay

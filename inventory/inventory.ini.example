@@ -1,0 +1,13 @@
+[relay_servers]
+# Add your relay server(s) here
+# Example with SSH key:
+# relay1 ansible_host=192.168.1.10 ansible_user=ubuntu
+
+# Example with root password (set password in group_vars or use --ask-pass):
+relay1 ansible_host=YOUR_RELAY_SERVER_IP
+
+[relay_servers:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=root
+# Uncomment and set password here (less secure), or use --ask-pass flag
+# ansible_password=

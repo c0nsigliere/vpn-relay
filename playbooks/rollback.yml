@@ -1,0 +1,227 @@
+---
+# Rollback playbook to remove VPN relay configuration
+#
+# Usage:
+#   ansible-playbook playbooks/rollback.yml
+#
+# This will:
+#   - Remove iptables rules (when disable mode was used)
+#   - Remove blockinfile markers from before.rules (when keep mode was used)
+#   - Remove sysctl configuration file
+#   - Reload/save as appropriate
+
+- name: Rollback VPN Relay Configuration
+  hosts: relay_servers
+  become: true
+
+  vars:
+    # These should match the values used during setup
+    # Override with -e if different
+    ip_b: ""
+    port_a_udp: 51821
+    port_a_tcp: 8443
+    port_b_udp: 51820
+    port_b_tcp: 443
+    wan_if: ""
+    manage_ufw: "keep"
+
+  tasks:
+    - name: Auto-detect WAN interface if not specified
+      when: wan_if | length == 0
+      ansible.builtin.set_fact:
+        wan_if_final: "{{ ansible_default_ipv4.interface }}"
+
+    - name: Use specified WAN interface
+      when: wan_if | length > 0
+      ansible.builtin.set_fact:
+        wan_if_final: "{{ wan_if }}"
+
+    # =========================================================================
+    # UFW KEEP MODE ROLLBACK
+    # =========================================================================
+
+    - name: UFW keep mode rollback
+      when: manage_ufw == "keep"
+      block:
+        - name: Remove NAT rules from /etc/ufw/before.rules
+          ansible.builtin.blockinfile:
+            path: /etc/ufw/before.rules
+            marker: "# {mark} VPN-RELAY NAT RULES"
+            state: absent
+          notify: reload ufw after rollback
+
+        - name: Remove FORWARD rules from /etc/ufw/before.rules
+          ansible.builtin.blockinfile:
+            path: /etc/ufw/before.rules
+            marker: "# {mark} VPN-RELAY FORWARD RULES"
+            state: absent
+          notify: reload ufw after rollback
+
+        - name: Remove UFW allow rule for UDP port
+          community.general.ufw:
+            rule: allow
+            port: "{{ port_a_udp }}"
+            proto: udp
+            delete: true
+          failed_when: false
+
+        - name: Remove UFW allow rule for TCP port
+          community.general.ufw:
+            rule: allow
+            port: "{{ port_a_tcp }}"
+            proto: tcp
+            delete: true
+          failed_when: false
+
+    # =========================================================================
+    # UFW DISABLE MODE ROLLBACK
+    # =========================================================================
+
+    - name: UFW disable mode rollback
+      when: manage_ufw == "disable"
+      block:
+        # Remove UDP rules
+        - name: Remove UDP DNAT rule
+          ansible.builtin.iptables:
+            table: nat
+            chain: PREROUTING
+            in_interface: "{{ wan_if_final }}"
+            protocol: udp
+            destination_port: "{{ port_a_udp }}"
+            jump: DNAT
+            to_destination: "{{ ip_b }}:{{ port_b_udp }}"
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove UDP MASQUERADE rule
+          ansible.builtin.iptables:
+            table: nat
+            chain: POSTROUTING
+            out_interface: "{{ wan_if_final }}"
+            protocol: udp
+            destination: "{{ ip_b }}"
+            destination_port: "{{ port_b_udp }}"
+            jump: MASQUERADE
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove UDP FORWARD to B rule
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: "{{ wan_if_final }}"
+            protocol: udp
+            destination: "{{ ip_b }}"
+            destination_port: "{{ port_b_udp }}"
+            ctstate: NEW,ESTABLISHED,RELATED
+            jump: ACCEPT
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove UDP FORWARD from B rule
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: "{{ wan_if_final }}"
+            protocol: udp
+            source: "{{ ip_b }}"
+            source_port: "{{ port_b_udp }}"
+            ctstate: ESTABLISHED,RELATED
+            jump: ACCEPT
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        # Remove TCP rules
+        - name: Remove TCP DNAT rule
+          ansible.builtin.iptables:
+            table: nat
+            chain: PREROUTING
+            in_interface: "{{ wan_if_final }}"
+            protocol: tcp
+            destination_port: "{{ port_a_tcp }}"
+            jump: DNAT
+            to_destination: "{{ ip_b }}:{{ port_b_tcp }}"
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove TCP MASQUERADE rule
+          ansible.builtin.iptables:
+            table: nat
+            chain: POSTROUTING
+            out_interface: "{{ wan_if_final }}"
+            protocol: tcp
+            destination: "{{ ip_b }}"
+            destination_port: "{{ port_b_tcp }}"
+            jump: MASQUERADE
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove TCP FORWARD to B rule
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: "{{ wan_if_final }}"
+            protocol: tcp
+            destination: "{{ ip_b }}"
+            destination_port: "{{ port_b_tcp }}"
+            ctstate: NEW,ESTABLISHED,RELATED
+            jump: ACCEPT
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove TCP FORWARD from B rule
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: "{{ wan_if_final }}"
+            protocol: tcp
+            source: "{{ ip_b }}"
+            source_port: "{{ port_b_tcp }}"
+            ctstate: ESTABLISHED,RELATED
+            jump: ACCEPT
+            state: absent
+          when: ip_b | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+    # =========================================================================
+    # COMMON ROLLBACK TASKS
+    # =========================================================================
+
+    - name: Remove sysctl configuration file
+      ansible.builtin.file:
+        path: /etc/sysctl.d/99-vpn-relay.conf
+        state: absent
+      notify: reload sysctl
+
+    - name: Display rollback complete message
+      ansible.builtin.debug:
+        msg: |
+          Rollback complete!
+          - Removed NAT and FORWARD rules
+          - Removed sysctl configuration
+          Note: IP forwarding may still be enabled via other sysctl files.
+          Reboot the server or manually disable if needed.
+
+  handlers:
+    - name: reload ufw after rollback
+      community.general.ufw:
+        state: reloaded
+
+    - name: save netfilter after rollback
+      ansible.builtin.command:
+        cmd: netfilter-persistent save
+
+    - name: reload sysctl
+      ansible.builtin.command:
+        cmd: sysctl --system

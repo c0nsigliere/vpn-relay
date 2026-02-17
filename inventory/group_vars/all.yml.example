@@ -1,0 +1,23 @@
+---
+# VPN Relay Configuration
+# Copy this file to all.yml and fill in your values.
+# Override these in host_vars or inventory as needed.
+
+# Target VPN server (Server B) IP address - REQUIRED
+ip_b: "YOUR_VPN_SERVER_IP"
+
+# Entry ports on relay server (Server A)
+port_a_udp: 51821
+port_a_tcp: 8443
+
+# Target ports on VPN server (Server B)
+port_b_udp: 51820
+port_b_tcp: 443
+
+# WAN interface (leave empty for auto-detection)
+# wan_if: ""
+
+# Firewall management mode: "keep" or "disable"
+# - keep: Use UFW with NAT rules in before.rules
+# - disable: Disable UFW, use iptables-persistent
+manage_ufw: "keep"

@@ -1,0 +1,39 @@
+---
+# Persistence tasks - mode-specific rule persistence
+
+# UFW keep mode: persistence is automatic via UFW files
+# Just ensure handlers have been notified (done in ufw_keep.yml)
+
+- name: Verify UFW persistence (keep mode)
+  when: manage_ufw == "keep"
+  block:
+    - name: Check UFW before.rules exists
+      ansible.builtin.stat:
+        path: /etc/ufw/before.rules
+      register: before_rules_stat
+
+    - name: Assert before.rules exists
+      ansible.builtin.assert:
+        that:
+          - before_rules_stat.stat.exists
+        fail_msg: "/etc/ufw/before.rules does not exist"
+        success_msg: "UFW rules file exists and will persist across reboots"
+
+# UFW disable mode: ensure netfilter-persistent saves rules
+
+- name: Verify iptables persistence (disable mode)
+  when: manage_ufw == "disable"
+  block:
+    - name: Flush handlers to ensure rules are saved
+      ansible.builtin.meta: flush_handlers
+
+    - name: Check iptables rules file exists
+      ansible.builtin.stat:
+        path: /etc/iptables/rules.v4
+      register: iptables_rules_stat
+
+    - name: Display iptables persistence status
+      ansible.builtin.debug:
+        msg: >-
+          IPTables rules file exists: {{ iptables_rules_stat.stat.exists | default(false) }}.
+          Rules will be restored on reboot via netfilter-persistent.

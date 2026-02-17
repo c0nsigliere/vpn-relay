@@ -1,0 +1,33 @@
+{#
+  Template reference for UFW before.rules NAT section.
+  This template is NOT used directly - blockinfile is used instead.
+  Kept as documentation/reference for the NAT rules structure.
+#}
+
+# BEGIN VPN-RELAY NAT RULES
+*nat
+:PREROUTING ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+# UDP relay (AWG/WireGuard)
+-A PREROUTING -i {{ wan_if_final }} -p udp --dport {{ port_a_udp }} -j DNAT --to-destination {{ ip_b }}:{{ port_b_udp }}
+-A POSTROUTING -o {{ wan_if_final }} -p udp -d {{ ip_b }} --dport {{ port_b_udp }} -j MASQUERADE
+# TCP relay (XRay)
+-A PREROUTING -i {{ wan_if_final }} -p tcp --dport {{ port_a_tcp }} -j DNAT --to-destination {{ ip_b }}:{{ port_b_tcp }}
+-A POSTROUTING -o {{ wan_if_final }} -p tcp -d {{ ip_b }} --dport {{ port_b_tcp }} -j MASQUERADE
+COMMIT
+# END VPN-RELAY NAT RULES
+
+{#
+  FORWARD rules (added to *filter section, ufw-before-forward chain):
+
+  # BEGIN VPN-RELAY FORWARD RULES
+  # UDP forward to Server B
+  -A ufw-before-forward -i {{ wan_if_final }} -p udp -d {{ ip_b }} --dport {{ port_b_udp }} -j ACCEPT
+  # UDP forward from Server B (established/related)
+  -A ufw-before-forward -i {{ wan_if_final }} -p udp -s {{ ip_b }} --sport {{ port_b_udp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  # TCP forward to Server B
+  -A ufw-before-forward -i {{ wan_if_final }} -p tcp -d {{ ip_b }} --dport {{ port_b_tcp }} -j ACCEPT
+  # TCP forward from Server B (established/related)
+  -A ufw-before-forward -i {{ wan_if_final }} -p tcp -s {{ ip_b }} --sport {{ port_b_tcp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  # END VPN-RELAY FORWARD RULES
+#}

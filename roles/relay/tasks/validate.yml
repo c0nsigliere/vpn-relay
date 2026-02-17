@@ -1,0 +1,109 @@
+---
+# Validation tasks for relay configuration
+
+- name: Validate ip_b is provided
+  ansible.builtin.assert:
+    that:
+      - ip_b is defined
+      - ip_b | length > 0
+    fail_msg: "ip_b must be defined and non-empty"
+    success_msg: "ip_b is provided: {{ ip_b }}"
+
+- name: Validate ip_b is a valid IPv4 address
+  ansible.builtin.assert:
+    that:
+      - ip_b is regex('^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
+    fail_msg: "ip_b '{{ ip_b }}' is not a valid IPv4 address"
+    success_msg: "ip_b is a valid IPv4 address"
+
+- name: Validate ip_b is not the same as this host (prevent self-DNAT)
+  ansible.builtin.assert:
+    that:
+      - ip_b != ansible_default_ipv4.address
+    fail_msg: "ip_b cannot be the same as this host's IP ({{ ansible_default_ipv4.address }})"
+    success_msg: "ip_b is different from this host's IP"
+
+- name: Validate port_a_udp is in valid range
+  ansible.builtin.assert:
+    that:
+      - port_a_udp | int >= 1
+      - port_a_udp | int <= 65535
+    fail_msg: "port_a_udp must be between 1 and 65535"
+    success_msg: "port_a_udp is valid: {{ port_a_udp }}"
+
+- name: Validate port_a_tcp is in valid range
+  ansible.builtin.assert:
+    that:
+      - port_a_tcp | int >= 1
+      - port_a_tcp | int <= 65535
+    fail_msg: "port_a_tcp must be between 1 and 65535"
+    success_msg: "port_a_tcp is valid: {{ port_a_tcp }}"
+
+- name: Validate port_b_udp is in valid range
+  ansible.builtin.assert:
+    that:
+      - port_b_udp | int >= 1
+      - port_b_udp | int <= 65535
+    fail_msg: "port_b_udp must be between 1 and 65535"
+    success_msg: "port_b_udp is valid: {{ port_b_udp }}"
+
+- name: Validate port_b_tcp is in valid range
+  ansible.builtin.assert:
+    that:
+      - port_b_tcp | int >= 1
+      - port_b_tcp | int <= 65535
+    fail_msg: "port_b_tcp must be between 1 and 65535"
+    success_msg: "port_b_tcp is valid: {{ port_b_tcp }}"
+
+- name: Validate entry ports do not collide
+  ansible.builtin.assert:
+    that:
+      - port_a_udp | int != port_a_tcp | int
+    fail_msg: "port_a_udp and port_a_tcp cannot be the same (both are {{ port_a_udp }})"
+    success_msg: "Entry ports are different (UDP: {{ port_a_udp }}, TCP: {{ port_a_tcp }})"
+
+- name: Validate manage_ufw mode
+  ansible.builtin.assert:
+    that:
+      - manage_ufw in ['keep', 'disable']
+    fail_msg: "manage_ufw must be 'keep' or 'disable', got '{{ manage_ufw }}'"
+    success_msg: "manage_ufw mode is valid: {{ manage_ufw }}"
+
+- name: Check if specified wan_if exists
+  when: wan_if | length > 0
+  block:
+    - name: Get network interfaces
+      ansible.builtin.command:
+        cmd: "ip link show {{ wan_if }}"
+      register: wan_if_check
+      changed_when: false
+      failed_when: false
+
+    - name: Validate specified wan_if exists
+      ansible.builtin.assert:
+        that:
+          - wan_if_check.rc == 0
+        fail_msg: "Specified wan_if '{{ wan_if }}' does not exist on this host"
+        success_msg: "Specified wan_if '{{ wan_if }}' exists"
+
+- name: Auto-detect WAN interface if not specified
+  when: wan_if | length == 0
+  block:
+    - name: Get default route interface
+      ansible.builtin.set_fact:
+        wan_if_detected: "{{ ansible_default_ipv4.interface }}"
+
+    - name: Validate auto-detected interface is non-empty
+      ansible.builtin.assert:
+        that:
+          - wan_if_detected | length > 0
+        fail_msg: "Could not auto-detect WAN interface"
+        success_msg: "Auto-detected WAN interface: {{ wan_if_detected }}"
+
+- name: Set final WAN interface
+  ansible.builtin.set_fact:
+    wan_if_final: "{{ wan_if if wan_if | length > 0 else wan_if_detected }}"
+
+- name: Display final WAN interface
+  ansible.builtin.debug:
+    msg: "Using WAN interface: {{ wan_if_final }}"

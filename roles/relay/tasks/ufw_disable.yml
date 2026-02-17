@@ -1,0 +1,38 @@
+---
+# UFW disable mode - use iptables-persistent as firewall authority
+
+- name: Stop UFW service
+  ansible.builtin.systemd:
+    name: ufw
+    state: stopped
+  failed_when: false
+
+- name: Disable UFW service
+  ansible.builtin.systemd:
+    name: ufw
+    enabled: false
+  failed_when: false
+
+- name: Disable UFW via command (redundant safety)
+  ansible.builtin.command:
+    cmd: ufw disable
+  register: ufw_disable_result
+  changed_when: "'disabled' in ufw_disable_result.stdout"
+  failed_when: false
+
+- name: Install iptables-persistent (non-interactive)
+  ansible.builtin.apt:
+    name:
+      - iptables
+      - iptables-persistent
+      - netfilter-persistent
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Ensure netfilter-persistent is enabled
+  ansible.builtin.systemd:
+    name: netfilter-persistent
+    enabled: true
+    state: started

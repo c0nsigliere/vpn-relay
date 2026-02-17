@@ -1,0 +1,40 @@
+---
+# Main task orchestrator for relay role
+
+- name: Import validation tasks
+  ansible.builtin.import_tasks: validate.yml
+  tags:
+    - validate
+
+- name: Import sysctl tasks
+  ansible.builtin.import_tasks: sysctl.yml
+  tags:
+    - sysctl
+
+- name: Import UFW keep mode tasks
+  ansible.builtin.import_tasks: ufw_keep.yml
+  when: manage_ufw == "keep"
+  tags:
+    - ufw
+
+- name: Import UFW disable mode tasks
+  ansible.builtin.import_tasks: ufw_disable.yml
+  when: manage_ufw == "disable"
+  tags:
+    - ufw
+
+- name: Import iptables tasks (disable mode only)
+  ansible.builtin.import_tasks: iptables.yml
+  when: manage_ufw == "disable"
+  tags:
+    - iptables
+
+- name: Import persistence tasks
+  ansible.builtin.import_tasks: persist.yml
+  tags:
+    - persist
+
+- name: Import verification tasks
+  ansible.builtin.import_tasks: verify.yml
+  tags:
+    - verify

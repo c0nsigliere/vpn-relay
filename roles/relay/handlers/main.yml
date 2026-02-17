@@ -1,0 +1,12 @@
+---
+# Handlers for relay role
+
+- name: reload ufw
+  community.general.ufw:
+    state: reloaded
+  when: manage_ufw == "keep"
+
+- name: save netfilter rules
+  ansible.builtin.command:
+    cmd: netfilter-persistent save
+  when: manage_ufw == "disable"
