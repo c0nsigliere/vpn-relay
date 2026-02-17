@@ -111,6 +111,10 @@ ansible-playbook playbooks/verify_all.yml
 ### 7. Add a client
 
 ```bash
+# Auto-assign next available IP:
+ansible-playbook playbooks/add_client.yml -e "client_name=alice"
+
+# Or specify IP explicitly:
 ansible-playbook playbooks/add_client.yml \
   -e "client_name=alice" \
   -e "client_ip=10.66.0.10"

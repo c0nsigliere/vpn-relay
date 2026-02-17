@@ -2,14 +2,21 @@
 # Add a WireGuard client to the cascade VPN
 #
 # Usage:
+#   # Auto-assign next available IP:
+#   ansible-playbook playbooks/add_client.yml -e "client_name=alice"
+#
+#   # Or specify IP explicitly:
 #   ansible-playbook playbooks/add_client.yml \
-#     -e "client_name=alice client_ip=10.66.0.10"
+#     -e "client_name=alice" -e "client_ip=10.66.0.10"
 #
 # Required extra vars:
 #   client_name  - Unique identifier for the client (no spaces)
+#
+# Optional extra vars:
 #   client_ip    - IP address for the client, e.g. 10.66.0.10 (without /32)
 #                  Must be within wg_clients_net (10.66.0.0/24 by default)
 #                  Must not be 10.66.0.1 (Server A's own address)
+#                  If omitted, the next available IP is auto-assigned
 #
 # Output:
 #   artifacts/clients/<client_name>.conf  — ready-to-use WireGuard client config
@@ -36,11 +43,49 @@
           - client_name | length > 0
         fail_msg: "client_name is required. Use: -e 'client_name=alice'"
 
-    - name: Assert client_ip is provided
-      ansible.builtin.assert:
-        that:
-          - client_ip | length > 0
-        fail_msg: "client_ip is required. Use: -e 'client_ip=10.66.0.10'"
+    # =======================================================================
+    # Auto-assign client_ip when not provided
+    # =======================================================================
+
+    - name: Read wg-clients.conf to discover taken IPs
+      ansible.builtin.slurp:
+        src: /etc/wireguard/wg-clients.conf
+      register: _wg_clients_conf
+      when: client_ip | length == 0
+
+    - name: Extract taken IPs from wg-clients.conf
+      ansible.builtin.set_fact:
+        _taken_ips: >-
+          {{ [wg_clients_addr_a.split('/')[0]]
+             + (_wg_clients_conf.content | b64decode
+                | regex_findall('AllowedIPs\s*=\s*(\d+\.\d+\.\d+\.\d+)')) }}
+      when: client_ip | length == 0
+
+    - name: Pick the first available IP in the client subnet
+      ansible.builtin.set_fact:
+        client_ip: "{{ _found_ip }}"
+      vars:
+        _subnet_prefix: "{{ wg_clients_net.rsplit('.', 1)[0] }}"
+        _candidates: "{{ range(2, 255) | map('regex_replace', '^(.*)$', _subnet_prefix + '.\\1') | list }}"
+        _available: "{{ _candidates | difference(_taken_ips) }}"
+        _found_ip: "{{ _available | first | default('') }}"
+      when: client_ip | length == 0
+
+    - name: Fail if no IPs available in the client subnet
+      ansible.builtin.fail:
+        msg: >-
+          No available IPs in {{ wg_clients_net }}.
+          All addresses .2 through .254 are already taken.
+      when: client_ip | length == 0
+
+    - name: Show auto-assigned client IP
+      ansible.builtin.debug:
+        msg: "Auto-assigned client IP: {{ client_ip }}"
+      when: _taken_ips is defined
+
+    # =======================================================================
+    # Validate explicitly provided client_ip
+    # =======================================================================
 
     - name: Assert client_ip is a valid IPv4 address
       ansible.builtin.assert:
