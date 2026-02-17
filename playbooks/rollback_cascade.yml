@@ -1,0 +1,335 @@
+---
+# Rollback / teardown WireGuard cascade VPN
+#
+# Usage:
+#   ansible-playbook playbooks/rollback_cascade.yml
+#   ansible-playbook playbooks/rollback_cascade.yml --tags server_a  # Server A only
+#   ansible-playbook playbooks/rollback_cascade.yml -e "wg_cascade_remove_keys=true"  # also delete keys
+#
+# This will:
+#   - Stop and disable wg-quick@wg-clients and wg-quick@wg-uplink
+#   - Remove policy routing rules (ip rule / ip route table 200) on Server A
+#   - Remove UFW NAT and FORWARD blockinfile entries (keep mode)
+#   - Remove UFW allow rules for cascade ports (keep mode)
+#   - Remove iptables rules (disable mode)
+#   - Remove WireGuard config files (wg-clients.conf, wg-uplink.conf)
+#   - Remove sysctl config file (/etc/sysctl.d/99-wg-cascade.conf)
+#   - Remove systemd drop-in for wg-clients ordering
+#   - Optionally remove keys if wg_cascade_remove_keys=true
+
+- name: Rollback WireGuard cascade VPN
+  hosts: wg_cascade
+  become: true
+
+  vars:
+    manage_ufw: "keep"
+    wan_if: ""
+    wg_cascade_remove_keys: false
+    wg_clients_port: 51888
+    wg_uplink_port_b: 51820
+    wg_clients_net: "10.66.0.0/24"
+    wg_uplink_net: "10.200.0.0/30"
+    wg_routing_table: 200
+    wg_keys_dir: "/etc/wireguard/keys"
+
+  tasks:
+    # =========================================================================
+    # WAN interface (needed for iptables mode rollback)
+    # =========================================================================
+    - name: Auto-detect WAN interface
+      when: wan_if | length == 0
+      ansible.builtin.set_fact:
+        wan_if_final: "{{ ansible_default_ipv4.interface }}"
+
+    - name: Use specified WAN interface
+      when: wan_if | length > 0
+      ansible.builtin.set_fact:
+        wan_if_final: "{{ wan_if }}"
+
+    # =========================================================================
+    # Stop WireGuard services
+    # =========================================================================
+
+    - name: Stop and disable wg-quick@wg-clients (Server A)
+      ansible.builtin.systemd:
+        name: wg-quick@wg-clients
+        state: stopped
+        enabled: false
+      when: inventory_hostname in groups['server_a']
+      failed_when: false
+
+    - name: Stop and disable wg-quick@wg-uplink (both servers)
+      ansible.builtin.systemd:
+        name: wg-quick@wg-uplink
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    # =========================================================================
+    # Clean up policy routing (Server A)
+    # Note: PreDown hooks in wg-uplink.conf should handle this automatically
+    # when the service is stopped. These tasks are belt-and-suspenders.
+    # =========================================================================
+
+    - name: "[A] Remove ip rule for client subnet → table {{ wg_routing_table }}"
+      ansible.builtin.command:
+        cmd: "ip rule del from {{ wg_clients_net }} lookup {{ wg_routing_table }} priority 200"
+      failed_when: false
+      changed_when: false
+      when: inventory_hostname in groups['server_a']
+
+    - name: "[A] Remove default route from table {{ wg_routing_table }}"
+      ansible.builtin.command:
+        cmd: "ip route del default table {{ wg_routing_table }}"
+      failed_when: false
+      changed_when: false
+      when: inventory_hostname in groups['server_a']
+
+    # =========================================================================
+    # UFW keep mode rollback
+    # =========================================================================
+
+    - name: UFW keep mode rollback
+      when: manage_ufw == "keep"
+      block:
+        - name: Remove WG-CASCADE NAT RULES A from before.rules
+          ansible.builtin.blockinfile:
+            path: /etc/ufw/before.rules
+            marker: "# {mark} WG-CASCADE NAT RULES A"
+            state: absent
+          when: inventory_hostname in groups['server_a']
+          notify: reload ufw after rollback
+
+        - name: Remove WG-CASCADE FORWARD RULES A from before.rules
+          ansible.builtin.blockinfile:
+            path: /etc/ufw/before.rules
+            marker: "# {mark} WG-CASCADE FORWARD RULES A"
+            state: absent
+          when: inventory_hostname in groups['server_a']
+          notify: reload ufw after rollback
+
+        - name: Remove WG-CASCADE NAT RULES B from before.rules
+          ansible.builtin.blockinfile:
+            path: /etc/ufw/before.rules
+            marker: "# {mark} WG-CASCADE NAT RULES B"
+            state: absent
+          when: inventory_hostname in groups['server_b']
+          notify: reload ufw after rollback
+
+        - name: Remove WG-CASCADE FORWARD RULES B from before.rules
+          ansible.builtin.blockinfile:
+            path: /etc/ufw/before.rules
+            marker: "# {mark} WG-CASCADE FORWARD RULES B"
+            state: absent
+          when: inventory_hostname in groups['server_b']
+          notify: reload ufw after rollback
+
+        - name: Remove UFW allow rule for wg-clients port (Server A)
+          community.general.ufw:
+            rule: allow
+            port: "{{ wg_clients_port }}"
+            proto: udp
+            delete: true
+          when: inventory_hostname in groups['server_a']
+          failed_when: false
+
+        - name: Remove UFW allow rule for wg-uplink port (Server B)
+          community.general.ufw:
+            rule: allow
+            port: "{{ wg_uplink_port_b }}"
+            proto: udp
+            delete: true
+          when: inventory_hostname in groups['server_b']
+          failed_when: false
+
+    # =========================================================================
+    # iptables disable mode rollback
+    # =========================================================================
+
+    - name: iptables disable mode rollback
+      when: manage_ufw == "disable"
+      block:
+        - name: "[A] Remove FORWARD: wg-clients → wg-uplink"
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: wg-clients
+            out_interface: wg-uplink
+            jump: ACCEPT
+            state: absent
+          when: inventory_hostname in groups['server_a']
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: "[A] Remove FORWARD: wg-uplink → wg-clients established"
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: wg-uplink
+            out_interface: wg-clients
+            ctstate:
+              - RELATED
+              - ESTABLISHED
+            jump: ACCEPT
+            state: absent
+          when: inventory_hostname in groups['server_a']
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: "[A] Remove MASQUERADE: client subnet → wg-uplink"
+          ansible.builtin.iptables:
+            table: nat
+            chain: POSTROUTING
+            source: "{{ wg_clients_net }}"
+            out_interface: wg-uplink
+            jump: MASQUERADE
+            state: absent
+          when: inventory_hostname in groups['server_a']
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: "[B] Remove FORWARD: wg-uplink → WAN"
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: wg-uplink
+            out_interface: "{{ wan_if_final }}"
+            jump: ACCEPT
+            state: absent
+          when: inventory_hostname in groups['server_b']
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: "[B] Remove FORWARD: WAN → wg-uplink established"
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: "{{ wan_if_final }}"
+            out_interface: wg-uplink
+            ctstate:
+              - RELATED
+              - ESTABLISHED
+            jump: ACCEPT
+            state: absent
+          when: inventory_hostname in groups['server_b']
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: "[B] Remove MASQUERADE: uplink subnet → WAN"
+          ansible.builtin.iptables:
+            table: nat
+            chain: POSTROUTING
+            source: "{{ wg_uplink_net }}"
+            out_interface: "{{ wan_if_final }}"
+            jump: MASQUERADE
+            state: absent
+          when: inventory_hostname in groups['server_b']
+          failed_when: false
+          notify: save netfilter after rollback
+
+    # =========================================================================
+    # Remove WireGuard config files
+    # =========================================================================
+
+    - name: "[A] Remove WireGuard config files"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/wireguard/wg-clients.conf
+        - /etc/wireguard/wg-uplink.conf
+      when: inventory_hostname in groups['server_a']
+
+    - name: "[B] Remove WireGuard config file"
+      ansible.builtin.file:
+        path: /etc/wireguard/wg-uplink.conf
+        state: absent
+      when: inventory_hostname in groups['server_b']
+
+    # =========================================================================
+    # Remove systemd drop-in for wg-clients ordering
+    # =========================================================================
+
+    - name: "[A] Remove systemd drop-in for wg-clients ordering"
+      ansible.builtin.file:
+        path: /etc/systemd/system/wg-quick@wg-clients.service.d/ordering.conf
+        state: absent
+      when: inventory_hostname in groups['server_a']
+      notify: reload systemd daemon after rollback
+
+    - name: "[A] Remove systemd override directory if empty"
+      ansible.builtin.file:
+        path: /etc/systemd/system/wg-quick@wg-clients.service.d
+        state: absent
+      when: inventory_hostname in groups['server_a']
+
+    # =========================================================================
+    # Remove sysctl config
+    # =========================================================================
+
+    - name: Remove wg-cascade sysctl config file
+      ansible.builtin.file:
+        path: /etc/sysctl.d/99-wg-cascade.conf
+        state: absent
+      notify: reload sysctl after rollback
+
+    # =========================================================================
+    # Optionally remove key material (requires explicit opt-in)
+    # =========================================================================
+
+    - name: Remove WireGuard keys (only if wg_cascade_remove_keys=true)
+      when: wg_cascade_remove_keys | bool
+      block:
+        - name: "[A] Remove Server A's key material"
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ wg_keys_dir }}/wg-clients.key"
+            - "{{ wg_keys_dir }}/wg-clients.pub"
+            - "{{ wg_keys_dir }}/wg-uplink.key"
+            - "{{ wg_keys_dir }}/wg-uplink.pub"
+          when: inventory_hostname in groups['server_a']
+
+        - name: "[B] Remove Server B's key material"
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ wg_keys_dir }}/wg-uplink.key"
+            - "{{ wg_keys_dir }}/wg-uplink.pub"
+          when: inventory_hostname in groups['server_b']
+
+        - name: Remove peer pubkey exchange files (both servers)
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/wireguard/peers/a-uplink.pub
+            - /etc/wireguard/peers/b-uplink.pub
+          failed_when: false
+
+    - name: Display rollback complete message
+      ansible.builtin.debug:
+        msg: |
+          WireGuard cascade rollback complete on {{ inventory_hostname }}.
+          - WireGuard services stopped and disabled
+          - Firewall rules removed
+          - Config files removed
+          - Sysctl file removed
+          Keys preserved (run with -e "wg_cascade_remove_keys=true" to remove keys).
+
+  handlers:
+    - name: reload ufw after rollback
+      ansible.builtin.shell: >-
+        iptables -t nat -F PREROUTING &&
+        iptables -t nat -F POSTROUTING &&
+        ufw reload
+
+    - name: save netfilter after rollback
+      ansible.builtin.command:
+        cmd: netfilter-persistent save
+
+    - name: reload sysctl after rollback
+      ansible.builtin.command:
+        cmd: sysctl --system
+
+    - name: reload systemd daemon after rollback
+      ansible.builtin.systemd:
+        daemon_reload: true

@@ -1,0 +1,38 @@
+---
+# wg_cascade role defaults
+
+# --- Client-facing WireGuard interface (Server A) ---
+wg_clients_net: "10.66.0.0/24"
+wg_clients_addr_a: "10.66.0.1/24"
+wg_clients_port: 51888
+
+# --- Uplink tunnel (Server A ↔ Server B) ---
+wg_uplink_net: "10.200.0.0/30"
+wg_uplink_addr_a: "10.200.0.1/30"
+wg_uplink_addr_b: "10.200.0.2/30"
+wg_uplink_port_b: 51821
+
+# Safety override: set to true only after confirming port 51820 is free on Server B.
+# (51820 is the WireGuard/Amnezia default — likely in use on B already.)
+wg_uplink_allow_default_port: false
+
+# --- Server B WAN IP — REQUIRED, no default ---
+ip_b_public: ""
+
+# --- DNS for generated client .conf files ---
+wg_client_dns: "1.1.1.1,1.0.0.1"
+
+# --- WAN interface — empty = auto-detect ---
+wan_if: ""
+
+# --- Firewall mode: "keep" (UFW) or "disable" (iptables-persistent) ---
+manage_ufw: "keep"
+
+# --- Key storage directory ---
+wg_keys_dir: "/etc/wireguard/keys"
+
+# --- Policy routing table number ---
+wg_routing_table: 200
+
+# --- Safety gate: only remove keys during rollback if explicitly set ---
+wg_cascade_remove_keys: false

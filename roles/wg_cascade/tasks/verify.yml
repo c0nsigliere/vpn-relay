@@ -1,0 +1,134 @@
+---
+# Verification tasks for wg_cascade role
+# All tasks are read-only (changed_when: false)
+
+- name: "Show wg show all"
+  ansible.builtin.command:
+    cmd: wg show all
+  register: _wg_show
+  changed_when: false
+  failed_when: false
+
+- name: "Display wg show output"
+  ansible.builtin.debug:
+    msg: "{{ _wg_show.stdout_lines }}"
+
+- name: "[A] Show ip rule list"
+  ansible.builtin.command:
+    cmd: ip rule show
+  register: _ip_rule
+  changed_when: false
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Display ip rule output"
+  ansible.builtin.debug:
+    msg: "{{ _ip_rule.stdout_lines }}"
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Assert ip rule for table {{ wg_routing_table }} exists"
+  ansible.builtin.assert:
+    that:
+      - wg_clients_net in _ip_rule.stdout
+    fail_msg: >-
+      Policy routing rule for {{ wg_clients_net }} → table {{ wg_routing_table }} is missing.
+      Check that wg-quick@wg-uplink is active and PostUp ran successfully.
+    success_msg: "ip rule for table {{ wg_routing_table }} is present"
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Show ip route table {{ wg_routing_table }}"
+  ansible.builtin.command:
+    cmd: "ip route show table {{ wg_routing_table }}"
+  register: _route200
+  changed_when: false
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Display route table {{ wg_routing_table }} output"
+  ansible.builtin.debug:
+    msg: "{{ _route200.stdout_lines }}"
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Assert default route exists in table {{ wg_routing_table }}"
+  ansible.builtin.assert:
+    that:
+      - "'default' in _route200.stdout"
+    fail_msg: >-
+      Default route in table {{ wg_routing_table }} is missing.
+      Check that wg-quick@wg-uplink is active and PostUp ran successfully.
+    success_msg: "Default route in table {{ wg_routing_table }} is present"
+  when: inventory_hostname in groups['server_a']
+
+- name: "Show NAT POSTROUTING counters"
+  ansible.builtin.command:
+    cmd: iptables -t nat -L POSTROUTING -n -v
+  register: _nat_post
+  changed_when: false
+  failed_when: false
+
+- name: "Display NAT POSTROUTING counters"
+  ansible.builtin.debug:
+    msg: "{{ _nat_post.stdout_lines }}"
+
+- name: "Show FORWARD chain rules"
+  ansible.builtin.command:
+    cmd: iptables -S FORWARD
+  register: _forward_rules
+  changed_when: false
+  failed_when: false
+
+- name: "Display FORWARD chain rules"
+  ansible.builtin.debug:
+    msg: "{{ _forward_rules.stdout_lines }}"
+
+- name: "Check wg-quick@wg-uplink service status"
+  ansible.builtin.command:
+    cmd: systemctl is-active wg-quick@wg-uplink
+  register: _wg_uplink_status
+  changed_when: false
+  failed_when: false
+
+- name: "Assert wg-quick@wg-uplink is active"
+  ansible.builtin.assert:
+    that:
+      - _wg_uplink_status.rc == 0
+    fail_msg: "wg-quick@wg-uplink is not active on {{ inventory_hostname }} (status: {{ _wg_uplink_status.stdout }})"
+    success_msg: "wg-quick@wg-uplink is active"
+
+- name: "[A] Check wg-quick@wg-clients service status"
+  ansible.builtin.command:
+    cmd: systemctl is-active wg-quick@wg-clients
+  register: _wg_clients_status
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Assert wg-quick@wg-clients is active"
+  ansible.builtin.assert:
+    that:
+      - _wg_clients_status.rc == 0
+    fail_msg: "wg-quick@wg-clients is not active on {{ inventory_hostname }} (status: {{ _wg_clients_status.stdout }})"
+    success_msg: "wg-quick@wg-clients is active"
+  when: inventory_hostname in groups['server_a']
+
+# =============================================================================
+# Resource summary
+# =============================================================================
+- name: Collect memory and swap usage
+  ansible.builtin.command:
+    cmd: free -h
+  register: _free_h
+  changed_when: false
+
+- name: Display memory and swap
+  ansible.builtin.debug:
+    msg: "{{ _free_h.stdout_lines }}"
+
+- name: Display CPU and load averages
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}:
+      CPUs={{ ansible_processor_vcpus }},
+      load avg={{ ansible_loadavg['1m'] | round(2) }} (1m) /
+      {{ ansible_loadavg['5m'] | round(2) }} (5m) /
+      {{ ansible_loadavg['15m'] | round(2) }} (15m),
+      RAM free={{ ansible_memfree_mb }} MB / {{ ansible_memtotal_mb }} MB total,
+      swap={{ ansible_swapfree_mb }} MB free / {{ ansible_swaptotal_mb }} MB total

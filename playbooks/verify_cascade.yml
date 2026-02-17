@@ -1,0 +1,22 @@
+---
+# Standalone verification playbook for WireGuard cascade
+#
+# Usage:
+#   ansible-playbook playbooks/verify_cascade.yml
+#
+# Checks:
+#   - wg show (both servers)
+#   - ip rule (Server A)
+#   - ip route table 200 (Server A)
+#   - iptables NAT and FORWARD counters (both)
+#   - Service status assertions (both)
+
+- name: Verify WireGuard cascade status
+  hosts: wg_cascade
+  become: true
+
+  tasks:
+    - name: Run wg_cascade verification tasks
+      ansible.builtin.import_role:
+        name: wg_cascade
+        tasks_from: verify

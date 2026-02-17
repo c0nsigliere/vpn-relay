@@ -1,0 +1,72 @@
+---
+# Policy-based routing for Server A (SSH-safe — does not touch the main default route)
+#
+# Persistent routing: embedded in wg-uplink PostUp/PreDown hooks (see wg-uplink-a.conf.j2)
+# This task file handles:
+#  1. systemd drop-in to ensure wg-clients starts after wg-uplink
+#  2. Live apply of ip rule and ip route if wg-uplink is already running
+
+# =============================================================================
+# Systemd drop-in: wg-clients must start after wg-uplink
+# =============================================================================
+
+- name: "[A] Create systemd override directory for wg-clients"
+  ansible.builtin.file:
+    path: /etc/systemd/system/wg-quick@wg-clients.service.d
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Install systemd drop-in: wg-clients starts after wg-uplink"
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      After=wg-quick@wg-uplink.service
+      Wants=wg-quick@wg-uplink.service
+    dest: /etc/systemd/system/wg-quick@wg-clients.service.d/ordering.conf
+    mode: '0644'
+    owner: root
+    group: root
+  when: inventory_hostname in groups['server_a']
+  notify: reload systemd daemon
+
+# =============================================================================
+# Live apply: ip rule for policy routing table (idempotent checks)
+# These commands are normally applied by wg-uplink PostUp.
+# This block handles re-runs when wg-uplink is already up but rules may be missing.
+# =============================================================================
+
+- name: "[A] Check if ip rule for client subnet → table {{ wg_routing_table }} exists"
+  ansible.builtin.command:
+    cmd: "ip rule show"
+  register: _iprule_check
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Add ip rule: client subnet → lookup table {{ wg_routing_table }}"
+  ansible.builtin.command:
+    cmd: "ip rule add from {{ wg_clients_net }} lookup {{ wg_routing_table }} priority 200"
+  when:
+    - inventory_hostname in groups['server_a']
+    - wg_clients_net not in _iprule_check.stdout
+
+- name: "[A] Check if default route in table {{ wg_routing_table }} exists"
+  ansible.builtin.command:
+    cmd: "ip route show table {{ wg_routing_table }}"
+  register: _route200_check
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in groups['server_a']
+
+- name: "[A] Add default route via wg-uplink in table {{ wg_routing_table }}"
+  ansible.builtin.command:
+    cmd: "ip route replace default dev wg-uplink table {{ wg_routing_table }}"
+  failed_when: false
+  when:
+    - inventory_hostname in groups['server_a']
+    - "'default' not in _route200_check.stdout"
+  # Note: This may fail if wg-uplink interface is not yet up.
+  # PostUp in wg-uplink.conf handles this at service start time.

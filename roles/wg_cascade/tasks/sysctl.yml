@@ -1,0 +1,26 @@
+---
+# Sysctl configuration for WireGuard cascade routing
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_file: /etc/sysctl.d/99-wg-cascade.conf
+    reload: true
+    state: present
+
+- name: Set rp_filter to loose mode (all interfaces)
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.all.rp_filter
+    value: '2'
+    sysctl_file: /etc/sysctl.d/99-wg-cascade.conf
+    reload: true
+    state: present
+
+- name: Set rp_filter to loose mode (default)
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.default.rp_filter
+    value: '2'
+    sysctl_file: /etc/sysctl.d/99-wg-cascade.conf
+    reload: true
+    state: present

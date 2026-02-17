@@ -1,0 +1,179 @@
+---
+# Add a WireGuard client to the cascade VPN
+#
+# Usage:
+#   ansible-playbook playbooks/add_client.yml \
+#     -e "client_name=alice client_ip=10.66.0.10"
+#
+# Required extra vars:
+#   client_name  - Unique identifier for the client (no spaces)
+#   client_ip    - IP address for the client, e.g. 10.66.0.10 (without /32)
+#                  Must be within wg_clients_net (10.66.0.0/24 by default)
+#                  Must not be 10.66.0.1 (Server A's own address)
+#
+# Output:
+#   artifacts/clients/<client_name>.conf  — ready-to-use WireGuard client config
+#   artifacts/clients/<client_name>.key   — client private key (controller only)
+#
+# Security note:
+#   - Client keypair is generated on the Ansible CONTROLLER (not Server A)
+#   - The private key never reaches Server A
+#   - Only the client's public key is pushed to Server A's wg-clients.conf
+#   - artifacts/clients/*.key and *.conf are gitignored
+
+- name: Add WireGuard client to cascade
+  hosts: server_a
+  become: true
+
+  vars:
+    client_name: ""
+    client_ip: ""
+
+  pre_tasks:
+    - name: Assert client_name is provided
+      ansible.builtin.assert:
+        that:
+          - client_name | length > 0
+        fail_msg: "client_name is required. Use: -e 'client_name=alice'"
+
+    - name: Assert client_ip is provided
+      ansible.builtin.assert:
+        that:
+          - client_ip | length > 0
+        fail_msg: "client_ip is required. Use: -e 'client_ip=10.66.0.10'"
+
+    - name: Assert client_ip is a valid IPv4 address
+      ansible.builtin.assert:
+        that:
+          - client_ip is regex('^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
+        fail_msg: "client_ip '{{ client_ip }}' is not a valid IPv4 address"
+
+    - name: Assert client_ip is in the client subnet (first three octets match)
+      ansible.builtin.assert:
+        that:
+          - client_ip.startswith(wg_clients_net.split('.')[0] + '.' + wg_clients_net.split('.')[1] + '.' + wg_clients_net.split('.')[2] + '.')
+        fail_msg: >-
+          client_ip {{ client_ip }} is not in {{ wg_clients_net }}.
+          Valid range: {{ wg_clients_net.rsplit('.', 1)[0] }}.2 through
+          {{ wg_clients_net.rsplit('.', 1)[0] }}.254
+
+    - name: Assert client_ip is not Server A's own address (10.66.0.1)
+      ansible.builtin.assert:
+        that:
+          - client_ip != wg_clients_addr_a.split('/')[0]
+        fail_msg: >-
+          client_ip {{ client_ip }} is Server A's own address ({{ wg_clients_addr_a }}).
+          Choose a different IP for the client.
+
+    - name: Ensure artifacts/clients directory exists on controller
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../artifacts/clients"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+
+  tasks:
+    # =========================================================================
+    # Generate client keypair on the CONTROLLER (private key never sent to A)
+    # =========================================================================
+
+    - name: Check if client private key already exists on controller
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../artifacts/clients/{{ client_name }}.key"
+      register: _local_key_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Generate client private key on controller
+      ansible.builtin.shell:
+        cmd: "wg genkey > {{ playbook_dir }}/../artifacts/clients/{{ client_name }}.key"
+        executable: /bin/bash
+      delegate_to: localhost
+      become: false
+      when: not _local_key_stat.stat.exists
+
+    - name: Set strict permissions on client private key
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../artifacts/clients/{{ client_name }}.key"
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+
+    - name: Derive client public key on controller
+      ansible.builtin.shell:
+        cmd: "wg pubkey < {{ playbook_dir }}/../artifacts/clients/{{ client_name }}.key"
+        executable: /bin/bash
+      register: _client_pubkey
+      changed_when: false
+      delegate_to: localhost
+      become: false
+
+    # =========================================================================
+    # Fetch Server A's wg-clients public key (for embedding in client config)
+    # =========================================================================
+
+    - name: Read wg-clients public key from Server A
+      ansible.builtin.slurp:
+        src: "{{ wg_keys_dir }}/wg-clients.pub"
+      register: _wg_clients_pub
+
+    # =========================================================================
+    # Add client peer to Server A's wg-clients.conf (idempotent)
+    # =========================================================================
+
+    - name: Add client peer to /etc/wireguard/wg-clients.conf
+      ansible.builtin.blockinfile:
+        path: /etc/wireguard/wg-clients.conf
+        marker: "# {mark} CLIENT {{ client_name }}"
+        block: |
+          [Peer]
+          # {{ client_name }}
+          PublicKey  = {{ _client_pubkey.stdout | trim }}
+          AllowedIPs = {{ client_ip }}/32
+        state: present
+      register: _peer_config_changed
+
+    - name: Apply peer config change to running wg-clients interface
+      when: _peer_config_changed is changed
+      block:
+        - name: Reload wg-clients config without interrupting existing peers (syncconf)
+          ansible.builtin.shell:
+            cmd: "wg syncconf wg-clients <(wg-quick strip wg-clients)"
+            executable: /bin/bash
+          changed_when: true
+      rescue:
+        - name: wg-clients not running — start the service
+          ansible.builtin.systemd:
+            name: wg-quick@wg-clients
+            state: started
+
+    # =========================================================================
+    # Generate client .conf on controller
+    # =========================================================================
+
+    - name: Read client private key on controller
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir }}/../artifacts/clients/{{ client_name }}.key"
+      register: _client_privkey_local
+      delegate_to: localhost
+      become: false
+
+    - name: Generate client .conf file on controller
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/wg_cascade/templates/client.conf.j2"
+        dest: "{{ playbook_dir }}/../artifacts/clients/{{ client_name }}.conf"
+        mode: '0600'
+      vars:
+        client_privkey: "{{ _client_privkey_local.content | b64decode | trim }}"
+        wg_clients_server_pubkey: "{{ _wg_clients_pub.content | b64decode | trim }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Display client config path
+      ansible.builtin.debug:
+        msg: >-
+          Client config generated: artifacts/clients/{{ client_name }}.conf
+          Distribute this file to {{ client_name }}'s device securely.
+          Client IP: {{ client_ip }}/32
+

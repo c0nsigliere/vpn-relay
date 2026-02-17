@@ -1,0 +1,34 @@
+# /etc/wireguard/wg-uplink.conf (Server A)
+# Managed by Ansible wg_cascade role (roles/wg_cascade/tasks/configs.yml)
+#
+# Policy-based routing (SSH-safe):
+#   - A's main default route is NOT changed.
+#   - PostUp adds: ip rule from {{ wg_clients_net }} lookup {{ wg_routing_table }}
+#   - PostUp adds: ip route default dev wg-uplink table {{ wg_routing_table }}
+#   - Only traffic from the client subnet goes through wg-uplink to Server B.
+#   - A's own traffic (SSH, etc.) continues using the main table default route.
+#
+# Table = off: wg-quick does NOT auto-manage routes. We manage table {{ wg_routing_table }} via PostUp.
+
+[Interface]
+Address    = {{ wg_uplink_addr_a }}
+PrivateKey = {{ _wg_uplink_privkey_a.content | b64decode | trim }}
+Table      = off
+
+# PostUp: add ip rule if not already present (idempotent guard), then set default route.
+# ip route replace is idempotent (creates or overwrites) and errors are NOT suppressed.
+PostUp  = ip rule show | grep -q 'from {{ wg_clients_net }} lookup {{ wg_routing_table }}' || ip rule add from {{ wg_clients_net }} lookup {{ wg_routing_table }} priority 200
+PostUp  = ip route replace default dev %i table {{ wg_routing_table }}
+
+# PreDown: remove ip rule and route. Guard rule deletion to avoid errors if already gone.
+PreDown = ip rule show | grep -q 'from {{ wg_clients_net }} lookup {{ wg_routing_table }}' && ip rule del from {{ wg_clients_net }} lookup {{ wg_routing_table }} priority 200 || true
+PreDown = ip route del default dev %i table {{ wg_routing_table }} 2>/dev/null || true
+
+[Peer]
+# Server B — uplink endpoint
+PublicKey           = {{ _wg_b_uplink_pubkey.content | b64decode | trim }}
+Endpoint            = {{ ip_b_public }}:{{ wg_uplink_port_b }}
+# Two /1 routes covering all IPv4: avoids WireGuard's special default-route hook
+# while still routing all client traffic through the tunnel.
+AllowedIPs          = 0.0.0.0/1, 128.0.0.0/1
+PersistentKeepalive = 25

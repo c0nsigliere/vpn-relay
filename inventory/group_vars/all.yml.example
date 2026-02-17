@@ -1,45 +1,59 @@
 ---
-# VPN Relay Configuration
+# =============================================================================
+# WireGuard Cascade VPN Configuration
 # Copy this file to all.yml and fill in your values.
-# Override these in host_vars or inventory as needed.
+# =============================================================================
 
-# Target VPN server (Server B) IP address - REQUIRED
+# =============================================================================
+# WireGuard cascade — network addressing
+# =============================================================================
+
+# Client-facing WireGuard interface on Server A
+wg_clients_net: "10.66.0.0/24"
+wg_clients_addr_a: "10.66.0.1/24"
+wg_clients_port: 51888            # UDP port clients connect to on Server A
+
+# Uplink tunnel between Server A and Server B
+wg_uplink_net: "10.200.0.0/30"
+wg_uplink_addr_a: "10.200.0.1/30"
+wg_uplink_addr_b: "10.200.0.2/30"
+wg_uplink_port_b: 51821           # UDP port Server B listens on for uplink (not 51820 — that's Amnezia's default)
+
+# Server B WAN IP — REQUIRED (the public IP clients cannot reach directly)
+ip_b_public: "YOUR_SERVER_B_PUBLIC_IP"
+
+# DNS servers embedded in generated client .conf files
+wg_client_dns: "1.1.1.1,1.0.0.1"
+
+# WAN interface override (leave commented for auto-detection)
+# wan_if: "eth0"
+
+# Firewall management mode: "keep" (UFW) or "disable" (iptables-persistent)
+manage_ufw: "keep"
+
+# =============================================================================
+# Legacy XRay relay configuration (used with playbooks/relay.yml)
+# Keep these if you still run Server A as an XRay relay.
+# =============================================================================
 ip_b: "YOUR_VPN_SERVER_IP"
-
-# Entry ports on relay server (Server A)
 port_a_udp: 51821
 port_a_tcp: 8443
-
-# Target ports on VPN server (Server B)
 port_b_udp: 51820
 port_b_tcp: 443
-
-# WAN interface (leave empty for auto-detection)
-# wan_if: ""
-
-# Firewall management mode: "keep" or "disable"
-# - keep: Use UFW with NAT rules in before.rules
-# - disable: Disable UFW, use iptables-persistent
-manage_ufw: "keep"
 
 # =============================================================================
 # Maintenance configuration
 # =============================================================================
 
-# Perform dist-upgrade during maintenance (may remove packages to resolve
-# dependency conflicts). Default: false (safe upgrade only - never removes).
-# Override at runtime: -e "do_dist_upgrade=true"
+# Perform dist-upgrade during maintenance (may remove packages).
+# Default: false (safe upgrade only — never removes packages).
 do_dist_upgrade: false
 
-# Manage the unattended-upgrades package:
-#   "leave"  - Do not touch existing configuration (recommended for relay nodes)
-#   "true"   - Install and enable automatic background updates
+# Manage unattended-upgrades:
+#   "leave"  - Do not touch existing config (recommended for relay nodes)
+#   "true"   - Enable automatic background updates
 #   "false"  - Disable automatic background updates
-# Relay nodes: "leave" or "false" strongly recommended. Automatic reboots
-# from unattended-upgrades will drop all active VPN tunnels without warning.
 manage_unattended_upgrades: "leave"
 
 # Reboot after maintenance if /var/run/reboot-required exists.
-# Default: true (necessary for kernel updates to take effect).
-# Set false to defer reboots: -e "maintenance_reboot=false"
 maintenance_reboot: true

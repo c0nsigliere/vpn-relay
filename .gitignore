@@ -15,3 +15,7 @@ config_awg.ini
 
 # Claude Code IDE settings
 .claude/
+
+# Generated client WireGuard configs and key material (sensitive)
+artifacts/clients/*.conf
+artifacts/clients/*.key

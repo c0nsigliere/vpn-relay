@@ -1,0 +1,42 @@
+---
+# Package installation for wg_cascade role
+
+- name: Install WireGuard tools and kernel module
+  ansible.builtin.apt:
+    name:
+      - wireguard-tools   # wg, wg-quick CLI
+      - wireguard         # kernel module meta-package (Ubuntu 20.04+)
+    state: present
+    update_cache: true
+
+- name: Ensure /etc/wireguard directory exists
+  ansible.builtin.file:
+    path: /etc/wireguard
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Ensure WireGuard key storage directory exists
+  ansible.builtin.file:
+    path: "{{ wg_keys_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Ensure WireGuard peer pubkey directory exists
+  ansible.builtin.file:
+    path: /etc/wireguard/peers
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Install iptables persistence tools (disable mode only)
+  ansible.builtin.apt:
+    name:
+      - iptables-persistent
+      - netfilter-persistent
+    state: present
+  when: manage_ufw == "disable"

@@ -1,0 +1,6 @@
+---
+# Variables specific to Server A (wg_cascade group).
+# Uncomment and set values here to override group-wide defaults for Server A only.
+
+# Example: pin the WAN interface if auto-detection is unreliable
+# wan_if: "eth0"

@@ -1,0 +1,104 @@
+---
+# Firewall configuration — iptables-persistent mode (UFW disabled)
+
+# =============================================================================
+# Common setup (both servers): disable UFW, enable netfilter-persistent
+# =============================================================================
+
+- name: Stop and disable UFW
+  ansible.builtin.systemd:
+    name: ufw
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Ensure netfilter-persistent is enabled and started
+  ansible.builtin.systemd:
+    name: netfilter-persistent
+    enabled: true
+    state: started
+  failed_when: false
+
+# =============================================================================
+# SERVER A: FORWARD rules (wg-clients ↔ wg-uplink)
+# =============================================================================
+
+- name: "[A] Allow FORWARD: wg-clients → wg-uplink"
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: wg-clients
+    out_interface: wg-uplink
+    jump: ACCEPT
+    comment: "WG cascade A: forward clients→uplink"
+  when: inventory_hostname in groups['server_a']
+  notify: save netfilter rules
+
+- name: "[A] Allow FORWARD: wg-uplink → wg-clients (established/related)"
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: wg-uplink
+    out_interface: wg-clients
+    ctstate:
+      - RELATED
+      - ESTABLISHED
+    jump: ACCEPT
+    comment: "WG cascade A: forward uplink→clients established"
+  when: inventory_hostname in groups['server_a']
+  notify: save netfilter rules
+
+# =============================================================================
+# SERVER A: NAT — MASQUERADE client subnet out via wg-uplink
+# =============================================================================
+
+- name: "[A] MASQUERADE client subnet out via wg-uplink"
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    source: "{{ wg_clients_net }}"
+    out_interface: wg-uplink
+    jump: MASQUERADE
+    comment: "WG cascade A: MASQUERADE clients→uplink"
+  when: inventory_hostname in groups['server_a']
+  notify: save netfilter rules
+
+# =============================================================================
+# SERVER B: FORWARD rules (wg-uplink ↔ WAN)
+# =============================================================================
+
+- name: "[B] Allow FORWARD: wg-uplink → WAN"
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: wg-uplink
+    out_interface: "{{ wan_if_final }}"
+    jump: ACCEPT
+    comment: "WG cascade B: forward uplink→WAN"
+  when: inventory_hostname in groups['server_b']
+  notify: save netfilter rules
+
+- name: "[B] Allow FORWARD: WAN → wg-uplink (established/related)"
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: "{{ wan_if_final }}"
+    out_interface: wg-uplink
+    ctstate:
+      - RELATED
+      - ESTABLISHED
+    jump: ACCEPT
+    comment: "WG cascade B: forward WAN→uplink established"
+  when: inventory_hostname in groups['server_b']
+  notify: save netfilter rules
+
+# =============================================================================
+# SERVER B: NAT — MASQUERADE uplink subnet out to Internet via WAN
+# =============================================================================
+
+- name: "[B] MASQUERADE uplink subnet out to Internet via WAN"
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    source: "{{ wg_uplink_net }}"
+    out_interface: "{{ wan_if_final }}"
+    jump: MASQUERADE
+    comment: "WG cascade B: MASQUERADE uplink→WAN"
+  when: inventory_hostname in groups['server_b']
+  notify: save netfilter rules

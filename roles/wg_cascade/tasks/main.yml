@@ -1,0 +1,48 @@
+---
+# wg_cascade role — task orchestrator
+
+- name: Import validation tasks
+  ansible.builtin.import_tasks: validate.yml
+  tags: [validate]
+
+- name: Import package tasks
+  ansible.builtin.import_tasks: packages.yml
+  tags: [packages]
+
+- name: Import sysctl tasks
+  ansible.builtin.import_tasks: sysctl.yml
+  tags: [sysctl]
+
+- name: Import key generation and exchange tasks
+  ansible.builtin.import_tasks: keys.yml
+  tags: [keys]
+
+- name: Import WireGuard config tasks
+  ansible.builtin.import_tasks: configs.yml
+  tags: [configs]
+
+- name: Import routing tasks
+  ansible.builtin.import_tasks: routing.yml
+  tags: [routing]
+
+- name: Import UFW keep mode firewall tasks
+  ansible.builtin.import_tasks: firewall_keep.yml
+  when: manage_ufw == "keep"
+  tags: [firewall]
+
+- name: Import iptables disable mode firewall tasks
+  ansible.builtin.import_tasks: firewall_disable.yml
+  when: manage_ufw == "disable"
+  tags: [firewall]
+
+- name: Import service management tasks
+  ansible.builtin.import_tasks: services.yml
+  tags: [services]
+
+- name: Flush handlers before verification
+  ansible.builtin.meta: flush_handlers
+  tags: [verify]
+
+- name: Import verification tasks
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

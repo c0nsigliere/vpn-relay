@@ -1,0 +1,34 @@
+---
+# Handlers for wg_cascade role
+
+- name: restart wg-clients
+  ansible.builtin.systemd:
+    name: wg-quick@wg-clients
+    state: restarted
+  when: inventory_hostname in groups['server_a']
+
+- name: restart wg-uplink-a
+  ansible.builtin.systemd:
+    name: wg-quick@wg-uplink
+    state: restarted
+  when: inventory_hostname in groups['server_a']
+
+- name: restart wg-uplink-b
+  ansible.builtin.systemd:
+    name: wg-quick@wg-uplink
+    state: restarted
+  when: inventory_hostname in groups['server_b']
+
+- name: reload ufw
+  ansible.builtin.command:
+    cmd: ufw reload
+  when: manage_ufw == "keep"
+
+- name: save netfilter rules
+  ansible.builtin.command:
+    cmd: netfilter-persistent save
+  when: manage_ufw == "disable"
+
+- name: reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true

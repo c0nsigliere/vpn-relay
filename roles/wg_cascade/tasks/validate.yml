@@ -1,0 +1,134 @@
+---
+# Validation tasks for wg_cascade role
+
+- name: Validate ip_b_public is provided
+  ansible.builtin.assert:
+    that:
+      - ip_b_public is defined
+      - ip_b_public | length > 0
+    fail_msg: "ip_b_public must be defined and non-empty (set to Server B's WAN IP)"
+    success_msg: "ip_b_public is provided: {{ ip_b_public }}"
+
+- name: Validate ip_b_public is a valid IPv4 address
+  ansible.builtin.assert:
+    that:
+      - ip_b_public is regex('^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
+    fail_msg: "ip_b_public '{{ ip_b_public }}' is not a valid IPv4 address"
+    success_msg: "ip_b_public is a valid IPv4 address"
+
+- name: Validate ip_b_public is not this host (prevent self-loop on Server A)
+  ansible.builtin.assert:
+    that:
+      - ip_b_public != ansible_default_ipv4.address
+    fail_msg: >-
+      ip_b_public ({{ ip_b_public }}) cannot be the same as this host's IP
+      ({{ ansible_default_ipv4.address }}). This would create a routing loop.
+    success_msg: "ip_b_public is different from this host's IP"
+  when: inventory_hostname in groups['server_a']
+
+- name: Validate wg_clients_port is in valid range
+  ansible.builtin.assert:
+    that:
+      - wg_clients_port | int >= 1
+      - wg_clients_port | int <= 65535
+    fail_msg: "wg_clients_port must be between 1 and 65535, got {{ wg_clients_port }}"
+    success_msg: "wg_clients_port is valid: {{ wg_clients_port }}"
+
+- name: Validate wg_uplink_port_b is in valid range
+  ansible.builtin.assert:
+    that:
+      - wg_uplink_port_b | int >= 1
+      - wg_uplink_port_b | int <= 65535
+    fail_msg: "wg_uplink_port_b must be between 1 and 65535, got {{ wg_uplink_port_b }}"
+    success_msg: "wg_uplink_port_b is valid: {{ wg_uplink_port_b }}"
+
+- name: Validate client port and uplink port do not collide
+  ansible.builtin.assert:
+    that:
+      - wg_clients_port | int != wg_uplink_port_b | int
+    fail_msg: "wg_clients_port and wg_uplink_port_b cannot be the same (both are {{ wg_clients_port }})"
+    success_msg: "Ports are different (clients: {{ wg_clients_port }}, uplink: {{ wg_uplink_port_b }})"
+
+- name: Validate manage_ufw mode
+  ansible.builtin.assert:
+    that:
+      - manage_ufw in ['keep', 'disable']
+    fail_msg: "manage_ufw must be 'keep' or 'disable', got '{{ manage_ufw }}'"
+    success_msg: "manage_ufw mode is valid: {{ manage_ufw }}"
+
+- name: Validate wg_clients_net and wg_uplink_net do not overlap
+  ansible.builtin.assert:
+    that:
+      - wg_clients_net != wg_uplink_net
+    fail_msg: "wg_clients_net ({{ wg_clients_net }}) and wg_uplink_net ({{ wg_uplink_net }}) must be different"
+    success_msg: "Cascade subnets are different"
+
+- name: Hard-fail if wg_uplink_port_b is 51820 (Amnezia/WireGuard default — likely in use on B)
+  ansible.builtin.assert:
+    that:
+      - wg_uplink_allow_default_port | default(false) | bool
+    fail_msg: >-
+      wg_uplink_port_b={{ wg_uplink_port_b }} conflicts with the WireGuard default port.
+      Server B runs Amnezia Docker which almost certainly listens on 51820/udp already.
+      Change wg_uplink_port_b to a different port in group_vars/all.yml (e.g. 51821).
+      If you have confirmed port 51820 is free on Server B, pass:
+        -e "wg_uplink_allow_default_port=true"
+  when:
+    - wg_uplink_port_b | int == 51820
+    - inventory_hostname in groups['server_b']
+
+- name: Check if manually specified wan_if exists
+  when: wan_if | length > 0
+  block:
+    - name: Verify specified wan_if interface exists on host
+      ansible.builtin.command:
+        cmd: "ip link show {{ wan_if }}"
+      register: wan_if_check
+      changed_when: false
+      failed_when: false
+
+    - name: Assert specified wan_if exists
+      ansible.builtin.assert:
+        that:
+          - wan_if_check.rc == 0
+        fail_msg: "Specified wan_if '{{ wan_if }}' does not exist on {{ inventory_hostname }}"
+        success_msg: "Specified wan_if '{{ wan_if }}' exists"
+
+- name: Auto-detect WAN interface if not specified
+  when: wan_if | length == 0
+  block:
+    - name: Detect WAN interface via ip route
+      ansible.builtin.set_fact:
+        wan_if_detected: "{{ ansible_default_ipv4.interface | default('') }}"
+
+    - name: Assert auto-detected WAN interface is non-empty
+      ansible.builtin.assert:
+        that:
+          - wan_if_detected | length > 0
+        fail_msg: >-
+          Could not auto-detect WAN interface on {{ inventory_hostname }}.
+          Set wan_if explicitly in group_vars.
+        success_msg: "Auto-detected WAN interface: {{ wan_if_detected }}"
+
+- name: Set final WAN interface fact
+  ansible.builtin.set_fact:
+    wan_if_final: "{{ wan_if if wan_if | length > 0 else wan_if_detected }}"
+
+- name: Display WAN interface being used
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: using WAN interface {{ wan_if_final }}"
+
+# =============================================================================
+# Resource pre-check (warn only — does not abort deployment)
+# =============================================================================
+- name: Warn if free RAM is critically low (< 128 MB)
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ inventory_hostname }} has only {{ ansible_memfree_mb }} MB RAM free
+      (total: {{ ansible_memtotal_mb }} MB, swap: {{ ansible_swaptotal_mb }} MB).
+      apt install may hang or OOM-kill during package installation.
+      Add swap before deploying:
+        fallocate -l 512M /swapfile && chmod 600 /swapfile &&
+        mkswap /swapfile && swapon /swapfile &&
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  when: ansible_memfree_mb | int < 128

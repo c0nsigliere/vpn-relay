@@ -1,0 +1,113 @@
+---
+# Deploy WireGuard cascade VPN (A → B)
+#
+# Usage:
+#   ansible-playbook playbooks/cascade.yml
+#   ansible-playbook playbooks/cascade.yml --tags validate   # validation only
+#   ansible-playbook playbooks/cascade.yml --tags keys       # key generation only
+#   ansible-playbook playbooks/cascade.yml --tags verify     # verification only
+#
+# Requirements:
+#   - ip_b_public must be set in inventory/group_vars/all.yml
+#   - Both server_a and server_b must be reachable
+#   - Run: ansible-galaxy collection install -r requirements.yml
+#
+# Pre-tasks auto-clean old UDP relay rules for convergent operation.
+# Note: if XRay/TCP relay (roles/relay) was active on Server A, re-run relay.yml
+# after cascade.yml to restore TCP relay rules (the pre-task removes ALL VPN-RELAY
+# markers including TCP; cascade only adds its own WG-CASCADE markers).
+
+# =============================================================================
+# Pre-play: Remove old VPN relay rules (convergent cleanup)
+# UFW keep mode: remove blockinfile markers (prevents duplicate *nat sections)
+# iptables disable mode: remove old relay DNAT/MASQUERADE rules from PREROUTING/POSTROUTING
+# =============================================================================
+- name: Clean up old relay rules (convergent pre-task)
+  hosts: wg_cascade
+  become: true
+  gather_facts: false   # facts only needed for iptables tasks; those are skipped when using --tags validate/keys/verify
+
+  tasks:
+    # --- UFW keep mode: remove old blockinfile markers ---
+    - name: "[UFW] Remove old VPN-RELAY NAT blockinfile markers"
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/before.rules
+        marker: "# {mark} VPN-RELAY NAT RULES"
+        state: absent
+      when: manage_ufw == "keep"
+      failed_when: false
+
+    - name: "[UFW] Remove old VPN-RELAY FORWARD blockinfile markers"
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/before.rules
+        marker: "# {mark} VPN-RELAY FORWARD RULES"
+        state: absent
+      when: manage_ufw == "keep"
+      failed_when: false
+
+    # --- iptables disable mode: remove old relay rules (Server A only) ---
+    # Uses old relay variables (port_a_udp, port_a_tcp, ip_b) if still present
+    # in group_vars. Failed_when: false ensures convergent operation if rules
+    # are already gone or vars are undefined.
+
+    # Gather network facts selectively (needed for ansible_default_ipv4.interface below).
+    # Skipped in UFW keep mode and on Server B where these rules never existed.
+    - name: "Gather network facts for iptables cleanup (disable mode, Server A only)"
+      ansible.builtin.setup:
+        gather_subset:
+          - network
+      when:
+        - manage_ufw == "disable"
+        - inventory_hostname in groups['server_a']
+
+    - name: "[iptables] Remove old UDP DNAT relay rule from PREROUTING"
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        in_interface: "{{ ansible_default_ipv4.interface }}"
+        protocol: udp
+        destination_port: "{{ port_a_udp | string }}"
+        jump: DNAT
+        to_destination: "{{ ip_b }}:{{ port_b_udp }}"
+        state: absent
+      when:
+        - manage_ufw == "disable"
+        - inventory_hostname in groups['server_a']
+        - ip_b is defined and ip_b | length > 0
+        - port_a_udp is defined
+      failed_when: false
+
+    - name: "[iptables] Remove old UDP MASQUERADE relay rule from POSTROUTING"
+      ansible.builtin.iptables:
+        table: nat
+        chain: POSTROUTING
+        out_interface: "{{ ansible_default_ipv4.interface }}"
+        protocol: udp
+        destination: "{{ ip_b }}"
+        destination_port: "{{ port_b_udp | string }}"
+        jump: MASQUERADE
+        state: absent
+      when:
+        - manage_ufw == "disable"
+        - inventory_hostname in groups['server_a']
+        - ip_b is defined and ip_b | length > 0
+        - port_b_udp is defined
+      failed_when: false
+
+    - name: "[iptables] Save netfilter rules after relay cleanup"
+      ansible.builtin.command:
+        cmd: netfilter-persistent save
+      when:
+        - manage_ufw == "disable"
+        - inventory_hostname in groups['server_a']
+      failed_when: false
+
+# =============================================================================
+# Main deployment: apply wg_cascade role to both servers
+# =============================================================================
+- name: Deploy WireGuard cascade VPN
+  hosts: wg_cascade
+  become: true
+
+  roles:
+    - wg_cascade
