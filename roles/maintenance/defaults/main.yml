@@ -1,0 +1,24 @@
+---
+# Maintenance role defaults
+
+# Whether to run dist-upgrade (may remove packages to resolve dependencies).
+# Default: false (safe upgrade only - never removes packages)
+# Override at runtime: -e "do_dist_upgrade=true"
+# Use only during scheduled maintenance windows.
+do_dist_upgrade: false
+
+# Manage the unattended-upgrades package:
+#   "leave"  - Do not touch existing configuration (default, safe for relay nodes)
+#   "true"   - Ensure unattended-upgrades is installed and enabled
+#   "false"  - Ensure unattended-upgrades is disabled
+#
+# Relay nodes: "leave" or "false" is strongly recommended.
+# Automatic reboots from unattended-upgrades will drop all active VPN tunnels
+# without warning. Use manual scheduled maintenance instead.
+manage_unattended_upgrades: "leave"
+
+# Reboot the server after maintenance if /var/run/reboot-required exists.
+# Default: true (required for kernel updates to take effect)
+# Set to false to defer reboots to a separate scheduled window.
+# Override at runtime: -e "maintenance_reboot=false"
+maintenance_reboot: true

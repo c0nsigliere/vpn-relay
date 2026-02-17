@@ -1,0 +1,37 @@
+---
+# Full dist-upgrade playbook
+# MAINTENANCE WINDOW REQUIRED: dist-upgrade may remove packages.
+# Runs: apt update + apt dist-upgrade
+# Does NOT reboot. Run reboot-if-needed.yml after.
+#
+# Usage:
+#   ansible-playbook playbooks/upgrade.yml
+#   ansible-playbook playbooks/upgrade.yml --ask-pass
+#
+# WARNING: Schedule a maintenance window before running this.
+# Review the output for any removed packages.
+
+- name: "[MAINTENANCE WINDOW] Dist-upgrade relay servers"
+  hosts: relay_servers
+  become: true
+
+  vars:
+    do_dist_upgrade: true
+    maintenance_reboot: false
+    manage_unattended_upgrades: "leave"
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.import_role:
+        name: maintenance
+        tasks_from: update
+      tags:
+        - update
+        - upgrade
+
+    - name: Run dist-upgrade
+      ansible.builtin.import_role:
+        name: maintenance
+        tasks_from: upgrade
+      tags:
+        - upgrade

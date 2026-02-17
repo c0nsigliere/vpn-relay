@@ -138,6 +138,248 @@ ansible-playbook playbooks/rollback.yml \
   -e "ip_b=10.0.0.2"
 ```
 
+## Server Maintenance and Updates
+
+### Why Maintenance is Separate from the Relay Role
+
+The `roles/relay/` role is a deployment role — it configures a clean relay and is designed to be idempotent and auditable. Embedding OS update logic inside it would violate the single-responsibility principle and make it harder to run updates independently without risk of accidentally reconfiguring the relay.
+
+Maintenance is a distinct operational concern handled by `roles/maintenance/` and the playbooks in `playbooks/`. The relay role is never modified, which means the relay configuration remains stable and predictable.
+
+### Update vs. Upgrade: Know the Difference
+
+| Playbook | Apt Command | Removes packages? | When to use |
+|----------|-------------|-------------------|-------------|
+| `playbooks/update.yml` | `apt upgrade` | Never | Regular security patching (weekly/monthly) |
+| `playbooks/upgrade.yml` | `apt dist-upgrade` | Sometimes | Scheduled maintenance windows only |
+
+- **Safe upgrade** (`apt upgrade`): Upgrades packages only if it can do so without removing any installed package. Handles 95% of patch scenarios. Safe to run at any time without a window.
+- **Dist-upgrade** (`apt dist-upgrade`): Resolves complex dependency changes, may remove packages. Required after major kernel updates or when held packages need to update. Always review the removed-packages list before proceeding.
+
+### When to Use Each Playbook
+
+| Playbook | Purpose | Reboots? |
+|----------|---------|---------|
+| `playbooks/update.yml` | Safe package update only | No |
+| `playbooks/upgrade.yml` | dist-upgrade (maintenance window) | No |
+| `playbooks/reboot-if-needed.yml` | Reboot only if required | If needed |
+| `playbooks/maintenance.yml` | Full workflow: update → reboot → verify | If needed |
+
+Use `playbooks/maintenance.yml` as the default entry point for all routine maintenance. It handles the complete flow including relay verification after updates.
+
+### Reboot Strategy
+
+Ubuntu writes `/var/run/reboot-required` after installing packages that require a reboot (kernel, glibc, openssl). The maintenance subsystem checks this sentinel file — no file means no reboot.
+
+**`maintenance_reboot: true` (default):** Reboots immediately after updates if required. Suitable for scheduled maintenance windows. Required for kernel updates to take effect.
+
+**Deferring reboots:** Set `maintenance_reboot: false` to skip the reboot step. Run `playbooks/reboot-if-needed.yml` at a later time (e.g., off-peak hours) to apply the deferred reboot.
+
+```bash
+# Update now, reboot later
+ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false"
+
+# Reboot when ready
+ansible-playbook playbooks/reboot-if-needed.yml
+```
+
+After any reboot, `maintenance.yml` automatically runs relay verification to confirm the relay survived intact.
+
+### Firewall Persistence After Upgrades
+
+**UFW keep mode** (`manage_ufw: keep`):
+UFW stores rules in `/etc/ufw/before.rules` — a config file that persists across reboots and kernel upgrades. After reboot, UFW starts automatically via systemd and reloads all rules. No manual intervention needed. After a `ufw` package upgrade, run `--tags verify` to confirm NAT rules in `before.rules` are still intact.
+
+**iptables disable mode** (`manage_ufw: disable`):
+Rules are persisted in `/etc/iptables/rules.v4` by `netfilter-persistent`. This is a systemd service that loads saved rules at boot. A kernel upgrade does not wipe this file. After reboot, rules are restored automatically by `netfilter-persistent.service`. If the service fails to start after a kernel upgrade, the health checks will catch it (assertion on `rules.v4` existence and ip_forward).
+
+### UFW vs. iptables Mode Implications for Maintenance
+
+**After a `ufw` package upgrade (keep mode):**
+- Verify NAT rules are still in `/etc/ufw/before.rules`: the blockinfile markers should be present
+- Run `ansible-playbook playbooks/relay.yml --tags verify` to confirm
+- If rules are missing, re-apply: `ansible-playbook playbooks/relay.yml --tags ufw`
+
+**After an `iptables-persistent` or `netfilter-persistent` upgrade (disable mode):**
+- Verify `/etc/iptables/rules.v4` still exists and contains the correct rules
+- Verify `netfilter-persistent` service is running: `systemctl status netfilter-persistent`
+- If rules are missing: `ansible-playbook playbooks/relay.yml --tags iptables,persist`
+
+**After any kernel upgrade:**
+- New kernel may include updated netfilter modules. Test traffic after reboot.
+- Check iptables counters: non-zero pkts/bytes means traffic is flowing.
+- Health checks in `maintenance.yml` verify this automatically.
+
+### Recommended Maintenance Workflow
+
+**Standard monthly maintenance (routine security patches):**
+
+```bash
+# Step 1: Run full maintenance workflow
+ansible-playbook playbooks/maintenance.yml
+
+# Step 2: Review output for:
+#   - ip_forward = 1 (confirmed by health check)
+#   - UFW active or rules.v4 present
+#   - PREROUTING/FORWARD rules present
+#   - Relay config summary (confirms forwarding config)
+
+# Step 3: Test VPN connectivity from a client (manual)
+```
+
+**Scheduled maintenance window (kernel or major updates):**
+
+```bash
+# Step 1: Notify users of downtime
+# Step 2: Run with dist-upgrade enabled
+ansible-playbook playbooks/maintenance.yml -e "do_dist_upgrade=true"
+
+# Step 3: Review removed packages in output
+# Step 4: Confirm health check output (ip_forward, firewall, counters)
+# Step 5: Test VPN client connectivity (manual)
+```
+
+**Deferred reboot workflow:**
+
+```bash
+# Apply updates during business hours (no reboot)
+ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false"
+
+# Reboot during off-peak hours
+ansible-playbook playbooks/reboot-if-needed.yml
+
+# Verify relay after reboot
+ansible-playbook playbooks/relay.yml --tags verify
+```
+
+### Example Commands
+
+```bash
+# Safe update (run anytime)
+ansible-playbook playbooks/update.yml
+
+# Full maintenance with automatic reboot if needed (recommended default)
+ansible-playbook playbooks/maintenance.yml
+
+# Full maintenance + dist-upgrade (maintenance window required)
+ansible-playbook playbooks/maintenance.yml -e "do_dist_upgrade=true"
+
+# Full maintenance without rebooting (defer reboot)
+ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false"
+
+# Reboot now if /var/run/reboot-required exists
+ansible-playbook playbooks/reboot-if-needed.yml
+
+# Health checks only (no updates)
+ansible-playbook playbooks/maintenance.yml --tags health
+
+# Update + health checks (no reboot)
+ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false" --tags update,health
+
+# Disable unattended-upgrades on relay nodes
+ansible-playbook playbooks/maintenance.yml \
+  -e "manage_unattended_upgrades=false" --tags unattended
+
+# With password authentication
+ansible-playbook playbooks/maintenance.yml --ask-pass
+```
+
+### Post-Update Verification Checklist
+
+After any maintenance run, confirm the following in the output:
+
+**Critical (must pass):**
+- [ ] `net.ipv4.ip_forward = 1` — shown in health check
+- [ ] UFW status active (keep mode) OR `/etc/iptables/rules.v4` exists (disable mode)
+- [ ] PREROUTING has DNAT rules for `port_a_udp` and `port_a_tcp`
+- [ ] FORWARD chain has ACCEPT rules for `ip_b`
+
+**Important (review warnings):**
+- [ ] `rp_filter = 2` for `conf.all` and `conf.default` — asymmetric routing requires loose mode
+- [ ] `/etc/sysctl.d/99-vpn-relay.conf` exists — ensures sysctl survives reboot
+- [ ] No unexpected packages removed (review dist-upgrade output if applicable)
+
+**After reboot only:**
+- [ ] `netfilter-persistent` service running (disable mode): `systemctl status netfilter-persistent`
+- [ ] UFW service running (keep mode): `systemctl status ufw`
+- [ ] Test VPN client can connect and route traffic through the relay
+
+### Troubleshooting After Kernel Upgrade
+
+**Rules missing after reboot (iptables disable mode):**
+
+```bash
+# Check netfilter-persistent service
+# (run on the server or via Ansible ad-hoc)
+# Re-apply iptables rules:
+ansible-playbook playbooks/relay.yml --tags iptables,persist
+```
+
+**UFW not loading NAT rules after reboot (UFW keep mode):**
+
+```bash
+# Verify blockinfile markers are still in before.rules:
+#   grep "BEGIN VPN-RELAY NAT" /etc/ufw/before.rules
+# If missing, re-inject NAT rules:
+ansible-playbook playbooks/relay.yml --tags ufw
+```
+
+**`net.ipv4.ip_forward = 0` after reboot:**
+
+```bash
+# The sysctl config file may have been lost or sysctl failed to reload.
+# Re-apply:
+ansible-playbook playbooks/relay.yml --tags sysctl
+```
+
+**VPN clients connect but traffic stops flowing:**
+
+```bash
+# Check PREROUTING counters (pkts/bytes should increment with traffic):
+#   iptables -t nat -L PREROUTING -n -v
+# If rules exist but no traffic: verify ip_b is reachable from the relay
+#   ping -c 3 <ip_b>
+# If no DNAT rules: re-apply the relay role
+ansible-playbook playbooks/relay.yml
+```
+
+**Post-kernel-upgrade iptables behavior change:**
+
+Some kernel updates include updated netfilter modules that may affect connection tracking behavior. If traffic stops flowing after a kernel upgrade even with correct rules:
+
+```bash
+# Check dmesg for netfilter-related errors:
+#   dmesg | grep -i netfilter
+# Verify conntrack table isn't full:
+#   sysctl net.netfilter.nf_conntrack_count
+#   sysctl net.netfilter.nf_conntrack_max
+# Re-apply the full relay role to reset all rules:
+ansible-playbook playbooks/relay.yml
+```
+
+### Risks of Unattended-Upgrades on Relay Nodes
+
+The `unattended-upgrades` package provides automatic background security updates. While valuable for general servers, it carries specific risks for relay nodes:
+
+**Automatic reboot risk:** If `Unattended-Upgrade::Automatic-Reboot "true"` is set in `/etc/apt/apt.conf.d/50unattended-upgrades` (Ubuntu default is `false`, but some configurations set it to `true`), the relay server may reboot in the background after a kernel update. All active VPN tunnels will drop without warning.
+
+**Rule restoration window:** Even with correct persistence, there is a brief period after reboot during which the relay is not forwarding traffic (while systemd starts UFW or netfilter-persistent). For latency-sensitive applications, this is unavoidable.
+
+**Recommendation for relay nodes:**
+- Set `manage_unattended_upgrades: "false"` to disable automatic updates
+- Schedule manual maintenance using `playbooks/maintenance.yml` on a regular cadence (weekly or monthly)
+- This provides the same security coverage with controlled timing
+
+**If unattended-upgrades must remain enabled** (compliance requirement):
+- At minimum, disable automatic reboots by creating `/etc/apt/apt.conf.d/99relay-unattended`:
+  ```
+  Unattended-Upgrade::Automatic-Reboot "false";
+  ```
+- This prevents surprise reboots while still allowing background package updates
+- Schedule reboots explicitly via `ansible-playbook playbooks/reboot-if-needed.yml`
+
+**Security trade-off:** Disabling unattended-upgrades means you are responsible for timely patch application. Use `playbooks/update.yml` at minimum on a weekly schedule for security patches, and immediately when critical CVEs are published (kernel, openssl, glibc).
+
 ## Troubleshooting
 
 ### Verify IP Forwarding
@@ -212,25 +454,39 @@ vpn-relay/
 │   └── group_vars/
 │       └── all.yml
 ├── playbooks/
-│   ├── relay.yml
-│   └── rollback.yml
+│   ├── relay.yml                    # Deploy/configure relay
+│   ├── rollback.yml                 # Remove relay configuration
+│   ├── update.yml                   # Safe package update (no reboot)
+│   ├── upgrade.yml                  # dist-upgrade (maintenance window)
+│   ├── reboot-if-needed.yml         # Conditional reboot
+│   └── maintenance.yml              # Full maintenance orchestrator
 ├── roles/
-│   └── relay/
+│   ├── relay/                       # Relay configuration role (do not modify)
+│   │   ├── defaults/
+│   │   │   └── main.yml
+│   │   ├── tasks/
+│   │   │   ├── main.yml
+│   │   │   ├── validate.yml
+│   │   │   ├── sysctl.yml
+│   │   │   ├── ufw_keep.yml
+│   │   │   ├── ufw_disable.yml
+│   │   │   ├── iptables.yml
+│   │   │   ├── persist.yml
+│   │   │   └── verify.yml
+│   │   ├── handlers/
+│   │   │   └── main.yml
+│   │   └── templates/
+│   │       └── ufw-before-rules.j2
+│   └── maintenance/                 # Maintenance role (separate from relay)
 │       ├── defaults/
-│       │   └── main.yml
-│       ├── tasks/
-│       │   ├── main.yml
-│       │   ├── validate.yml
-│       │   ├── sysctl.yml
-│       │   ├── ufw_keep.yml
-│       │   ├── ufw_disable.yml
-│       │   ├── iptables.yml
-│       │   ├── persist.yml
-│       │   └── verify.yml
-│       ├── handlers/
-│       │   └── main.yml
-│       └── templates/
-│           └── ufw-before-rules.j2
+│       │   └── main.yml             # do_dist_upgrade, manage_unattended_upgrades, maintenance_reboot
+│       └── tasks/
+│           ├── main.yml             # Task orchestrator
+│           ├── update.yml           # apt update + safe upgrade
+│           ├── upgrade.yml          # dist-upgrade
+│           ├── reboot.yml           # Conditional reboot
+│           ├── health.yml           # Health assertions + diagnostics
+│           └── unattended_upgrades.yml  # Manage unattended-upgrades
 └── README.md
 ```
 

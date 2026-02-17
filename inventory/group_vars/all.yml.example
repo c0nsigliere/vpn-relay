@@ -21,3 +21,25 @@ port_b_tcp: 443
 # - keep: Use UFW with NAT rules in before.rules
 # - disable: Disable UFW, use iptables-persistent
 manage_ufw: "keep"
+
+# =============================================================================
+# Maintenance configuration
+# =============================================================================
+
+# Perform dist-upgrade during maintenance (may remove packages to resolve
+# dependency conflicts). Default: false (safe upgrade only - never removes).
+# Override at runtime: -e "do_dist_upgrade=true"
+do_dist_upgrade: false
+
+# Manage the unattended-upgrades package:
+#   "leave"  - Do not touch existing configuration (recommended for relay nodes)
+#   "true"   - Install and enable automatic background updates
+#   "false"  - Disable automatic background updates
+# Relay nodes: "leave" or "false" strongly recommended. Automatic reboots
+# from unattended-upgrades will drop all active VPN tunnels without warning.
+manage_unattended_upgrades: "leave"
+
+# Reboot after maintenance if /var/run/reboot-required exists.
+# Default: true (necessary for kernel updates to take effect).
+# Set false to defer reboots: -e "maintenance_reboot=false"
+maintenance_reboot: true

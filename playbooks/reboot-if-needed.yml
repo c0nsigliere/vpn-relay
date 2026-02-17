@@ -1,0 +1,24 @@
+---
+# Conditional reboot playbook
+# Reboots the server ONLY if /var/run/reboot-required exists.
+# Idempotent: safe to run at any time - does nothing if no reboot is needed.
+# Waits for the server to come back online before completing.
+#
+# Usage:
+#   ansible-playbook playbooks/reboot-if-needed.yml
+#   ansible-playbook playbooks/reboot-if-needed.yml --ask-pass
+
+- name: Reboot relay servers if required
+  hosts: relay_servers
+  become: true
+
+  vars:
+    maintenance_reboot: true
+
+  tasks:
+    - name: Reboot if required
+      ansible.builtin.import_role:
+        name: maintenance
+        tasks_from: reboot
+      tags:
+        - reboot

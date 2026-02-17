@@ -1,0 +1,38 @@
+---
+# Maintenance role task orchestrator.
+# Uses import_tasks (static) so tags propagate correctly from CLI --tags flags.
+# When import_tasks has a 'when' clause, the condition applies to every task
+# in the imported file.
+
+- name: Manage unattended-upgrades package
+  ansible.builtin.import_tasks: unattended_upgrades.yml
+  tags:
+    - unattended
+    - maintenance
+
+- name: Run apt update and safe upgrade
+  ansible.builtin.import_tasks: update.yml
+  tags:
+    - update
+    - maintenance
+
+- name: Run dist-upgrade (only when do_dist_upgrade=true)
+  ansible.builtin.import_tasks: upgrade.yml
+  when: do_dist_upgrade | bool
+  tags:
+    - upgrade
+    - maintenance
+
+- name: Reboot if required (only when maintenance_reboot=true)
+  ansible.builtin.import_tasks: reboot.yml
+  when: maintenance_reboot | bool
+  tags:
+    - reboot
+    - maintenance
+
+- name: Run post-maintenance health checks
+  ansible.builtin.import_tasks: health.yml
+  tags:
+    - verify
+    - health
+    - maintenance

@@ -1,0 +1,64 @@
+---
+# Conditional reboot: only reboots if /var/run/reboot-required exists.
+# This file is written by Ubuntu after installing a kernel, glibc, or other
+# package that requires a reboot to take effect.
+# Idempotent: safe to run at any time - does nothing if no reboot is needed.
+# Tags: reboot, maintenance
+
+- name: Check if reboot is required
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: reboot_required_file
+  changed_when: false
+  tags:
+    - reboot
+    - maintenance
+
+- name: Check which packages require reboot (informational)
+  ansible.builtin.slurp:
+    src: /var/run/reboot-required.pkgs
+  register: reboot_pkgs
+  failed_when: false
+  changed_when: false
+  when: reboot_required_file.stat.exists
+  tags:
+    - reboot
+    - maintenance
+
+- name: Display reboot requirement status
+  ansible.builtin.debug:
+    msg: >-
+      Reboot required: {{ reboot_required_file.stat.exists }}.
+      {% if reboot_required_file.stat.exists %}
+      Packages requiring reboot:
+      {{ reboot_pkgs.content | default('') | b64decode if reboot_pkgs.content is defined else '(list unavailable)' }}
+      Rebooting server...
+      {% else %}
+      No reboot needed - skipping.
+      {% endif %}
+  changed_when: false
+  tags:
+    - reboot
+    - maintenance
+
+- name: Reboot server (only if required)
+  ansible.builtin.reboot:
+    msg: "Ansible maintenance reboot - system update complete"
+    connect_timeout: 10
+    reboot_timeout: 300
+    pre_reboot_delay: 5
+    post_reboot_delay: 30
+    test_command: uptime
+  when: reboot_required_file.stat.exists
+  tags:
+    - reboot
+    - maintenance
+
+- name: Confirm server is back online after reboot
+  ansible.builtin.debug:
+    msg: "Server is back online after reboot. Continuing with post-reboot tasks."
+  changed_when: false
+  when: reboot_required_file.stat.exists
+  tags:
+    - reboot
+    - maintenance

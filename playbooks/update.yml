@@ -1,0 +1,26 @@
+---
+# Safe package update playbook
+# Runs: apt update + apt upgrade (NOT dist-upgrade)
+# Never removes packages. Safe to run without a maintenance window.
+# Does NOT reboot. Run reboot-if-needed.yml after if a reboot is required.
+#
+# Usage:
+#   ansible-playbook playbooks/update.yml
+#   ansible-playbook playbooks/update.yml --ask-pass
+
+- name: Update packages on relay servers
+  hosts: relay_servers
+  become: true
+
+  vars:
+    do_dist_upgrade: false
+    maintenance_reboot: false
+    manage_unattended_upgrades: "leave"
+
+  tasks:
+    - name: Run apt update and safe upgrade
+      ansible.builtin.import_role:
+        name: maintenance
+        tasks_from: update
+      tags:
+        - update

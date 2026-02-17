@@ -1,0 +1,61 @@
+---
+# Full maintenance orchestrator playbook (SRE-style entrypoint)
+# Runs the complete maintenance workflow:
+#   1. Manage unattended-upgrades (if configured)
+#   2. apt update + safe upgrade
+#   3. Optional dist-upgrade (when do_dist_upgrade=true)
+#   4. Reboot if /var/run/reboot-required exists (when maintenance_reboot=true)
+#   5. Post-maintenance health checks
+#   6. Relay verify (confirms relay is still operational)
+#
+# Usage:
+#   # Standard safe update (default - recommended for routine maintenance)
+#   ansible-playbook playbooks/maintenance.yml
+#
+#   # With dist-upgrade (maintenance window required)
+#   ansible-playbook playbooks/maintenance.yml -e "do_dist_upgrade=true"
+#
+#   # Update without rebooting (defer reboot to off-peak hours)
+#   ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false"
+#
+#   # Health checks only (no updates, no reboot)
+#   ansible-playbook playbooks/maintenance.yml --tags health
+#
+#   # Update + health checks, no reboot
+#   ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false" --tags update,health
+#
+#   # Disable unattended-upgrades on relay nodes
+#   ansible-playbook playbooks/maintenance.yml -e "manage_unattended_upgrades=false" --tags unattended
+#
+#   # With password authentication
+#   ansible-playbook playbooks/maintenance.yml --ask-pass
+#
+# Variables (override with -e):
+#   do_dist_upgrade         false   - Set true for dist-upgrade (maintenance window required)
+#   maintenance_reboot      true    - Set false to defer reboot
+#   manage_unattended_upgrades  "leave" - "true"/"false"/"leave"
+#
+# Tags:
+#   maintenance   - All maintenance tasks
+#   update        - apt update + safe upgrade only
+#   upgrade       - dist-upgrade only (requires do_dist_upgrade=true)
+#   reboot        - Conditional reboot only
+#   health        - Health checks only (maintenance role)
+#   verify        - Health checks + relay verification
+#   unattended    - unattended-upgrades management only
+
+- name: Full maintenance workflow for relay servers
+  hosts: relay_servers
+  become: true
+
+  roles:
+    - maintenance
+
+  post_tasks:
+    - name: Run relay verify tasks to confirm relay is still operational
+      ansible.builtin.import_role:
+        name: relay
+        tasks_from: verify
+      tags:
+        - verify
+        - maintenance

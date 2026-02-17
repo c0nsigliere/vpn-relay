@@ -1,0 +1,238 @@
+---
+# Post-maintenance health checks for the VPN relay.
+# These are ADDITIONAL to roles/relay/tasks/verify.yml (which shows relay config).
+# This file focuses on asserting critical system state and displaying diagnostics.
+#
+# Assert policy:
+#   HARD FAIL (assert): ip_forward=0, UFW inactive (keep mode), missing rules.v4 (disable mode)
+#   Display + WARNING: rp_filter, sysctl config file, iptables counters, listening ports
+#
+# Tags: verify, health, maintenance
+
+# =============================================================================
+# SYSCTL ASSERTIONS
+# =============================================================================
+
+- name: Check ip_forward value
+  ansible.builtin.command:
+    cmd: sysctl -n net.ipv4.ip_forward
+  register: ip_forward_check
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Assert ip_forward is enabled (relay is non-functional without this)
+  ansible.builtin.assert:
+    that:
+      - ip_forward_check.stdout | trim == "1"
+    fail_msg: >-
+      CRITICAL: net.ipv4.ip_forward = '{{ ip_forward_check.stdout | trim }}'.
+      IP forwarding MUST be enabled for relay forwarding to work.
+      Fix: ansible-playbook playbooks/relay.yml --tags sysctl
+    success_msg: "OK: net.ipv4.ip_forward = 1"
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Check rp_filter (all interfaces)
+  ansible.builtin.command:
+    cmd: sysctl -n net.ipv4.conf.all.rp_filter
+  register: rp_filter_all
+  changed_when: false
+  failed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Check rp_filter (default)
+  ansible.builtin.command:
+    cmd: sysctl -n net.ipv4.conf.default.rp_filter
+  register: rp_filter_default
+  changed_when: false
+  failed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Display rp_filter settings
+  ansible.builtin.debug:
+    msg: |
+      rp_filter (expected: 2 = loose mode for asymmetric routing):
+        net.ipv4.conf.all.rp_filter     = {{ rp_filter_all.stdout | trim | default('unknown') }}
+        net.ipv4.conf.default.rp_filter = {{ rp_filter_default.stdout | trim | default('unknown') }}
+      {% if (rp_filter_all.stdout | trim) != '2' or (rp_filter_default.stdout | trim) != '2' %}
+      WARNING: rp_filter is not 2. Asymmetric routing packets may be dropped.
+      Fix: ansible-playbook playbooks/relay.yml --tags sysctl
+      {% else %}
+      OK: rp_filter is correctly set to loose mode (2).
+      {% endif %}
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Check sysctl config file exists
+  ansible.builtin.stat:
+    path: /etc/sysctl.d/99-vpn-relay.conf
+  register: sysctl_conf_stat
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Display sysctl config file status
+  ansible.builtin.debug:
+    msg: >-
+      /etc/sysctl.d/99-vpn-relay.conf exists: {{ sysctl_conf_stat.stat.exists }}.
+      {% if not sysctl_conf_stat.stat.exists %}
+      WARNING: Config file missing - ip_forward and rp_filter settings may not
+      persist after the next reboot.
+      Fix: ansible-playbook playbooks/relay.yml --tags sysctl
+      {% else %}
+      OK: sysctl persistence file present.
+      {% endif %}
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+# =============================================================================
+# FIREWALL STATE VERIFICATION (MODE-AWARE)
+# =============================================================================
+
+- name: Check UFW status (keep mode)
+  ansible.builtin.command:
+    cmd: ufw status verbose
+  register: ufw_status_health
+  changed_when: false
+  failed_when: false
+  when: manage_ufw == "keep"
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Assert UFW is active (keep mode)
+  ansible.builtin.assert:
+    that:
+      - "'Status: active' in ufw_status_health.stdout"
+    fail_msg: >-
+      CRITICAL: UFW is not active (manage_ufw=keep).
+      NAT rules in /etc/ufw/before.rules only apply when UFW is running.
+      The relay is NOT forwarding traffic.
+      Fix: ansible-playbook playbooks/relay.yml --tags ufw
+    success_msg: "OK: UFW is active (keep mode)"
+  when:
+    - manage_ufw == "keep"
+    - ufw_status_health.rc is defined
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Check iptables rules.v4 persistence file (disable mode)
+  ansible.builtin.stat:
+    path: /etc/iptables/rules.v4
+  register: rules_v4_stat
+  when: manage_ufw == "disable"
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Assert rules.v4 exists (disable mode)
+  ansible.builtin.assert:
+    that:
+      - rules_v4_stat.stat.exists
+    fail_msg: >-
+      CRITICAL: /etc/iptables/rules.v4 does not exist (manage_ufw=disable).
+      Rules will NOT be restored on next reboot.
+      Fix: ansible-playbook playbooks/relay.yml --tags persist
+    success_msg: "OK: /etc/iptables/rules.v4 persistence file exists (disable mode)"
+  when: manage_ufw == "disable"
+  tags:
+    - verify
+    - health
+    - maintenance
+
+# =============================================================================
+# IPTABLES COUNTERS (display only - shows active traffic flow)
+# =============================================================================
+
+- name: Get NAT PREROUTING counters
+  ansible.builtin.command:
+    cmd: iptables -t nat -L PREROUTING -n -v
+  register: nat_prerouting_counters
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Display NAT PREROUTING counters
+  ansible.builtin.debug:
+    msg: |
+      NAT PREROUTING rules (DNAT - non-zero pkts/bytes = traffic is flowing):
+      {{ nat_prerouting_counters.stdout }}
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Get FORWARD chain counters
+  ansible.builtin.command:
+    cmd: iptables -L FORWARD -n -v
+  register: forward_counters
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Display FORWARD chain counters
+  ansible.builtin.debug:
+    msg: |
+      FORWARD chain rules (non-zero pkts/bytes = traffic is being forwarded):
+      {{ forward_counters.stdout }}
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+# =============================================================================
+# LISTENING PORTS (display only - verify entry ports are reachable)
+# =============================================================================
+
+- name: Get listening sockets
+  ansible.builtin.command:
+    cmd: ss -lunpt
+  register: listening_sockets
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Display listening ports
+  ansible.builtin.debug:
+    msg: |
+      Listening UDP/TCP sockets:
+      (Entry ports to verify: UDP {{ port_a_udp }}, TCP {{ port_a_tcp }})
+      Note: DNAT relay ports appear in iptables PREROUTING, not ss output.
+      The ss output shows services bound to specific ports on this host.
+      {{ listening_sockets.stdout }}
+  changed_when: false
+  tags:
+    - verify
+    - health
+    - maintenance

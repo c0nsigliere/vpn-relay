@@ -1,0 +1,97 @@
+---
+# Manage the unattended-upgrades package.
+# Controlled by: manage_unattended_upgrades ("leave" | "true" | "false")
+#
+# "leave"  - Do nothing (default). Preserves current system state.
+# "true"   - Install package and enable automatic updates.
+# "false"  - Disable automatic updates (recommended for relay nodes).
+#
+# NOTE: This task only manages /etc/apt/apt.conf.d/20auto-upgrades (the on/off
+# switch). It does NOT modify /etc/apt/apt.conf.d/50unattended-upgrades to
+# avoid overwriting distro-maintained content. For fine-grained control
+# (e.g., disabling automatic reboots), create:
+# /etc/apt/apt.conf.d/99relay-unattended with your overrides.
+# Tags: unattended, maintenance
+
+- name: Skip unattended-upgrades management (leave mode)
+  ansible.builtin.debug:
+    msg: >-
+      manage_unattended_upgrades='leave' - preserving existing configuration.
+      No changes made to unattended-upgrades.
+  changed_when: false
+  when: manage_unattended_upgrades | string == "leave"
+  tags:
+    - unattended
+    - maintenance
+
+- name: Install and enable unattended-upgrades
+  when: manage_unattended_upgrades | string == "true"
+  tags:
+    - unattended
+    - maintenance
+  block:
+    - name: Install unattended-upgrades package
+      ansible.builtin.package:
+        name: unattended-upgrades
+        state: present
+
+    - name: Enable automatic updates (20auto-upgrades)
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable and start unattended-upgrades service
+      ansible.builtin.systemd:
+        name: unattended-upgrades
+        enabled: true
+        state: started
+
+    - name: Warn about automatic reboot risk on relay nodes
+      ansible.builtin.debug:
+        msg: >-
+          unattended-upgrades is now ENABLED.
+          WARNING: If Unattended-Upgrade::Automatic-Reboot is "true" in
+          /etc/apt/apt.conf.d/50unattended-upgrades, the relay server may
+          reboot automatically after kernel updates, dropping all active VPN
+          tunnels without notice.
+          To prevent this, create /etc/apt/apt.conf.d/99relay-unattended:
+            Unattended-Upgrade::Automatic-Reboot "false";
+      changed_when: false
+
+- name: Disable unattended-upgrades
+  when: manage_unattended_upgrades | string == "false"
+  tags:
+    - unattended
+    - maintenance
+  block:
+    - name: Stop and disable unattended-upgrades service
+      ansible.builtin.systemd:
+        name: unattended-upgrades
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Disable automatic updates (20auto-upgrades)
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "0";
+          APT::Periodic::Unattended-Upgrade "0";
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Confirm unattended-upgrades disabled
+      ansible.builtin.debug:
+        msg: >-
+          unattended-upgrades has been DISABLED.
+          Package updates will only occur when manually triggered via:
+            ansible-playbook playbooks/update.yml
+            ansible-playbook playbooks/maintenance.yml
+          Ensure you schedule regular manual maintenance runs.
+      changed_when: false

@@ -1,0 +1,39 @@
+---
+# Full dist-upgrade: apt update + apt dist-upgrade
+# MAY REMOVE PACKAGES to resolve dependency conflicts.
+# REQUIRES A SCHEDULED MAINTENANCE WINDOW.
+# Only runs when do_dist_upgrade=true (must be explicitly set).
+# Tags: upgrade, maintenance
+
+- name: "[MAINTENANCE WINDOW] Run dist-upgrade"
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: true
+    autoclean: false
+  register: apt_dist_upgrade_result
+  tags:
+    - upgrade
+    - maintenance
+
+- name: Display dist-upgrade summary
+  ansible.builtin.debug:
+    msg: >-
+      Dist-upgrade complete.
+      Changed: {{ apt_dist_upgrade_result.changed }}.
+      {% if apt_dist_upgrade_result.changed %}
+      WARNING: Packages may have been removed. Review output carefully.
+      {% else %}
+      No changes required.
+      {% endif %}
+  changed_when: false
+  tags:
+    - upgrade
+    - maintenance
+
+- name: Remove orphaned packages after dist-upgrade
+  ansible.builtin.apt:
+    autoremove: true
+    purge: false
+  tags:
+    - upgrade
+    - maintenance
