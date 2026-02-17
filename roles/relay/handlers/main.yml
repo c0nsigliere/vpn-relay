@@ -2,8 +2,10 @@
 # Handlers for relay role
 
 - name: reload ufw
-  community.general.ufw:
-    state: reloaded
+  ansible.builtin.shell: >-
+    iptables -t nat -F PREROUTING &&
+    iptables -t nat -F POSTROUTING &&
+    ufw reload
   when: manage_ufw == "keep"
 
 - name: save netfilter rules

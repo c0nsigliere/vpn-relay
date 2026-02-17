@@ -26,6 +26,40 @@
     state: present
   notify: reload ufw
 
+- name: Read previous port state
+  ansible.builtin.slurp:
+    src: /etc/vpn-relay-ports.state
+  register: vpn_relay_state
+  failed_when: false
+
+- name: Set previous ports from state file
+  ansible.builtin.set_fact:
+    prev_port_a_udp: "{{ (vpn_relay_state.content | b64decode | from_yaml).port_a_udp | string }}"
+    prev_port_a_tcp: "{{ (vpn_relay_state.content | b64decode | from_yaml).port_a_tcp | string }}"
+  when: vpn_relay_state.content is defined
+
+- name: Remove old UFW allow rule for UDP port (port changed)
+  community.general.ufw:
+    rule: allow
+    port: "{{ prev_port_a_udp }}"
+    proto: udp
+    delete: true
+  when:
+    - prev_port_a_udp is defined
+    - prev_port_a_udp != port_a_udp | string
+  failed_when: false
+
+- name: Remove old UFW allow rule for TCP port (port changed)
+  community.general.ufw:
+    rule: allow
+    port: "{{ prev_port_a_tcp }}"
+    proto: tcp
+    delete: true
+  when:
+    - prev_port_a_tcp is defined
+    - prev_port_a_tcp != port_a_tcp | string
+  failed_when: false
+
 - name: Allow entry port UDP through UFW
   community.general.ufw:
     rule: allow
@@ -39,6 +73,14 @@
     port: "{{ port_a_tcp }}"
     proto: tcp
     comment: "VPN Relay entry port TCP"
+
+- name: Save current ports to state file
+  ansible.builtin.copy:
+    content: |
+      port_a_udp: {{ port_a_udp }}
+      port_a_tcp: {{ port_a_tcp }}
+    dest: /etc/vpn-relay-ports.state
+    mode: '0600'
 
 - name: Inject NAT rules into /etc/ufw/before.rules
   ansible.builtin.blockinfile:

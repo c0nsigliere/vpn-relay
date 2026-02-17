@@ -34,6 +34,11 @@
   tags:
     - persist
 
+- name: Flush handlers before verification
+  ansible.builtin.meta: flush_handlers
+  tags:
+    - verify
+
 - name: Import verification tasks
   ansible.builtin.import_tasks: verify.yml
   tags:
