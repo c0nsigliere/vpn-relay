@@ -35,3 +35,13 @@ server_a
 [relay_servers:vars]
 ansible_python_interpreter=/usr/bin/python3
 ansible_user=root
+
+# --- XRay VLESS+Reality Server: targets Server B ONLY ---
+# Playbooks: xray.yml, add_xray_user.yml, verify_xray.yml, rollback_xray.yml
+# Vars:      inventory/group_vars/xray_servers.yml
+[xray_servers:children]
+server_b
+
+[xray_servers:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=root

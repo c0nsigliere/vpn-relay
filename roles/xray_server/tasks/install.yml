@@ -1,0 +1,67 @@
+---
+# Download and install XRay binary from GitHub releases (pinned version)
+
+- name: Check if xray binary exists
+  ansible.builtin.stat:
+    path: "{{ xray_bin }}"
+  register: _xray_bin_stat
+
+- name: Check installed xray version
+  ansible.builtin.command:
+    cmd: "{{ xray_bin }} version"
+  register: _xray_version_check
+  changed_when: false
+  failed_when: false
+  when: _xray_bin_stat.stat.exists
+
+- name: Set version match fact
+  ansible.builtin.set_fact:
+    _xray_version_match: >-
+      {{ _xray_bin_stat.stat.exists and
+         _xray_version_check.stdout is defined and
+         xray_version in _xray_version_check.stdout }}
+
+- name: Download and install xray
+  when: not _xray_version_match | bool
+  block:
+    - name: Detect system architecture
+      ansible.builtin.set_fact:
+        _xray_arch: "{{ 'arm64-v8a' if ansible_architecture == 'aarch64' else '64' }}"
+
+    - name: Download xray release archive
+      ansible.builtin.get_url:
+        url: "https://github.com/XTLS/Xray-core/releases/download/v{{ xray_version }}/Xray-linux-{{ _xray_arch }}.zip"
+        dest: "/tmp/xray-{{ xray_version }}.zip"
+        mode: '0644'
+      register: _xray_download
+
+    - name: Ensure unzip is installed
+      ansible.builtin.apt:
+        name: unzip
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Extract xray binary from archive
+      ansible.builtin.shell:
+        cmd: "unzip -o /tmp/xray-{{ xray_version }}.zip xray -d /tmp/xray-extract-{{ xray_version }}"
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Install xray binary
+      ansible.builtin.copy:
+        src: "/tmp/xray-extract-{{ xray_version }}/xray"
+        dest: "{{ xray_bin }}"
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: true
+      notify: restart xray
+
+    - name: Clean up download artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/xray-{{ xray_version }}.zip"
+        - "/tmp/xray-extract-{{ xray_version }}"

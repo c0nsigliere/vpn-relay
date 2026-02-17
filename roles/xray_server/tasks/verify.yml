@@ -1,0 +1,47 @@
+---
+# Verification tasks for XRay server
+
+- name: Check xray service status
+  ansible.builtin.systemd:
+    name: xray
+  register: _xray_service_status
+
+- name: Assert xray service is active
+  ansible.builtin.assert:
+    that:
+      - _xray_service_status.status.ActiveState == "active"
+    fail_msg: "XRay service is not running (state: {{ _xray_service_status.status.ActiveState }})"
+    success_msg: "XRay service is active"
+
+- name: Check if xray_port is listening
+  ansible.builtin.shell:
+    cmd: "ss -lntp sport = :{{ xray_port }}"
+    executable: /bin/bash
+  register: _xray_port_listen
+  changed_when: false
+
+- name: Assert xray_port is listening
+  ansible.builtin.assert:
+    that:
+      - "'LISTEN' in _xray_port_listen.stdout"
+    fail_msg: "Port {{ xray_port }} is not listening"
+    success_msg: "Port {{ xray_port }} is listening"
+
+- name: Read users.json for summary
+  ansible.builtin.slurp:
+    src: "{{ xray_users_file }}"
+  register: _xray_verify_users
+  failed_when: false
+
+- name: Display XRay server summary
+  ansible.builtin.debug:
+    msg: |
+      XRay Server Configuration:
+        Service: {{ _xray_service_status.status.ActiveState }}
+        Port: {{ xray_port }}/tcp
+        Reality dest: {{ xray_reality_dest }}
+        Reality SNI: {{ xray_reality_server_names | join(', ') }}
+        Fingerprint: {{ xray_reality_fingerprint }}
+        Flow: {{ xray_vless_flow | default('(none)', true) }}
+        Users: {{ (_xray_verify_users.content | default('W10=') | b64decode | from_json) | length }}
+  changed_when: false

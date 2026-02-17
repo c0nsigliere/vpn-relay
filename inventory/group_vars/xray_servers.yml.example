@@ -1,0 +1,13 @@
+---
+# XRay VLESS+Reality server vars (Server B)
+# Copy to: inventory/group_vars/xray_servers.yml
+
+xray_port: 443
+xray_reality_dest: "www.cloudflare.com:443"
+xray_reality_server_names:
+  - "www.cloudflare.com"
+xray_reality_fingerprint: "chrome"
+xray_version: "24.11.30"   # pinned, must exist as GitHub release tag
+
+# Uncomment to enable XTLS Vision flow:
+# xray_vless_flow: "xtls-rprx-vision"

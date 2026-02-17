@@ -1,0 +1,10 @@
+---
+# UFW keep mode: allow xray_port/tcp
+
+- name: Allow XRay port through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ xray_port | string }}"
+    proto: tcp
+    comment: "XRay VLESS+Reality"
+  notify: reload ufw

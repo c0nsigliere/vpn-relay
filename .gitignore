@@ -6,6 +6,7 @@ inventory/host_vars/
 inventory/group_vars/all.yml
 inventory/group_vars/wg_cascade.yml
 inventory/group_vars/relay_servers.yml
+inventory/group_vars/xray_servers.yml
 
 # XRay/V2Ray client config with real credentials
 config.json
@@ -21,3 +22,8 @@ config_awg.ini
 # Generated client WireGuard configs and key material (sensitive)
 artifacts/clients/*.conf
 artifacts/clients/*.key
+
+# Generated XRay client artifacts (sensitive)
+artifacts/xray/*.vless.txt
+artifacts/xray/*.json
+artifacts/xray/*.qr.png

@@ -23,3 +23,13 @@
         name: relay
         tasks_from: verify
       tags: [verify, relay]
+
+- name: Verify XRay VLESS+Reality (Server B)
+  hosts: xray_servers
+  become: true
+  tasks:
+    - name: Run XRay server verification
+      ansible.builtin.import_role:
+        name: xray_server
+        tasks_from: verify
+      tags: [verify, xray]

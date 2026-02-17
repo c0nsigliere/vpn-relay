@@ -1,0 +1,43 @@
+---
+# Read users.json and template XRay config.json
+
+- name: Ensure xray config directory exists
+  ansible.builtin.file:
+    path: "{{ xray_config_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Check if users.json exists
+  ansible.builtin.stat:
+    path: "{{ xray_users_file }}"
+  register: _xray_users_stat
+
+- name: Create empty users.json if missing
+  ansible.builtin.copy:
+    content: "[]"
+    dest: "{{ xray_users_file }}"
+    mode: '0600'
+    owner: root
+    group: root
+  when: not _xray_users_stat.stat.exists
+
+- name: Read users.json
+  ansible.builtin.slurp:
+    src: "{{ xray_users_file }}"
+  register: _xray_users_slurp
+
+- name: Parse users list
+  ansible.builtin.set_fact:
+    _xray_users: "{{ _xray_users_slurp.content | b64decode | from_json }}"
+
+- name: Template XRay config.json
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ xray_config_dir }}/config.json"
+    mode: '0600'
+    owner: root
+    group: root
+  notify: restart xray
+  no_log: true

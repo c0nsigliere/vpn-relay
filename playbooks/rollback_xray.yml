@@ -1,0 +1,69 @@
+---
+# Rollback XRay VLESS+Reality deployment on Server B
+#
+# Usage:
+#   # Stop service and remove config (keeps keys):
+#   ansible-playbook playbooks/rollback_xray.yml
+#
+#   # Also remove key material:
+#   ansible-playbook playbooks/rollback_xray.yml -e "xray_remove_keys=true"
+
+- name: Rollback XRay VLESS+Reality Server
+  hosts: xray_servers
+  become: true
+
+  vars:
+    xray_config_dir: "/etc/xray"
+    xray_keys_dir: "/etc/xray/keys"
+    xray_users_file: "/etc/xray/users.json"
+    xray_bin: "/usr/local/bin/xray"
+    xray_remove_keys: false
+
+  tasks:
+    - name: Stop and disable xray service
+      ansible.builtin.systemd:
+        name: xray
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove xray systemd unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/xray.service
+        state: absent
+      notify: reload systemd daemon
+
+    - name: Remove xray config.json
+      ansible.builtin.file:
+        path: "{{ xray_config_dir }}/config.json"
+        state: absent
+
+    - name: Remove xray users.json
+      ansible.builtin.file:
+        path: "{{ xray_users_file }}"
+        state: absent
+
+    - name: Remove xray key material
+      ansible.builtin.file:
+        path: "{{ xray_keys_dir }}"
+        state: absent
+      when: xray_remove_keys | bool
+
+    - name: Remove xray binary
+      ansible.builtin.file:
+        path: "{{ xray_bin }}"
+        state: absent
+
+    - name: Display rollback summary
+      ansible.builtin.debug:
+        msg: |
+          XRay rollback complete:
+            Service: stopped and disabled
+            Config: removed
+            Keys: {{ 'removed' if xray_remove_keys | bool else 'preserved (use -e xray_remove_keys=true to remove)' }}
+            Binary: removed
+
+  handlers:
+    - name: reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true

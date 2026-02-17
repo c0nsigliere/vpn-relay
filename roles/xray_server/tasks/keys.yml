@@ -1,0 +1,97 @@
+---
+# Generate Reality X25519 keypair and shortId on Server B
+# Idempotent: skips generation if key files already exist
+
+- name: Ensure xray keys directory exists
+  ansible.builtin.file:
+    path: "{{ xray_keys_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Check if Reality private key exists
+  ansible.builtin.stat:
+    path: "{{ xray_keys_dir }}/reality.key"
+  register: _xray_reality_key_stat
+
+- name: Generate Reality X25519 keypair
+  when: not _xray_reality_key_stat.stat.exists
+  no_log: true
+  block:
+    - name: Generate X25519 keypair via xray
+      ansible.builtin.command:
+        cmd: "{{ xray_bin }} x25519"
+      register: _xray_x25519_output
+      changed_when: true
+
+    - name: Parse private key from x25519 output
+      ansible.builtin.set_fact:
+        _xray_reality_privkey: "{{ _xray_x25519_output.stdout | regex_search('Private key:\\s*(\\S+)', '\\1') | first }}"
+        _xray_reality_pubkey: "{{ _xray_x25519_output.stdout | regex_search('Public key:\\s*(\\S+)', '\\1') | first }}"
+
+    - name: Write Reality private key
+      ansible.builtin.copy:
+        content: "{{ _xray_reality_privkey }}"
+        dest: "{{ xray_keys_dir }}/reality.key"
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Write Reality public key
+      ansible.builtin.copy:
+        content: "{{ _xray_reality_pubkey }}"
+        dest: "{{ xray_keys_dir }}/reality.pub"
+        mode: '0600'
+        owner: root
+        group: root
+
+- name: Check if shortId exists
+  ansible.builtin.stat:
+    path: "{{ xray_keys_dir }}/shortid"
+  register: _xray_shortid_stat
+
+- name: Generate shortId
+  when: not _xray_shortid_stat.stat.exists
+  block:
+    - name: Generate random 8-byte hex shortId
+      ansible.builtin.shell:
+        cmd: "openssl rand -hex 8"
+        executable: /bin/bash
+      register: _xray_shortid_output
+      changed_when: true
+
+    - name: Write shortId file
+      ansible.builtin.copy:
+        content: "{{ _xray_shortid_output.stdout | trim }}"
+        dest: "{{ xray_keys_dir }}/shortid"
+        mode: '0600'
+        owner: root
+        group: root
+
+# =========================================================================
+# Read keys into facts (always — needed by config.yml and add_xray_user.yml)
+# =========================================================================
+
+- name: Read Reality private key into fact
+  ansible.builtin.slurp:
+    src: "{{ xray_keys_dir }}/reality.key"
+  register: _xray_reality_privkey_slurp
+  no_log: true
+
+- name: Read Reality public key into fact
+  ansible.builtin.slurp:
+    src: "{{ xray_keys_dir }}/reality.pub"
+  register: _xray_reality_pubkey_slurp
+
+- name: Read shortId into fact
+  ansible.builtin.slurp:
+    src: "{{ xray_keys_dir }}/shortid"
+  register: _xray_shortid_slurp
+
+- name: Set key facts
+  ansible.builtin.set_fact:
+    _xray_reality_privkey: "{{ _xray_reality_privkey_slurp.content | b64decode | trim }}"
+    _xray_reality_pubkey: "{{ _xray_reality_pubkey_slurp.content | b64decode | trim }}"
+    _xray_shortid: "{{ _xray_shortid_slurp.content | b64decode | trim }}"
+  no_log: true

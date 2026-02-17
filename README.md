@@ -6,8 +6,9 @@ Production-ready Ansible repository for Ubuntu 22.04/24.04 supporting two VPN fo
 |------|----------|---------|
 | **WireGuard cascade** | `playbooks/cascade.yml` | Client → A → B → Internet (AWG/plain WireGuard) |
 | **XRay L4 relay** | `playbooks/relay.yml` | Transparent TCP forward A → B (XRay/VLESS) |
+| **XRay VLESS+Reality** | `playbooks/xray.yml` | Native XRay server on B (VLESS+Reality :443) |
 
-Both can run simultaneously on Server A. The cascade replaces the broken UDP relay for WireGuard/AWG. The XRay relay continues handling TCP.
+All three can run simultaneously. The cascade replaces the broken UDP relay for WireGuard/AWG. The XRay relay on A forwards TCP to B where the native XRay server handles VLESS+Reality.
 
 ---
 
@@ -30,21 +31,22 @@ Both can run simultaneously on Server A. The cascade replaces the broken UDP rel
 - Server A's **SSH and main default route are never affected** (policy routing via ip rule table 200)
 - Server B NATs all client traffic to the Internet via its WAN interface
 
-### XRay L4 Relay (parallel — TCP/VLESS)
+### XRay L4 Relay + VLESS+Reality (parallel — TCP/VLESS)
 
 ```
 ┌──────────┐         ┌──────────────────┐         ┌──────────────────┐
 │  Client  │ ──────> │   Server A       │ ──────> │   Server B       │
-│          │         │   (Relay)        │         │   (VPN Endpoint) │
-│ B's keys │         │ DNAT+MASQ (TCP)  │         │ XRay server      │
+│          │         │   (Relay)        │         │ XRay native svc  │
+│ B's keys │         │ DNAT+MASQ (TCP)  │         │ VLESS+Reality    │
 │ A's IP   │         │ No keys/decrypt  │         │   :443           │
 └──────────┘         └──────────────────┘         └──────────────────┘
      :8443                                              :443
 ```
 
 - Client uses **Server B's keys** (relay is transparent)
-- Server A forwards raw TCP to Server B unchanged
-- Managed by `playbooks/relay.yml` + `roles/relay/`
+- Server A forwards raw TCP to Server B unchanged (`roles/relay/`)
+- Server B runs native XRay VLESS+Reality (`roles/xray_server/`)
+- Managed by `playbooks/relay.yml` (A) + `playbooks/xray.yml` (B)
 
 ---
 
@@ -79,6 +81,9 @@ cp inventory/group_vars/wg_cascade.yml.example inventory/group_vars/wg_cascade.y
 
 # Relay vars (review ports — usually fine as-is)
 cp inventory/group_vars/relay_servers.yml.example inventory/group_vars/relay_servers.yml
+
+# XRay server vars (review Reality settings — usually fine as-is)
+cp inventory/group_vars/xray_servers.yml.example inventory/group_vars/xray_servers.yml
 ```
 
 Edit `all.yml` — the **one required field**:
@@ -100,6 +105,9 @@ ansible-playbook playbooks/cascade.yml
 
 # Deploy relay (Server A only)
 ansible-playbook playbooks/relay.yml
+
+# Deploy XRay VLESS+Reality (Server B only)
+ansible-playbook playbooks/xray.yml
 ```
 
 ### 6. Verify
@@ -108,19 +116,19 @@ ansible-playbook playbooks/relay.yml
 ansible-playbook playbooks/verify_all.yml
 ```
 
-### 7. Add a client
+### 7. Add clients
 
 ```bash
-# Auto-assign next available IP:
+# WireGuard client (auto-assign next available IP):
 ansible-playbook playbooks/add_client.yml -e "client_name=alice"
 
-# Or specify IP explicitly:
-ansible-playbook playbooks/add_client.yml \
-  -e "client_name=alice" \
-  -e "client_ip=10.66.0.10"
+# XRay VLESS user:
+ansible-playbook playbooks/add_xray_user.yml -e "user_name=alice"
 ```
 
-Output: `artifacts/clients/alice.conf` — send this to the client's device.
+Output:
+- WireGuard: `artifacts/clients/alice.conf`
+- XRay: `artifacts/xray/alice.vless.txt` (share URI) + `artifacts/xray/alice.json` (client config)
 
 ---
 
@@ -165,6 +173,14 @@ ansible-playbook playbooks/relay.yml --tags verify
 ```
 
 Expected: DNAT rules in PREROUTING, FORWARD ACCEPT rules, UFW status active (keep mode).
+
+### XRay server checks
+
+```bash
+ansible-playbook playbooks/verify_xray.yml
+```
+
+Expected: xray service active, port 443 listening, user count displayed.
 
 ### Memory/swap checks
 
@@ -244,6 +260,19 @@ Safe to run multiple times. Does not touch current cascade or XRay relay rules.
 | `port_a_tcp` | `8443` | TCP entry port on A |
 | `port_b_tcp` | `443` | TCP target port on B |
 
+### XRay Server (`xray_servers.yml`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `xray_version` | `24.11.30` | XRay release version (GitHub tag) |
+| `xray_port` | `443` | VLESS+Reality listening port |
+| `xray_reality_dest` | `www.cloudflare.com:443` | Reality camouflage destination |
+| `xray_reality_server_names` | `[www.cloudflare.com]` | Reality SNI list |
+| `xray_reality_fingerprint` | `chrome` | TLS fingerprint |
+| `xray_vless_flow` | (empty) | VLESS flow (e.g. `xtls-rprx-vision`) |
+| `xray_takeover_443` | `true` | Stop Docker containers on port conflict |
+| `xray_remove_keys` | `false` | Remove keys during rollback |
+
 ---
 
 ## Tags Reference
@@ -255,6 +284,10 @@ Safe to run multiple times. Does not touch current cascade or XRay relay rules.
 ### `relay.yml`
 
 `validate` `sysctl` `ufw` `iptables` `persist` `verify`
+
+### `xray.yml`
+
+`validate` `install` `keys` `config` `firewall` `service` `verify`
 
 ### `maintenance.yml`
 
@@ -276,6 +309,12 @@ ansible-playbook playbooks/rollback.yml -e "manage_ufw=keep"
 
 # Relay (disable mode): specify ip for rule removal
 ansible-playbook playbooks/rollback.yml -e "manage_ufw=disable"
+
+# XRay: stop service, remove config (keeps keys by default)
+ansible-playbook playbooks/rollback_xray.yml
+
+# XRay: also delete key material
+ansible-playbook playbooks/rollback_xray.yml -e "xray_remove_keys=true"
 ```
 
 ---
@@ -296,10 +335,13 @@ vpn-relay/
 │       ├── wg_cascade.yml.example
 │       ├── relay_servers.yml            # (gitignored) relay vars
 │       ├── relay_servers.yml.example
+│       ├── xray_servers.yml             # (gitignored) XRay server vars
+│       ├── xray_servers.yml.example
 │       ├── server_a.yml                 # Per-host overrides for Server A
 │       └── server_b.yml                 # Per-host overrides for Server B
 ├── artifacts/
-│   └── clients/                         # Generated client .conf files (gitignored)
+│   ├── clients/                         # Generated client .conf files (gitignored)
+│   └── xray/                            # Generated XRay client configs (gitignored)
 ├── docs/
 │   ├── troubleshooting.md              # Cascade + relay + post-kernel troubleshooting
 │   ├── maintenance.md                  # Update/upgrade workflows, persistence, checklists
@@ -311,6 +353,10 @@ vpn-relay/
 │   ├── verify_all.yml                   # Verify cascade + relay together
 │   ├── rollback_cascade.yml             # Teardown cascade
 │   ├── relay.yml                        # Deploy XRay L4 relay (A only)
+│   ├── xray.yml                         # Deploy XRay VLESS+Reality (B only)
+│   ├── add_xray_user.yml                # Add XRay user, generate artifacts
+│   ├── verify_xray.yml                  # Standalone XRay verification
+│   ├── rollback_xray.yml               # Teardown XRay server
 │   ├── rollback.yml                     # Remove XRay relay config
 │   ├── cleanup_legacy_relay.yml         # Remove old AWG relay leftovers
 │   ├── maintenance_add_swap.yml         # Add swapfile if missing
@@ -353,6 +399,24 @@ vpn-relay/
     │   │   └── verify.yml
     │   ├── handlers/main.yml
     │   └── templates/ufw-before-rules.j2
+    ├── xray_server/                     # XRay VLESS+Reality server role
+    │   ├── defaults/main.yml
+    │   ├── handlers/main.yml
+    │   ├── tasks/
+    │   │   ├── main.yml
+    │   │   ├── validate.yml
+    │   │   ├── install.yml
+    │   │   ├── keys.yml
+    │   │   ├── config.yml
+    │   │   ├── firewall_keep.yml
+    │   │   ├── firewall_disable.yml
+    │   │   ├── service.yml
+    │   │   └── verify.yml
+    │   └── templates/
+    │       ├── config.json.j2
+    │       ├── xray.service.j2
+    │       ├── xray-user.vless.txt.j2
+    │       └── xray-user.json.j2
     └── maintenance/                     # OS update/maintenance role
         ├── defaults/main.yml
         └── tasks/
@@ -371,6 +435,7 @@ vpn-relay/
 - `sshpass` (for password authentication with `--ask-pass`)
 - Collections: `ansible.posix`, `community.general`
 - Controller: `wireguard-tools` (for `add_client.yml` client keygen)
+- Controller (optional): `qrencode` (for `add_xray_user.yml` QR code generation)
 
 ## Further Reading
 

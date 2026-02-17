@@ -1,0 +1,18 @@
+---
+# Install systemd unit and manage xray service
+
+- name: Template xray systemd unit
+  ansible.builtin.template:
+    src: xray.service.j2
+    dest: /etc/systemd/system/xray.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify: restart xray
+
+- name: Enable and start xray service
+  ansible.builtin.systemd:
+    name: xray
+    enabled: true
+    state: started
+    daemon_reload: true

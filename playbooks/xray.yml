@@ -1,0 +1,23 @@
+---
+# Deploy XRay VLESS+Reality on Server B (native systemd service)
+#
+# Prerequisites:
+#   - relay.yml already deployed (TCP forward A:8443 -> B:443)
+#   - Server B reachable from controller (or via cascade/relay)
+#
+# Usage:
+#   ansible-playbook playbooks/xray.yml
+#
+# With specific options:
+#   ansible-playbook playbooks/xray.yml \
+#     -e "xray_version=24.11.30" \
+#     -e "xray_reality_dest=www.microsoft.com:443"
+#
+# Run specific tags:
+#   ansible-playbook playbooks/xray.yml --tags verify
+
+- name: Deploy XRay VLESS+Reality Server
+  hosts: xray_servers
+  become: true
+  roles:
+    - xray_server

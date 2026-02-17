@@ -1,0 +1,138 @@
+---
+# Validation tasks for XRay server configuration
+
+- name: Validate xray_port is in valid range
+  ansible.builtin.assert:
+    that:
+      - xray_port | int >= 1
+      - xray_port | int <= 65535
+    fail_msg: "xray_port must be between 1 and 65535"
+    success_msg: "xray_port is valid: {{ xray_port }}"
+
+- name: Validate xray_reality_dest is provided
+  ansible.builtin.assert:
+    that:
+      - xray_reality_dest | length > 0
+    fail_msg: "xray_reality_dest must be set (e.g. 'www.cloudflare.com:443')"
+    success_msg: "xray_reality_dest: {{ xray_reality_dest }}"
+
+- name: Validate xray_reality_server_names is non-empty
+  ansible.builtin.assert:
+    that:
+      - xray_reality_server_names | length > 0
+    fail_msg: "xray_reality_server_names must have at least one entry"
+    success_msg: "xray_reality_server_names: {{ xray_reality_server_names }}"
+
+- name: Validate manage_ufw mode
+  ansible.builtin.assert:
+    that:
+      - manage_ufw in ['keep', 'disable']
+    fail_msg: "manage_ufw must be 'keep' or 'disable', got '{{ manage_ufw }}'"
+    success_msg: "manage_ufw mode is valid: {{ manage_ufw }}"
+
+# =========================================================================
+# WAN interface detection (reusable pattern from relay role)
+# =========================================================================
+
+- name: Check if specified wan_if exists
+  when: wan_if | length > 0
+  block:
+    - name: Get network interfaces
+      ansible.builtin.command:
+        cmd: "ip link show {{ wan_if }}"
+      register: wan_if_check
+      changed_when: false
+      failed_when: false
+
+    - name: Validate specified wan_if exists
+      ansible.builtin.assert:
+        that:
+          - wan_if_check.rc == 0
+        fail_msg: "Specified wan_if '{{ wan_if }}' does not exist on this host"
+        success_msg: "Specified wan_if '{{ wan_if }}' exists"
+
+- name: Auto-detect WAN interface if not specified
+  when: wan_if | length == 0
+  block:
+    - name: Get default route interface
+      ansible.builtin.set_fact:
+        wan_if_detected: "{{ ansible_default_ipv4.interface }}"
+
+    - name: Validate auto-detected interface is non-empty
+      ansible.builtin.assert:
+        that:
+          - wan_if_detected | length > 0
+        fail_msg: "Could not auto-detect WAN interface"
+        success_msg: "Auto-detected WAN interface: {{ wan_if_detected }}"
+
+- name: Set final WAN interface
+  ansible.builtin.set_fact:
+    wan_if_final: "{{ wan_if if wan_if | length > 0 else wan_if_detected }}"
+
+# =========================================================================
+# Port conflict detection
+# =========================================================================
+
+- name: Check if xray_port is already in use
+  ansible.builtin.shell:
+    cmd: "ss -lntp sport = :{{ xray_port }} | tail -n +2"
+    executable: /bin/bash
+  register: _port_check
+  changed_when: false
+  failed_when: false
+
+- name: Handle port conflict with Amnezia/Docker container
+  when:
+    - _port_check.stdout | length > 0
+    - xray_takeover_443 | bool
+  block:
+    - name: Detect Docker container using the port
+      ansible.builtin.shell:
+        cmd: >-
+          docker ps --format '{{ '{{' }}.Names{{ '}}' }}' --filter "publish={{ xray_port }}" 2>/dev/null || true
+        executable: /bin/bash
+      register: _docker_container
+      changed_when: false
+      failed_when: false
+
+    - name: Stop conflicting Docker container
+      ansible.builtin.shell:
+        cmd: "docker stop {{ _docker_container.stdout_lines[0] }}"
+        executable: /bin/bash
+      when:
+        - _docker_container.stdout_lines | length > 0
+      register: _docker_stop
+      changed_when: _docker_stop.rc == 0
+      failed_when: false
+
+    - name: Disable conflicting Docker container auto-start
+      ansible.builtin.shell:
+        cmd: "docker update --restart=no {{ _docker_container.stdout_lines[0] }}"
+        executable: /bin/bash
+      when:
+        - _docker_container.stdout_lines | length > 0
+        - _docker_stop is changed
+      changed_when: true
+      failed_when: false
+
+- name: Re-check port after container stop
+  ansible.builtin.shell:
+    cmd: "ss -lntp sport = :{{ xray_port }} | tail -n +2"
+    executable: /bin/bash
+  register: _port_recheck
+  changed_when: false
+  failed_when: false
+  when:
+    - _port_check.stdout | length > 0
+    - xray_takeover_443 | bool
+
+- name: Fail if port is still occupied by non-xray process
+  ansible.builtin.fail:
+    msg: >-
+      Port {{ xray_port }} is already in use:
+      {{ (_port_recheck.stdout | default(_port_check.stdout)) }}
+      Stop the conflicting process or choose a different xray_port.
+      If this is a Docker/Amnezia container, set xray_takeover_443=true.
+  when:
+    - (_port_recheck.stdout | default(_port_check.stdout)) | length > 0
+    - "'xray' not in (_port_recheck.stdout | default(_port_check.stdout))"

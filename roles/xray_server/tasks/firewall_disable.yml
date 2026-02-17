@@ -1,0 +1,11 @@
+---
+# iptables mode: allow xray_port/tcp INPUT
+
+- name: Allow XRay port in iptables INPUT chain
+  ansible.builtin.iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ xray_port | string }}"
+    jump: ACCEPT
+    comment: "XRay VLESS+Reality"
+  notify: save netfilter rules

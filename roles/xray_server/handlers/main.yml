@@ -1,0 +1,18 @@
+---
+# Handlers for xray_server role
+
+- name: restart xray
+  ansible.builtin.systemd:
+    name: xray
+    state: restarted
+    daemon_reload: true
+
+- name: reload ufw
+  ansible.builtin.command:
+    cmd: ufw reload
+  when: manage_ufw == "keep"
+
+- name: save netfilter rules
+  ansible.builtin.command:
+    cmd: netfilter-persistent save
+  when: manage_ufw == "disable"

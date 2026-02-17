@@ -1,0 +1,67 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 10808,
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 10809,
+      "protocol": "http"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "{{ _client_address }}",
+            "port": {{ _client_port }},
+            "users": [
+              {
+                "id": "{{ _user_uuid }}",
+                "encryption": "none"{% if xray_vless_flow | length > 0 %},
+                "flow": "{{ xray_vless_flow }}"{% endif %}
+
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "{{ xray_reality_server_names[0] }}",
+          "fingerprint": "{{ xray_reality_fingerprint }}",
+          "publicKey": "{{ _xray_reality_pubkey }}",
+          "shortId": "{{ _xray_shortid }}"
+        }
+      },
+      "tag": "proxy"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "direct"
+      }
+    ]
+  }
+}

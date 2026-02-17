@@ -1,0 +1,15 @@
+---
+# Standalone XRay server verification
+#
+# Usage:
+#   ansible-playbook playbooks/verify_xray.yml
+
+- name: Verify XRay VLESS+Reality (Server B)
+  hosts: xray_servers
+  become: true
+  tasks:
+    - name: Run XRay verification
+      ansible.builtin.import_role:
+        name: xray_server
+        tasks_from: verify
+      tags: [verify, xray]

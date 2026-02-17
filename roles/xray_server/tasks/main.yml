@@ -1,0 +1,49 @@
+---
+# Main task orchestrator for xray_server role
+
+- name: Import validation tasks
+  ansible.builtin.import_tasks: validate.yml
+  tags:
+    - validate
+
+- name: Import install tasks
+  ansible.builtin.import_tasks: install.yml
+  tags:
+    - install
+
+- name: Import key generation tasks
+  ansible.builtin.import_tasks: keys.yml
+  tags:
+    - keys
+
+- name: Import config tasks
+  ansible.builtin.import_tasks: config.yml
+  tags:
+    - config
+
+- name: Import UFW keep mode firewall tasks
+  ansible.builtin.import_tasks: firewall_keep.yml
+  when: manage_ufw == "keep"
+  tags:
+    - firewall
+
+- name: Import UFW disable mode firewall tasks
+  ansible.builtin.import_tasks: firewall_disable.yml
+  when: manage_ufw == "disable"
+  tags:
+    - firewall
+
+- name: Import service tasks
+  ansible.builtin.import_tasks: service.yml
+  tags:
+    - service
+
+- name: Flush handlers before verification
+  ansible.builtin.meta: flush_handlers
+  tags:
+    - verify
+
+- name: Import verification tasks
+  ansible.builtin.import_tasks: verify.yml
+  tags:
+    - verify

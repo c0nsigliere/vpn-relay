@@ -1,0 +1,38 @@
+---
+# XRay VLESS+Reality server role defaults
+
+# XRay binary version — must match a GitHub release tag (e.g. "24.11.30")
+xray_version: "24.11.30"
+
+# Listening port for VLESS+Reality inbound
+xray_port: 443
+
+# Reality camouflage destination and SNI
+xray_reality_dest: "www.cloudflare.com:443"
+xray_reality_server_names:
+  - "www.cloudflare.com"
+xray_reality_fingerprint: "chrome"
+
+# VLESS flow — leave empty for default behavior.
+# Set to "xtls-rprx-vision" to enable XTLS Vision.
+xray_vless_flow: ""
+
+# Paths
+xray_config_dir: "/etc/xray"
+xray_keys_dir: "/etc/xray/keys"
+xray_users_file: "/etc/xray/users.json"
+xray_bin: "/usr/local/bin/xray"
+
+# Firewall management mode (shared with other roles)
+# - "keep": Keep UFW enabled, add allow rule via ufw module
+# - "disable": UFW disabled, use iptables INPUT rule
+manage_ufw: "keep"
+
+# WAN interface — leave empty for auto-detection
+wan_if: ""
+
+# Stop conflicting Amnezia/Docker containers on xray_port
+xray_takeover_443: true
+
+# Rollback: also remove key material
+xray_remove_keys: false
