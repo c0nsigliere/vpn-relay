@@ -1,35 +1,27 @@
 ---
 # Validation tasks for relay configuration
 
-- name: Validate ip_b is provided
+- name: Validate server_b_public_ip is provided
   ansible.builtin.assert:
     that:
-      - ip_b is defined
-      - ip_b | length > 0
-    fail_msg: "ip_b must be defined and non-empty"
-    success_msg: "ip_b is provided: {{ ip_b }}"
+      - server_b_public_ip is defined
+      - server_b_public_ip | length > 0
+    fail_msg: "server_b_public_ip must be set to Server B's IP"
+    success_msg: "server_b_public_ip is provided: {{ server_b_public_ip }}"
 
-- name: Validate ip_b is a valid IPv4 address
+- name: Validate server_b_public_ip is a valid IPv4 address
   ansible.builtin.assert:
     that:
-      - ip_b is regex('^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
-    fail_msg: "ip_b '{{ ip_b }}' is not a valid IPv4 address"
-    success_msg: "ip_b is a valid IPv4 address"
+      - server_b_public_ip is regex('^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
+    fail_msg: "server_b_public_ip '{{ server_b_public_ip }}' is not a valid IPv4 address"
+    success_msg: "server_b_public_ip is a valid IPv4 address"
 
-- name: Validate ip_b is not the same as this host (prevent self-DNAT)
+- name: Validate server_b_public_ip is not the same as this host (prevent self-DNAT)
   ansible.builtin.assert:
     that:
-      - ip_b != ansible_default_ipv4.address
-    fail_msg: "ip_b cannot be the same as this host's IP ({{ ansible_default_ipv4.address }})"
-    success_msg: "ip_b is different from this host's IP"
-
-- name: Validate port_a_udp is in valid range
-  ansible.builtin.assert:
-    that:
-      - port_a_udp | int >= 1
-      - port_a_udp | int <= 65535
-    fail_msg: "port_a_udp must be between 1 and 65535"
-    success_msg: "port_a_udp is valid: {{ port_a_udp }}"
+      - server_b_public_ip != ansible_default_ipv4.address
+    fail_msg: "server_b_public_ip cannot be the same as this host's IP ({{ ansible_default_ipv4.address }})"
+    success_msg: "server_b_public_ip is different from this host's IP"
 
 - name: Validate port_a_tcp is in valid range
   ansible.builtin.assert:
@@ -39,14 +31,6 @@
     fail_msg: "port_a_tcp must be between 1 and 65535"
     success_msg: "port_a_tcp is valid: {{ port_a_tcp }}"
 
-- name: Validate port_b_udp is in valid range
-  ansible.builtin.assert:
-    that:
-      - port_b_udp | int >= 1
-      - port_b_udp | int <= 65535
-    fail_msg: "port_b_udp must be between 1 and 65535"
-    success_msg: "port_b_udp is valid: {{ port_b_udp }}"
-
 - name: Validate port_b_tcp is in valid range
   ansible.builtin.assert:
     that:
@@ -54,13 +38,6 @@
       - port_b_tcp | int <= 65535
     fail_msg: "port_b_tcp must be between 1 and 65535"
     success_msg: "port_b_tcp is valid: {{ port_b_tcp }}"
-
-- name: Validate entry ports do not collide
-  ansible.builtin.assert:
-    that:
-      - port_a_udp | int != port_a_tcp | int
-    fail_msg: "port_a_udp and port_a_tcp cannot be the same (both are {{ port_a_udp }})"
-    success_msg: "Entry ports are different (UDP: {{ port_a_udp }}, TCP: {{ port_a_tcp }})"
 
 - name: Validate manage_ufw mode
   ansible.builtin.assert:

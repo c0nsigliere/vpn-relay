@@ -1,0 +1,25 @@
+---
+# Verify all active features: cascade (A+B) + relay (A) + memory/swap
+#
+# Usage:
+#   ansible-playbook playbooks/verify_all.yml
+
+- name: Verify WireGuard cascade (Server A + Server B)
+  hosts: wg_cascade
+  become: true
+  tasks:
+    - name: Run cascade verification
+      ansible.builtin.import_role:
+        name: wg_cascade
+        tasks_from: verify
+      tags: [verify, cascade]
+
+- name: Verify XRay L4 relay (Server A)
+  hosts: relay_servers
+  become: true
+  tasks:
+    - name: Run relay verification
+      ansible.builtin.import_role:
+        name: relay
+        tasks_from: verify
+      tags: [verify, relay]

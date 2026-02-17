@@ -1,29 +1,29 @@
 ---
 # Validation tasks for wg_cascade role
 
-- name: Validate ip_b_public is provided
+- name: Validate server_b_public_ip is provided
   ansible.builtin.assert:
     that:
-      - ip_b_public is defined
-      - ip_b_public | length > 0
-    fail_msg: "ip_b_public must be defined and non-empty (set to Server B's WAN IP)"
-    success_msg: "ip_b_public is provided: {{ ip_b_public }}"
+      - server_b_public_ip is defined
+      - server_b_public_ip | length > 0
+    fail_msg: "server_b_public_ip must be set to Server B's WAN IP"
+    success_msg: "server_b_public_ip is provided: {{ server_b_public_ip }}"
 
-- name: Validate ip_b_public is a valid IPv4 address
+- name: Validate server_b_public_ip is a valid IPv4 address
   ansible.builtin.assert:
     that:
-      - ip_b_public is regex('^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
-    fail_msg: "ip_b_public '{{ ip_b_public }}' is not a valid IPv4 address"
-    success_msg: "ip_b_public is a valid IPv4 address"
+      - server_b_public_ip is regex('^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
+    fail_msg: "server_b_public_ip '{{ server_b_public_ip }}' is not a valid IPv4 address"
+    success_msg: "server_b_public_ip is a valid IPv4 address"
 
-- name: Validate ip_b_public is not this host (prevent self-loop on Server A)
+- name: Validate server_b_public_ip is not this host (prevent self-loop on Server A)
   ansible.builtin.assert:
     that:
-      - ip_b_public != ansible_default_ipv4.address
+      - server_b_public_ip != ansible_default_ipv4.address
     fail_msg: >-
-      ip_b_public ({{ ip_b_public }}) cannot be the same as this host's IP
+      server_b_public_ip ({{ server_b_public_ip }}) cannot be the same as this host's IP
       ({{ ansible_default_ipv4.address }}). This would create a routing loop.
-    success_msg: "ip_b_public is different from this host's IP"
+    success_msg: "server_b_public_ip is different from this host's IP"
   when: inventory_hostname in groups['server_a']
 
 - name: Validate wg_clients_port is in valid range

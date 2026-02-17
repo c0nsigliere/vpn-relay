@@ -8,7 +8,7 @@
 #   ansible-playbook playbooks/cascade.yml --tags verify     # verification only
 #
 # Requirements:
-#   - ip_b_public must be set in inventory/group_vars/all.yml
+#   - server_b_public_ip must be set in inventory/group_vars/all.yml
 #   - Both server_a and server_b must be reachable
 #   - Run: ansible-galaxy collection install -r requirements.yml
 #
@@ -45,10 +45,9 @@
       when: manage_ufw == "keep"
       failed_when: false
 
-    # --- iptables disable mode: remove old relay rules (Server A only) ---
-    # Uses old relay variables (port_a_udp, port_a_tcp, ip_b) if still present
-    # in group_vars. Failed_when: false ensures convergent operation if rules
-    # are already gone or vars are undefined.
+    # --- iptables disable mode: remove old UDP relay rules (Server A only) ---
+    # Cleans up legacy AWG relay rules that predated cascade.
+    # Failed_when: false ensures convergent operation if rules are already gone.
 
     # Gather network facts selectively (needed for ansible_default_ipv4.interface below).
     # Skipped in UFW keep mode and on Server B where these rules never existed.
@@ -66,15 +65,14 @@
         chain: PREROUTING
         in_interface: "{{ ansible_default_ipv4.interface }}"
         protocol: udp
-        destination_port: "{{ port_a_udp | string }}"
+        destination_port: "{{ port_a_udp | default('51821') | string }}"
         jump: DNAT
-        to_destination: "{{ ip_b }}:{{ port_b_udp }}"
+        to_destination: "{{ server_b_public_ip }}:{{ port_b_udp | default('51820') }}"
         state: absent
       when:
         - manage_ufw == "disable"
         - inventory_hostname in groups['server_a']
-        - ip_b is defined and ip_b | length > 0
-        - port_a_udp is defined
+        - server_b_public_ip | length > 0
       failed_when: false
 
     - name: "[iptables] Remove old UDP MASQUERADE relay rule from POSTROUTING"
@@ -83,15 +81,14 @@
         chain: POSTROUTING
         out_interface: "{{ ansible_default_ipv4.interface }}"
         protocol: udp
-        destination: "{{ ip_b }}"
-        destination_port: "{{ port_b_udp | string }}"
+        destination: "{{ server_b_public_ip }}"
+        destination_port: "{{ port_b_udp | default('51820') | string }}"
         jump: MASQUERADE
         state: absent
       when:
         - manage_ufw == "disable"
         - inventory_hostname in groups['server_a']
-        - ip_b is defined and ip_b | length > 0
-        - port_b_udp is defined
+        - server_b_public_ip | length > 0
       failed_when: false
 
     - name: "[iptables] Save netfilter rules after relay cleanup"

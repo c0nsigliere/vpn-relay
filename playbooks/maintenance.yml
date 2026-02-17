@@ -44,18 +44,28 @@
 #   verify        - Health checks + relay verification
 #   unattended    - unattended-upgrades management only
 
-- name: Full maintenance workflow for relay servers
-  hosts: relay_servers
+- name: Full maintenance workflow
+  hosts: wg_cascade:relay_servers
   become: true
 
   roles:
     - maintenance
 
   post_tasks:
-    - name: Run relay verify tasks to confirm relay is still operational
+    - name: Run relay verify (relay_servers hosts only)
       ansible.builtin.import_role:
         name: relay
         tasks_from: verify
+      when: "'relay_servers' in group_names"
+      tags:
+        - verify
+        - maintenance
+
+    - name: Run cascade verify (wg_cascade hosts only)
+      ansible.builtin.import_role:
+        name: wg_cascade
+        tasks_from: verify
+      when: "'wg_cascade' in group_names"
       tags:
         - verify
         - maintenance

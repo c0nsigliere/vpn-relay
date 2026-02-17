@@ -27,7 +27,7 @@ PreDown = ip route del default dev %i table {{ wg_routing_table }} 2>/dev/null |
 [Peer]
 # Server B — uplink endpoint
 PublicKey           = {{ _wg_b_uplink_pubkey.content | b64decode | trim }}
-Endpoint            = {{ ip_b_public }}:{{ wg_uplink_port_b }}
+Endpoint            = {{ server_b_public_ip }}:{{ wg_uplink_port_b }}
 # Two /1 routes covering all IPv4: avoids WireGuard's special default-route hook
 # while still routing all client traffic through the tunnel.
 AllowedIPs          = 0.0.0.0/1, 128.0.0.0/1

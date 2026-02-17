@@ -17,7 +17,7 @@ wg_uplink_port_b: 51821
 wg_uplink_allow_default_port: false
 
 # --- Server B WAN IP — REQUIRED, no default ---
-ip_b_public: ""
+server_b_public_ip: ""
 
 # --- DNS for generated client .conf files ---
 wg_client_dns: "1.1.1.1,1.0.0.1"

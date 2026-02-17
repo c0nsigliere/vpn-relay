@@ -1,5 +1,5 @@
 ---
-# Rollback playbook to remove VPN relay configuration
+# Rollback playbook to remove VPN relay configuration (TCP only)
 #
 # Usage:
 #   ansible-playbook playbooks/rollback.yml
@@ -17,10 +17,8 @@
   vars:
     # These should match the values used during setup
     # Override with -e if different
-    ip_b: ""
-    port_a_udp: 51821
+    server_b_public_ip: ""
     port_a_tcp: 8443
-    port_b_udp: 51820
     port_b_tcp: 443
     wan_if: ""
     manage_ufw: "keep"
@@ -57,14 +55,6 @@
             state: absent
           notify: reload ufw after rollback
 
-        - name: Remove UFW allow rule for UDP port
-          community.general.ufw:
-            rule: allow
-            port: "{{ port_a_udp }}"
-            proto: udp
-            delete: true
-          failed_when: false
-
         - name: Remove UFW allow rule for TCP port
           community.general.ufw:
             rule: allow
@@ -80,64 +70,6 @@
     - name: UFW disable mode rollback
       when: manage_ufw == "disable"
       block:
-        # Remove UDP rules
-        - name: Remove UDP DNAT rule
-          ansible.builtin.iptables:
-            table: nat
-            chain: PREROUTING
-            in_interface: "{{ wan_if_final }}"
-            protocol: udp
-            destination_port: "{{ port_a_udp }}"
-            jump: DNAT
-            to_destination: "{{ ip_b }}:{{ port_b_udp }}"
-            state: absent
-          when: ip_b | length > 0
-          failed_when: false
-          notify: save netfilter after rollback
-
-        - name: Remove UDP MASQUERADE rule
-          ansible.builtin.iptables:
-            table: nat
-            chain: POSTROUTING
-            out_interface: "{{ wan_if_final }}"
-            protocol: udp
-            destination: "{{ ip_b }}"
-            destination_port: "{{ port_b_udp }}"
-            jump: MASQUERADE
-            state: absent
-          when: ip_b | length > 0
-          failed_when: false
-          notify: save netfilter after rollback
-
-        - name: Remove UDP FORWARD to B rule
-          ansible.builtin.iptables:
-            chain: FORWARD
-            in_interface: "{{ wan_if_final }}"
-            protocol: udp
-            destination: "{{ ip_b }}"
-            destination_port: "{{ port_b_udp }}"
-            ctstate: NEW,ESTABLISHED,RELATED
-            jump: ACCEPT
-            state: absent
-          when: ip_b | length > 0
-          failed_when: false
-          notify: save netfilter after rollback
-
-        - name: Remove UDP FORWARD from B rule
-          ansible.builtin.iptables:
-            chain: FORWARD
-            in_interface: "{{ wan_if_final }}"
-            protocol: udp
-            source: "{{ ip_b }}"
-            source_port: "{{ port_b_udp }}"
-            ctstate: ESTABLISHED,RELATED
-            jump: ACCEPT
-            state: absent
-          when: ip_b | length > 0
-          failed_when: false
-          notify: save netfilter after rollback
-
-        # Remove TCP rules
         - name: Remove TCP DNAT rule
           ansible.builtin.iptables:
             table: nat
@@ -146,9 +78,9 @@
             protocol: tcp
             destination_port: "{{ port_a_tcp }}"
             jump: DNAT
-            to_destination: "{{ ip_b }}:{{ port_b_tcp }}"
+            to_destination: "{{ server_b_public_ip }}:{{ port_b_tcp }}"
             state: absent
-          when: ip_b | length > 0
+          when: server_b_public_ip | length > 0
           failed_when: false
           notify: save netfilter after rollback
 
@@ -158,11 +90,11 @@
             chain: POSTROUTING
             out_interface: "{{ wan_if_final }}"
             protocol: tcp
-            destination: "{{ ip_b }}"
+            destination: "{{ server_b_public_ip }}"
             destination_port: "{{ port_b_tcp }}"
             jump: MASQUERADE
             state: absent
-          when: ip_b | length > 0
+          when: server_b_public_ip | length > 0
           failed_when: false
           notify: save netfilter after rollback
 
@@ -171,12 +103,12 @@
             chain: FORWARD
             in_interface: "{{ wan_if_final }}"
             protocol: tcp
-            destination: "{{ ip_b }}"
+            destination: "{{ server_b_public_ip }}"
             destination_port: "{{ port_b_tcp }}"
             ctstate: NEW,ESTABLISHED,RELATED
             jump: ACCEPT
             state: absent
-          when: ip_b | length > 0
+          when: server_b_public_ip | length > 0
           failed_when: false
           notify: save netfilter after rollback
 
@@ -185,12 +117,12 @@
             chain: FORWARD
             in_interface: "{{ wan_if_final }}"
             protocol: tcp
-            source: "{{ ip_b }}"
+            source: "{{ server_b_public_ip }}"
             source_port: "{{ port_b_tcp }}"
             ctstate: ESTABLISHED,RELATED
             jump: ACCEPT
             state: absent
-          when: ip_b | length > 0
+          when: server_b_public_ip | length > 0
           failed_when: false
           notify: save netfilter after rollback
 

@@ -1,5 +1,6 @@
 ---
 # UFW keep mode - maintain UFW as firewall authority
+# TCP relay only (XRay/VLESS). UDP/WireGuard is handled by the cascade role.
 
 - name: Ensure UFW is installed
   ansible.builtin.apt:
@@ -34,20 +35,8 @@
 
 - name: Set previous ports from state file
   ansible.builtin.set_fact:
-    prev_port_a_udp: "{{ (vpn_relay_state.content | b64decode | from_yaml).port_a_udp | string }}"
     prev_port_a_tcp: "{{ (vpn_relay_state.content | b64decode | from_yaml).port_a_tcp | string }}"
   when: vpn_relay_state.content is defined
-
-- name: Remove old UFW allow rule for UDP port (port changed)
-  community.general.ufw:
-    rule: allow
-    port: "{{ prev_port_a_udp }}"
-    proto: udp
-    delete: true
-  when:
-    - prev_port_a_udp is defined
-    - prev_port_a_udp != port_a_udp | string
-  failed_when: false
 
 - name: Remove old UFW allow rule for TCP port (port changed)
   community.general.ufw:
@@ -60,13 +49,6 @@
     - prev_port_a_tcp != port_a_tcp | string
   failed_when: false
 
-- name: Allow entry port UDP through UFW
-  community.general.ufw:
-    rule: allow
-    port: "{{ port_a_udp }}"
-    proto: udp
-    comment: "VPN Relay entry port UDP"
-
 - name: Allow entry port TCP through UFW
   community.general.ufw:
     rule: allow
@@ -77,7 +59,6 @@
 - name: Save current ports to state file
   ansible.builtin.copy:
     content: |
-      port_a_udp: {{ port_a_udp }}
       port_a_tcp: {{ port_a_tcp }}
     dest: /etc/vpn-relay-ports.state
     mode: '0600'
@@ -91,12 +72,9 @@
       *nat
       :PREROUTING ACCEPT [0:0]
       :POSTROUTING ACCEPT [0:0]
-      # UDP relay (AWG/WireGuard)
-      -A PREROUTING -i {{ wan_if_final }} -p udp --dport {{ port_a_udp }} -j DNAT --to-destination {{ ip_b }}:{{ port_b_udp }}
-      -A POSTROUTING -o {{ wan_if_final }} -p udp -d {{ ip_b }} --dport {{ port_b_udp }} -j MASQUERADE
       # TCP relay (XRay)
-      -A PREROUTING -i {{ wan_if_final }} -p tcp --dport {{ port_a_tcp }} -j DNAT --to-destination {{ ip_b }}:{{ port_b_tcp }}
-      -A POSTROUTING -o {{ wan_if_final }} -p tcp -d {{ ip_b }} --dport {{ port_b_tcp }} -j MASQUERADE
+      -A PREROUTING -i {{ wan_if_final }} -p tcp --dport {{ port_a_tcp }} -j DNAT --to-destination {{ server_b_public_ip }}:{{ port_b_tcp }}
+      -A POSTROUTING -o {{ wan_if_final }} -p tcp -d {{ server_b_public_ip }} --dport {{ port_b_tcp }} -j MASQUERADE
       COMMIT
     state: present
   notify: reload ufw
@@ -107,13 +85,9 @@
     insertafter: '^-A ufw-before-forward -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT'
     marker: "# {mark} VPN-RELAY FORWARD RULES"
     block: |
-      # UDP forward to Server B
-      -A ufw-before-forward -i {{ wan_if_final }} -p udp -d {{ ip_b }} --dport {{ port_b_udp }} -j ACCEPT
-      # UDP forward from Server B (established/related)
-      -A ufw-before-forward -i {{ wan_if_final }} -p udp -s {{ ip_b }} --sport {{ port_b_udp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
       # TCP forward to Server B
-      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -d {{ ip_b }} --dport {{ port_b_tcp }} -j ACCEPT
+      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -d {{ server_b_public_ip }} --dport {{ port_b_tcp }} -j ACCEPT
       # TCP forward from Server B (established/related)
-      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -s {{ ip_b }} --sport {{ port_b_tcp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -s {{ server_b_public_ip }} --sport {{ port_b_tcp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     state: present
   notify: reload ufw

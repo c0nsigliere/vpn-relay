@@ -11,8 +11,8 @@
 # WARNING: Schedule a maintenance window before running this.
 # Review the output for any removed packages.
 
-- name: "[MAINTENANCE WINDOW] Dist-upgrade relay servers"
-  hosts: relay_servers
+- name: "[MAINTENANCE WINDOW] Dist-upgrade all VPN servers"
+  hosts: wg_cascade:relay_servers
   become: true
 
   vars:

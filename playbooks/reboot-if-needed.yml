@@ -8,8 +8,8 @@
 #   ansible-playbook playbooks/reboot-if-needed.yml
 #   ansible-playbook playbooks/reboot-if-needed.yml --ask-pass
 
-- name: Reboot relay servers if required
-  hosts: relay_servers
+- name: Reboot VPN servers if required
+  hosts: wg_cascade:relay_servers
   become: true
 
   vars:

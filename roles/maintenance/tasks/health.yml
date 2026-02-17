@@ -227,7 +227,7 @@
   ansible.builtin.debug:
     msg: |
       Listening UDP/TCP sockets:
-      (Entry ports to verify: UDP {{ port_a_udp }}, TCP {{ port_a_tcp }})
+      (Entry port to verify: TCP {{ port_a_tcp | default('N/A') }})
       Note: DNAT relay ports appear in iptables PREROUTING, not ss output.
       The ss output shows services bound to specific ports on this host.
       {{ listening_sockets.stdout }}

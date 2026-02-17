@@ -46,7 +46,91 @@ Both can run simultaneously on Server A. The cascade replaces the broken UDP rel
 - Server A forwards raw TCP to Server B unchanged
 - Managed by `playbooks/relay.yml` + `roles/relay/`
 
-## Firewall Mode Comparison
+---
+
+## Golden Path: Fresh Install (Cascade + Relay)
+
+### 1. Install dependencies
+
+```bash
+# On Ubuntu/Debian (control node)
+sudo apt install ansible sshpass wireguard-tools -y
+
+# Install Ansible collections
+ansible-galaxy collection install -r requirements.yml
+```
+
+### 2. Copy and edit inventory
+
+```bash
+cp inventory/inventory.ini.example inventory/inventory.ini
+```
+
+Fill in real IPs for `server-a` and `server-b`.
+
+### 3. Copy and edit group_vars
+
+```bash
+# Shared vars (REQUIRED — set server_b_public_ip here)
+cp inventory/group_vars/all.yml.example inventory/group_vars/all.yml
+
+# Cascade vars (review defaults — usually fine as-is)
+cp inventory/group_vars/wg_cascade.yml.example inventory/group_vars/wg_cascade.yml
+
+# Relay vars (review ports — usually fine as-is)
+cp inventory/group_vars/relay_servers.yml.example inventory/group_vars/relay_servers.yml
+```
+
+Edit `all.yml` — the **one required field**:
+```yaml
+server_b_public_ip: "YOUR_SERVER_B_PUBLIC_IP"
+```
+
+### 4. Optional: add swap on low-RAM servers
+
+```bash
+ansible-playbook playbooks/maintenance_add_swap.yml
+```
+
+### 5. Deploy
+
+```bash
+# Deploy cascade (Server A + Server B)
+ansible-playbook playbooks/cascade.yml
+
+# Deploy relay (Server A only)
+ansible-playbook playbooks/relay.yml
+```
+
+### 6. Verify
+
+```bash
+ansible-playbook playbooks/verify_all.yml
+```
+
+### 7. Add a client
+
+```bash
+ansible-playbook playbooks/add_client.yml \
+  -e "client_name=alice" \
+  -e "client_ip=10.66.0.10"
+```
+
+Output: `artifacts/clients/alice.conf` — send this to the client's device.
+
+---
+
+## Alternative: Cascade Only
+
+Skip step 3 relay_servers.yml copy. Skip `relay.yml` deploy. Trim `[relay_servers]` from inventory (or leave it — unused groups are harmless).
+
+## Alternative: Relay Only
+
+Skip step 3 wg_cascade.yml copy. Skip `cascade.yml` deploy. You still need `server_b_public_ip` in `all.yml`.
+
+---
+
+## Firewall Mode (`manage_ufw`)
 
 | Aspect | `manage_ufw: "keep"` | `manage_ufw: "disable"` |
 |--------|---------------------|------------------------|
@@ -60,742 +144,137 @@ Both can run simultaneously on Server A. The cascade replaces the broken UDP rel
 
 ---
 
-## WireGuard Cascade — Quick Start
+## Verify Installation
 
-### 1. Install dependencies
-
-```bash
-# Ansible collections (both roles use these)
-ansible-galaxy collection install -r requirements.yml
-
-# WireGuard tools on the controller (for add_client.yml client keygen)
-sudo apt install wireguard-tools
-```
-
-### 2. Configure inventory
-
-Copy and edit:
+### Cascade checks
 
 ```bash
-cp inventory/inventory.ini.example inventory/inventory.ini
-```
-
-```ini
-[server_a]
-server-a  ansible_host=YOUR_SERVER_A_IP
-
-[server_b]
-server-b  ansible_host=YOUR_SERVER_B_IP
-
-[wg_cascade:children]
-server_a
-server_b
-
-[wg_cascade:vars]
-ansible_python_interpreter=/usr/bin/python3
-ansible_user=root
-```
-
-### 3. Configure variables
-
-```bash
-cp inventory/group_vars/all.yml.example inventory/group_vars/all.yml
-```
-
-Edit `all.yml` — the required field is `ip_b_public`:
-
-```yaml
-ip_b_public: "YOUR_SERVER_B_PUBLIC_IP"  # REQUIRED
-wg_uplink_port_b: 51821                 # must not conflict with Amnezia on B
-manage_ufw: "keep"                      # or "disable"
-```
-
-### 4. Deploy cascade
-
-```bash
-# Validate only (dry-run, no changes)
-ansible-playbook playbooks/cascade.yml --tags validate
-
-# Full deploy
-ansible-playbook playbooks/cascade.yml
-
-# Verify after deploy
 ansible-playbook playbooks/verify_cascade.yml
 ```
 
-### 5. Add a client
+Expected: WireGuard handshakes on both servers, `ip rule` table 200 present on A, NAT counters incrementing.
+
+### Relay checks
 
 ```bash
-ansible-playbook playbooks/add_client.yml \
-  -e "client_name=alice" \
-  -e "client_ip=10.66.0.10"
+ansible-playbook playbooks/relay.yml --tags verify
 ```
 
-Output: `artifacts/clients/alice.conf` — send this to the client's device.
+Expected: DNAT rules in PREROUTING, FORWARD ACCEPT rules, UFW status active (keep mode).
 
-The client private key stays on the controller only (`artifacts/clients/alice.key`). Server A receives only the public key.
+### Memory/swap checks
 
-### 6. Rollback
+The verify playbooks emit warnings when:
+- `MemAvailable < 128 MB` — risk of OOM
+- `SwapTotal == 0` — no swap configured
+
+Manual check:
+```bash
+free -h
+grep -E 'MemAvailable|SwapTotal|SwapFree' /proc/meminfo
+```
+
+### All-in-one verify
 
 ```bash
-# Stop WireGuard and remove all cascade config (keeps keys by default)
-ansible-playbook playbooks/rollback_cascade.yml
-
-# Also delete key material
-ansible-playbook playbooks/rollback_cascade.yml -e "wg_cascade_remove_keys=true"
+ansible-playbook playbooks/verify_all.yml
 ```
 
 ---
 
-## WireGuard Cascade — Variable Reference
+## Clean Up Legacy AWG Relay Leftovers
+
+If you previously used the AWG UDP relay (pre-cascade era), old iptables/UFW rules may linger.
+
+### Detect
+
+```bash
+grep "VPN-RELAY" /etc/ufw/before.rules   # should return nothing
+iptables -t nat -S PREROUTING            # no old DNAT rules
+```
+
+### Remove
+
+```bash
+ansible-playbook playbooks/cleanup_legacy_relay.yml
+```
+
+Safe to run multiple times. Does not touch current cascade or XRay relay rules.
+
+---
+
+## Variable Reference
+
+### Shared (`all.yml`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ip_b_public` | **required** | Server B's WAN IP (uplink endpoint) |
+| `server_b_public_ip` | **required** | Server B's WAN IP (used by both roles) |
+| `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |
+| `wan_if` | auto-detect | WAN interface override |
+| `do_dist_upgrade` | `false` | Enable dist-upgrade in maintenance |
+| `manage_unattended_upgrades` | `leave` | `true`/`false`/`leave` |
+| `maintenance_reboot` | `true` | Reboot after maintenance if required |
+
+### Cascade (`wg_cascade.yml`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `wg_clients_net` | `10.66.0.0/24` | Client subnet |
 | `wg_clients_addr_a` | `10.66.0.1/24` | Server A address on wg-clients |
 | `wg_clients_port` | `51888` | UDP port clients connect to on A |
 | `wg_uplink_net` | `10.200.0.0/30` | A↔B tunnel subnet |
 | `wg_uplink_addr_a` | `10.200.0.1/30` | Server A address on wg-uplink |
 | `wg_uplink_addr_b` | `10.200.0.2/30` | Server B address on wg-uplink |
-| `wg_uplink_port_b` | `51821` | UDP port on B for the uplink (avoid 51820 — Amnezia default) |
-| `wg_uplink_allow_default_port` | `false` | Set `true` to allow `wg_uplink_port_b=51820` after confirming it's free |
-| `wg_client_dns` | `1.1.1.1,1.0.0.1` | DNS embedded in generated client configs |
-| `wan_if` | auto-detect | WAN interface override |
-| `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |
+| `wg_uplink_port_b` | `51821` | UDP port on B for uplink (avoid 51820) |
+| `wg_uplink_allow_default_port` | `false` | Allow `wg_uplink_port_b=51820` |
+| `wg_client_dns` | `1.1.1.1,1.0.0.1` | DNS in generated client configs |
 | `wg_keys_dir` | `/etc/wireguard/keys` | Key storage path on servers |
-| `wg_routing_table` | `200` | Policy routing table number on Server A |
-| `wg_cascade_remove_keys` | `false` | Set `true` in rollback to delete key material |
+| `wg_routing_table` | `200` | Policy routing table number |
+| `wg_cascade_remove_keys` | `false` | Delete keys during rollback |
 
-### Network addressing
-
-```
-wg-clients (A, client-facing):
-  A listens:  10.66.0.1/24 on port 51888/udp
-  Clients get: 10.66.0.2–10.66.0.254/32
-
-wg-uplink (A→B tunnel):
-  A side:  10.200.0.1/30
-  B side:  10.200.0.2/30, port 51821/udp
-```
-
----
-
-## WireGuard Cascade — Tags
-
-```bash
-ansible-playbook playbooks/cascade.yml --tags validate   # validation only
-ansible-playbook playbooks/cascade.yml --tags packages   # install packages
-ansible-playbook playbooks/cascade.yml --tags sysctl     # kernel params only
-ansible-playbook playbooks/cascade.yml --tags keys       # key generation + exchange
-ansible-playbook playbooks/cascade.yml --tags configs    # render WG config files
-ansible-playbook playbooks/cascade.yml --tags routing    # ip rule + systemd drop-in
-ansible-playbook playbooks/cascade.yml --tags firewall   # NAT/FORWARD rules
-ansible-playbook playbooks/cascade.yml --tags services   # start WG services
-ansible-playbook playbooks/cascade.yml --tags verify     # verification only
-```
-
----
-
-## WireGuard Cascade — Troubleshooting
-
-### Check WireGuard interface status
-
-```bash
-# On both servers
-sudo wg show all
-
-# Expected output on Server A:
-#   interface: wg-uplink
-#     peer: <B's pubkey>
-#     endpoint: <ip_b_public>:51821
-#     latest handshake: <recent>
-#     transfer: ...
-#   interface: wg-clients
-#     peer: <client pubkey>
-#     latest handshake: <recent>
-```
-
-### Check policy routing (Server A)
-
-```bash
-sudo ip rule show
-# Must include: 200: from 10.66.0.0/24 lookup 200
-
-sudo ip route show table 200
-# Must include: default dev wg-uplink
-```
-
-If missing, check that `wg-quick@wg-uplink` started successfully:
-```bash
-systemctl status wg-quick@wg-uplink
-journalctl -u wg-quick@wg-uplink --no-pager -n 30
-```
-
-### Check NAT and forwarding rules
-
-```bash
-# Server A: MASQUERADE from client subnet out wg-uplink
-sudo iptables -t nat -L POSTROUTING -n -v
-
-# Server B: MASQUERADE from uplink subnet out WAN
-sudo iptables -t nat -L POSTROUTING -n -v
-
-# Check FORWARD chain (both servers)
-sudo iptables -S FORWARD
-```
-
-### Client cannot reach the internet
-
-Typical causes in order:
-
-1. **wg-uplink not peered** — `wg show wg-uplink` shows no `latest handshake`. Check that port `wg_uplink_port_b` is open on Server B (not blocked by B's UFW), and that `ip_b_public` is correct.
-
-2. **ip rule missing on A** — `ip rule show` does not contain `from 10.66.0.0/24 lookup 200`. Means `wg-quick@wg-uplink` didn't run PostUp. Restart: `sudo systemctl restart wg-quick@wg-uplink`.
-
-3. **MASQUERADE missing on B** — `iptables -t nat -L POSTROUTING -n -v` on B shows no rule for `10.200.0.0/30`. Re-run: `ansible-playbook playbooks/cascade.yml --tags firewall`.
-
-4. **Port conflict on Server B** — If Amnezia is using port 51820 and `wg_uplink_port_b=51821` but B's firewall blocks 51821. Open it: re-run cascade with `--tags firewall` or allow 51821/udp manually.
-
-5. **wg-clients started before wg-uplink** — `ip route show table 200` is empty. Restart in order:
-   ```bash
-   sudo systemctl restart wg-quick@wg-uplink
-   sudo systemctl restart wg-quick@wg-clients
-   ```
-
-### add_client.yml fails: "wg: command not found"
-
-The controller needs `wireguard-tools` installed:
-```bash
-sudo apt install wireguard-tools   # Ubuntu/Debian
-```
-
-### add_client.yml: "keys.yml requires both server_a and server_b"
-
-You ran `cascade.yml` with `--limit`. Key exchange requires both hosts. Run without `--limit`:
-```bash
-ansible-playbook playbooks/cascade.yml
-```
-
-### wg_uplink_port_b hard-fail at 51820
-
-Amnezia/AWG on Server B almost certainly listens on 51820. Use a different port:
-```yaml
-# inventory/group_vars/all.yml
-wg_uplink_port_b: 51821
-```
-Or if you have confirmed 51820 is free on B:
-```bash
-ansible-playbook playbooks/cascade.yml -e "wg_uplink_allow_default_port=true"
-```
-
-### apt hangs or OOM during package installation (low RAM)
-
-Server B runs Amnezia + Docker which can leave very little free RAM. The `--tags validate`
-pre-check will warn if free RAM is below 128 MB. Add swap automatically:
-
-```bash
-ansible-playbook playbooks/maintenance_add_swap.yml
-```
-
-Or manually on the server (survives reboots):
-
-```bash
-fallocate -l 1G /swapfile
-chmod 600 /swapfile
-mkswap /swapfile
-swapon /swapfile
-echo '/swapfile none swap sw 0 0' >> /etc/fstab
-```
-
-Then verify: `free -h` should show swap available.
-
-### Run standalone verification
-
-```bash
-ansible-playbook playbooks/verify_cascade.yml
-```
-
-The verification output includes a **resource summary** at the end of each host, reading
-`MemAvailable` directly from `/proc/meminfo`:
-
-```
-TASK [Display memory summary (/proc/meminfo)] ******
-ok: [server-b] =>
-  msg: 'server-b memory: MemTotal=458 MB, MemAvailable=189 MB, SwapTotal=1024 MB, SwapFree=1020 MB'
-
-TASK [Display CPU and load averages] ******
-ok: [server-b] =>
-  msg: 'server-b: CPUs=1, load avg=0.05 (1m) / 0.03 (5m) / 0.01 (15m)'
-```
-
-**Non-fatal warnings** are emitted when:
-- `MemAvailable < 128 MB` — risk of OOM during WireGuard operation
-- `SwapTotal == 0` — no swap configured
-
----
-
-## XRay Relay — Quick Start
-
-### 1. Configure Inventory
-
-Edit `inventory/inventory.ini`:
-
-```ini
-[relay_servers]
-relay1 ansible_host=YOUR_SERVER_A_IP
-
-[relay_servers:vars]
-ansible_user=root
-# Option 1: Store password in inventory (less secure)
-# ansible_password=your_root_password
-
-# Option 2: Use --ask-pass flag when running playbook (recommended)
-```
-
-### 2. Run the Playbook
-
-```bash
-# With password prompt (recommended for root/password auth)
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --ask-pass
-
-# With SSH key (no password prompt needed)
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2"
-
-# Full configuration
-ansible-playbook playbooks/relay.yml \
-  -e "ip_b=10.0.0.2" \
-  -e "port_a_udp=51821" \
-  -e "port_a_tcp=8443" \
-  -e "port_b_udp=51820" \
-  -e "port_b_tcp=443" \
-  -e "manage_ufw=keep" \
-  --ask-pass
-```
-
-### 3. Verify
-
-```bash
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --tags verify
-```
-
-## Variable Reference
+### Relay (`relay_servers.yml`) — TCP only
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ip_b` | **required** | Target VPN server (Server B) IP address |
-| `port_a_udp` | `51821` | UDP entry port on relay (Server A) |
-| `port_a_tcp` | `8443` | TCP entry port on relay (Server A) |
-| `port_b_udp` | `51820` | UDP target port on VPN server (Server B) |
-| `port_b_tcp` | `443` | TCP target port on VPN server (Server B) |
-| `wan_if` | auto-detect | WAN interface (leave empty for auto-detection) |
-| `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |
-
-## Client Configuration
-
-Configure your VPN client with:
-- **Server IP/Endpoint:** Server A's public IP
-- **Port:** Entry port on A (`port_a_udp` for WireGuard/AWG, `port_a_tcp` for XRay)
-- **Keys/Credentials:** Server B's keys (the relay doesn't need them)
-
-Example WireGuard client config:
-```ini
-[Peer]
-PublicKey = <SERVER_B_PUBLIC_KEY>
-Endpoint = <SERVER_A_IP>:51821  # A's IP, A's entry port
-AllowedIPs = 0.0.0.0/0
-```
-
-## Tags
-
-Run specific parts of the playbook:
-
-```bash
-# Only validation
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --tags validate
-
-# Only sysctl configuration
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --tags sysctl
-
-# Only UFW/firewall configuration
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --tags ufw
-
-# Only iptables rules (disable mode)
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --tags iptables
-
-# Only verification
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --tags verify
-```
-
-## Rollback
-
-Remove all relay configuration:
-
-```bash
-# If using keep mode (default)
-ansible-playbook playbooks/rollback.yml -e "manage_ufw=keep"
-
-# If using disable mode, specify ip_b for rule removal
-ansible-playbook playbooks/rollback.yml \
-  -e "manage_ufw=disable" \
-  -e "ip_b=10.0.0.2"
-```
-
-## Memory & Swap
-
-### Why Swap Matters for Small VPS Instances
-
-Small VPS nodes (1 vCPU, 512 MB–1 GB RAM) frequently OOM-kill WireGuard
-processes or kernel threads under load — particularly during `apt upgrade` or
-when multiple clients are active. Adding a swap file provides a safety buffer
-that prevents hard crashes at the cost of minor performance degradation under
-memory pressure.
-
-**Recommended:** All `wg_cascade` hosts should have at least 1 GB of swap.
-
-### Add Swap (if missing)
-
-```bash
-ansible-playbook playbooks/maintenance_add_swap.yml
-```
-
-This playbook:
-- Checks whether swap is already configured; does nothing if so (idempotent)
-- Creates `/swapfile` (1 GB) using `fallocate` (or `dd` as fallback for sparse-file issues)
-- Enables it with `swapon` and persists the entry in `/etc/fstab`
-- Prints a per-host summary of swap size and `MemAvailable`
-
-To override the default size:
-```bash
-ansible-playbook playbooks/maintenance_add_swap.yml -e "swap_size=2G swap_size_mb=2048"
-```
-
-### Verify Memory State
-
-```bash
-ansible-playbook playbooks/verify_cascade.yml
-```
-
-The verify playbook reads `/proc/meminfo` directly and reports:
-
-| Metric | Description |
-|--------|-------------|
-| `MemTotal` | Total physical RAM |
-| `MemAvailable` | RAM available for new processes (includes reclaimable cache) |
-| `SwapTotal` | Total swap space |
-| `SwapFree` | Free swap space |
-
-**Warnings emitted (non-fatal):**
-- `MemAvailable < 128 MB` — risk of OOM during WireGuard operation
-- `SwapTotal == 0` — no swap configured; add with `maintenance_add_swap.yml`
+| `port_a_tcp` | `8443` | TCP entry port on A |
+| `port_b_tcp` | `443` | TCP target port on B |
 
 ---
 
-## Server Maintenance and Updates
+## Tags Reference
 
-### Why Maintenance is Separate from the Relay Role
+### `cascade.yml`
 
-The `roles/relay/` role is a deployment role — it configures a clean relay and is designed to be idempotent and auditable. Embedding OS update logic inside it would violate the single-responsibility principle and make it harder to run updates independently without risk of accidentally reconfiguring the relay.
+`validate` `packages` `sysctl` `keys` `configs` `routing` `firewall` `services` `verify`
 
-Maintenance is a distinct operational concern handled by `roles/maintenance/` and the playbooks in `playbooks/`. The relay role is never modified, which means the relay configuration remains stable and predictable.
+### `relay.yml`
 
-### Update vs. Upgrade: Know the Difference
+`validate` `sysctl` `ufw` `iptables` `persist` `verify`
 
-| Playbook | Apt Command | Removes packages? | When to use |
-|----------|-------------|-------------------|-------------|
-| `playbooks/update.yml` | `apt upgrade` | Never | Regular security patching (weekly/monthly) |
-| `playbooks/upgrade.yml` | `apt dist-upgrade` | Sometimes | Scheduled maintenance windows only |
+### `maintenance.yml`
 
-- **Safe upgrade** (`apt upgrade`): Upgrades packages only if it can do so without removing any installed package. Handles 95% of patch scenarios. Safe to run at any time without a window.
-- **Dist-upgrade** (`apt dist-upgrade`): Resolves complex dependency changes, may remove packages. Required after major kernel updates or when held packages need to update. Always review the removed-packages list before proceeding.
+`maintenance` `update` `upgrade` `reboot` `health` `verify` `unattended`
 
-### When to Use Each Playbook
+---
 
-| Playbook | Purpose | Reboots? |
-|----------|---------|---------|
-| `playbooks/update.yml` | Safe package update only | No |
-| `playbooks/upgrade.yml` | dist-upgrade (maintenance window) | No |
-| `playbooks/reboot-if-needed.yml` | Reboot only if required | If needed |
-| `playbooks/maintenance.yml` | Full workflow: update → reboot → verify | If needed |
-
-Use `playbooks/maintenance.yml` as the default entry point for all routine maintenance. It handles the complete flow including relay verification after updates.
-
-### Reboot Strategy
-
-Ubuntu writes `/var/run/reboot-required` after installing packages that require a reboot (kernel, glibc, openssl). The maintenance subsystem checks this sentinel file — no file means no reboot.
-
-**`maintenance_reboot: true` (default):** Reboots immediately after updates if required. Suitable for scheduled maintenance windows. Required for kernel updates to take effect.
-
-**Deferring reboots:** Set `maintenance_reboot: false` to skip the reboot step. Run `playbooks/reboot-if-needed.yml` at a later time (e.g., off-peak hours) to apply the deferred reboot.
+## Rollback
 
 ```bash
-# Update now, reboot later
-ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false"
+# Cascade: stop WireGuard, remove config (keeps keys by default)
+ansible-playbook playbooks/rollback_cascade.yml
 
-# Reboot when ready
-ansible-playbook playbooks/reboot-if-needed.yml
+# Cascade: also delete key material
+ansible-playbook playbooks/rollback_cascade.yml -e "wg_cascade_remove_keys=true"
+
+# Relay: remove all relay config
+ansible-playbook playbooks/rollback.yml -e "manage_ufw=keep"
+
+# Relay (disable mode): specify ip for rule removal
+ansible-playbook playbooks/rollback.yml -e "manage_ufw=disable"
 ```
 
-After any reboot, `maintenance.yml` automatically runs relay verification to confirm the relay survived intact.
-
-### Firewall Persistence After Upgrades
-
-**UFW keep mode** (`manage_ufw: keep`):
-UFW stores rules in `/etc/ufw/before.rules` — a config file that persists across reboots and kernel upgrades. After reboot, UFW starts automatically via systemd and reloads all rules. No manual intervention needed. After a `ufw` package upgrade, run `--tags verify` to confirm NAT rules in `before.rules` are still intact.
-
-**iptables disable mode** (`manage_ufw: disable`):
-Rules are persisted in `/etc/iptables/rules.v4` by `netfilter-persistent`. This is a systemd service that loads saved rules at boot. A kernel upgrade does not wipe this file. After reboot, rules are restored automatically by `netfilter-persistent.service`. If the service fails to start after a kernel upgrade, the health checks will catch it (assertion on `rules.v4` existence and ip_forward).
-
-### UFW vs. iptables Mode Implications for Maintenance
-
-**After a `ufw` package upgrade (keep mode):**
-- Verify NAT rules are still in `/etc/ufw/before.rules`: the blockinfile markers should be present
-- Run `ansible-playbook playbooks/relay.yml --tags verify` to confirm
-- If rules are missing, re-apply: `ansible-playbook playbooks/relay.yml --tags ufw`
-
-**After an `iptables-persistent` or `netfilter-persistent` upgrade (disable mode):**
-- Verify `/etc/iptables/rules.v4` still exists and contains the correct rules
-- Verify `netfilter-persistent` service is running: `systemctl status netfilter-persistent`
-- If rules are missing: `ansible-playbook playbooks/relay.yml --tags iptables,persist`
-
-**After any kernel upgrade:**
-- New kernel may include updated netfilter modules. Test traffic after reboot.
-- Check iptables counters: non-zero pkts/bytes means traffic is flowing.
-- Health checks in `maintenance.yml` verify this automatically.
-
-### Recommended Maintenance Workflow
-
-**Standard monthly maintenance (routine security patches):**
-
-```bash
-# Step 1: Run full maintenance workflow
-ansible-playbook playbooks/maintenance.yml
-
-# Step 2: Review output for:
-#   - ip_forward = 1 (confirmed by health check)
-#   - UFW active or rules.v4 present
-#   - PREROUTING/FORWARD rules present
-#   - Relay config summary (confirms forwarding config)
-
-# Step 3: Test VPN connectivity from a client (manual)
-```
-
-**Scheduled maintenance window (kernel or major updates):**
-
-```bash
-# Step 1: Notify users of downtime
-# Step 2: Run with dist-upgrade enabled
-ansible-playbook playbooks/maintenance.yml -e "do_dist_upgrade=true"
-
-# Step 3: Review removed packages in output
-# Step 4: Confirm health check output (ip_forward, firewall, counters)
-# Step 5: Test VPN client connectivity (manual)
-```
-
-**Deferred reboot workflow:**
-
-```bash
-# Apply updates during business hours (no reboot)
-ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false"
-
-# Reboot during off-peak hours
-ansible-playbook playbooks/reboot-if-needed.yml
-
-# Verify relay after reboot
-ansible-playbook playbooks/relay.yml --tags verify
-```
-
-### Example Commands
-
-```bash
-# Safe update (run anytime)
-ansible-playbook playbooks/update.yml
-
-# Full maintenance with automatic reboot if needed (recommended default)
-ansible-playbook playbooks/maintenance.yml
-
-# Full maintenance + dist-upgrade (maintenance window required)
-ansible-playbook playbooks/maintenance.yml -e "do_dist_upgrade=true"
-
-# Full maintenance without rebooting (defer reboot)
-ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false"
-
-# Reboot now if /var/run/reboot-required exists
-ansible-playbook playbooks/reboot-if-needed.yml
-
-# Health checks only (no updates)
-ansible-playbook playbooks/maintenance.yml --tags health
-
-# Update + health checks (no reboot)
-ansible-playbook playbooks/maintenance.yml -e "maintenance_reboot=false" --tags update,health
-
-# Disable unattended-upgrades on relay nodes
-ansible-playbook playbooks/maintenance.yml \
-  -e "manage_unattended_upgrades=false" --tags unattended
-
-# With password authentication
-ansible-playbook playbooks/maintenance.yml --ask-pass
-```
-
-### Post-Update Verification Checklist
-
-After any maintenance run, confirm the following in the output:
-
-**Critical (must pass):**
-- [ ] `net.ipv4.ip_forward = 1` — shown in health check
-- [ ] UFW status active (keep mode) OR `/etc/iptables/rules.v4` exists (disable mode)
-- [ ] PREROUTING has DNAT rules for `port_a_udp` and `port_a_tcp`
-- [ ] FORWARD chain has ACCEPT rules for `ip_b`
-
-**Important (review warnings):**
-- [ ] `rp_filter = 2` for `conf.all` and `conf.default` — asymmetric routing requires loose mode
-- [ ] `/etc/sysctl.d/99-vpn-relay.conf` exists — ensures sysctl survives reboot
-- [ ] No unexpected packages removed (review dist-upgrade output if applicable)
-
-**After reboot only:**
-- [ ] `netfilter-persistent` service running (disable mode): `systemctl status netfilter-persistent`
-- [ ] UFW service running (keep mode): `systemctl status ufw`
-- [ ] Test VPN client can connect and route traffic through the relay
-
-### Troubleshooting After Kernel Upgrade
-
-**Rules missing after reboot (iptables disable mode):**
-
-```bash
-# Check netfilter-persistent service
-# (run on the server or via Ansible ad-hoc)
-# Re-apply iptables rules:
-ansible-playbook playbooks/relay.yml --tags iptables,persist
-```
-
-**UFW not loading NAT rules after reboot (UFW keep mode):**
-
-```bash
-# Verify blockinfile markers are still in before.rules:
-#   grep "BEGIN VPN-RELAY NAT" /etc/ufw/before.rules
-# If missing, re-inject NAT rules:
-ansible-playbook playbooks/relay.yml --tags ufw
-```
-
-**`net.ipv4.ip_forward = 0` after reboot:**
-
-```bash
-# The sysctl config file may have been lost or sysctl failed to reload.
-# Re-apply:
-ansible-playbook playbooks/relay.yml --tags sysctl
-```
-
-**VPN clients connect but traffic stops flowing:**
-
-```bash
-# Check PREROUTING counters (pkts/bytes should increment with traffic):
-#   iptables -t nat -L PREROUTING -n -v
-# If rules exist but no traffic: verify ip_b is reachable from the relay
-#   ping -c 3 <ip_b>
-# If no DNAT rules: re-apply the relay role
-ansible-playbook playbooks/relay.yml
-```
-
-**Post-kernel-upgrade iptables behavior change:**
-
-Some kernel updates include updated netfilter modules that may affect connection tracking behavior. If traffic stops flowing after a kernel upgrade even with correct rules:
-
-```bash
-# Check dmesg for netfilter-related errors:
-#   dmesg | grep -i netfilter
-# Verify conntrack table isn't full:
-#   sysctl net.netfilter.nf_conntrack_count
-#   sysctl net.netfilter.nf_conntrack_max
-# Re-apply the full relay role to reset all rules:
-ansible-playbook playbooks/relay.yml
-```
-
-### Risks of Unattended-Upgrades on Relay Nodes
-
-The `unattended-upgrades` package provides automatic background security updates. While valuable for general servers, it carries specific risks for relay nodes:
-
-**Automatic reboot risk:** If `Unattended-Upgrade::Automatic-Reboot "true"` is set in `/etc/apt/apt.conf.d/50unattended-upgrades` (Ubuntu default is `false`, but some configurations set it to `true`), the relay server may reboot in the background after a kernel update. All active VPN tunnels will drop without warning.
-
-**Rule restoration window:** Even with correct persistence, there is a brief period after reboot during which the relay is not forwarding traffic (while systemd starts UFW or netfilter-persistent). For latency-sensitive applications, this is unavoidable.
-
-**Recommendation for relay nodes:**
-- Set `manage_unattended_upgrades: "false"` to disable automatic updates
-- Schedule manual maintenance using `playbooks/maintenance.yml` on a regular cadence (weekly or monthly)
-- This provides the same security coverage with controlled timing
-
-**If unattended-upgrades must remain enabled** (compliance requirement):
-- At minimum, disable automatic reboots by creating `/etc/apt/apt.conf.d/99relay-unattended`:
-  ```
-  Unattended-Upgrade::Automatic-Reboot "false";
-  ```
-- This prevents surprise reboots while still allowing background package updates
-- Schedule reboots explicitly via `ansible-playbook playbooks/reboot-if-needed.yml`
-
-**Security trade-off:** Disabling unattended-upgrades means you are responsible for timely patch application. Use `playbooks/update.yml` at minimum on a weekly schedule for security patches, and immediately when critical CVEs are published (kernel, openssl, glibc).
-
-## Troubleshooting
-
-### Verify IP Forwarding
-
-```bash
-sysctl net.ipv4.ip_forward
-# Should show: net.ipv4.ip_forward = 1
-```
-
-### Check NAT Rules
-
-```bash
-# PREROUTING (DNAT)
-sudo iptables -t nat -L PREROUTING -n -v
-
-# POSTROUTING (MASQUERADE)
-sudo iptables -t nat -L POSTROUTING -n -v
-```
-
-### Check FORWARD Rules
-
-```bash
-sudo iptables -L FORWARD -n -v
-```
-
-### Check UFW Status (keep mode)
-
-```bash
-sudo ufw status verbose
-```
-
-### Verify Relay with tcpdump
-
-On Server A, capture traffic:
-
-```bash
-# Watch incoming UDP on entry port
-sudo tcpdump -i eth0 udp port 51821 -n
-
-# Watch forwarded UDP to Server B
-sudo tcpdump -i eth0 udp port 51820 and host 10.0.0.2 -n
-
-# Watch both directions
-sudo tcpdump -i eth0 '(udp port 51821) or (udp port 51820 and host 10.0.0.2)' -n
-```
-
-### Test Connectivity
-
-From client:
-```bash
-# Test UDP relay (WireGuard)
-nc -u -v SERVER_A_IP 51821
-
-# Test TCP relay (XRay)
-nc -v SERVER_A_IP 8443
-```
-
-### Common Issues
-
-1. **Connection timeout**: Check that `ip_b` is reachable from Server A
-2. **Asymmetric routing**: Verify `rp_filter` is set to loose mode (2)
-3. **UFW blocking**: Ensure entry ports are allowed in UFW
-4. **Rules not persisting**: Check the correct persistence method for your mode
+---
 
 ## Project Structure
 
@@ -807,46 +286,56 @@ vpn-relay/
 │   ├── inventory.ini                    # (gitignored — copy from .example)
 │   ├── inventory.ini.example
 │   └── group_vars/
-│       ├── all.yml                      # (gitignored — copy from .example)
+│       ├── all.yml                      # (gitignored) shared vars
 │       ├── all.yml.example
+│       ├── wg_cascade.yml               # (gitignored) cascade vars
+│       ├── wg_cascade.yml.example
+│       ├── relay_servers.yml            # (gitignored) relay vars
+│       ├── relay_servers.yml.example
 │       ├── server_a.yml                 # Per-host overrides for Server A
 │       └── server_b.yml                 # Per-host overrides for Server B
 ├── artifacts/
 │   └── clients/                         # Generated client .conf files (gitignored)
+├── docs/
+│   ├── troubleshooting.md              # Cascade + relay + post-kernel troubleshooting
+│   ├── maintenance.md                  # Update/upgrade workflows, persistence, checklists
+│   └── windows-wsl.md                  # WSL2 setup for Windows users
 ├── playbooks/
 │   ├── cascade.yml                      # Deploy WireGuard cascade (A+B)
 │   ├── add_client.yml                   # Add WG client, fetch .conf
 │   ├── verify_cascade.yml               # Standalone cascade verification
+│   ├── verify_all.yml                   # Verify cascade + relay together
 │   ├── rollback_cascade.yml             # Teardown cascade
 │   ├── relay.yml                        # Deploy XRay L4 relay (A only)
 │   ├── rollback.yml                     # Remove XRay relay config
-│   ├── maintenance_add_swap.yml         # Add swapfile if missing (wg_cascade hosts)
+│   ├── cleanup_legacy_relay.yml         # Remove old AWG relay leftovers
+│   ├── maintenance_add_swap.yml         # Add swapfile if missing
 │   ├── update.yml                       # Safe package update (no reboot)
 │   ├── upgrade.yml                      # dist-upgrade (maintenance window)
 │   ├── reboot-if-needed.yml             # Conditional reboot
 │   └── maintenance.yml                  # Full maintenance orchestrator
 └── roles/
     ├── wg_cascade/                      # WireGuard cascade role
-    │   ├── defaults/main.yml            # All cascade variables with defaults
+    │   ├── defaults/main.yml
     │   ├── handlers/main.yml
     │   ├── tasks/
-    │   │   ├── main.yml                 # Orchestrator (tags: validate/packages/sysctl/keys/...)
-    │   │   ├── validate.yml             # 10 assertions + WAN auto-detect
-    │   │   ├── packages.yml             # wireguard-tools + iptables-persistent
-    │   │   ├── sysctl.yml               # ip_forward + rp_filter=2
-    │   │   ├── keys.yml                 # Keygen + cross-host pubkey exchange
-    │   │   ├── configs.yml              # Render wg-clients.conf + wg-uplink.conf
-    │   │   ├── routing.yml              # ip rule table 200 + systemd drop-in
-    │   │   ├── firewall_keep.yml        # UFW: blockinfile NAT+FORWARD
-    │   │   ├── firewall_disable.yml     # iptables module: NAT+FORWARD
-    │   │   ├── services.yml             # wg-quick@wg-uplink + wg-quick@wg-clients
-    │   │   ├── verify.yml               # wg show, ip rule, iptables, assertions
-    │   │   └── memory.yml               # Shared /proc/meminfo parser (sets _mem_*_mb facts)
+    │   │   ├── main.yml
+    │   │   ├── validate.yml
+    │   │   ├── packages.yml
+    │   │   ├── sysctl.yml
+    │   │   ├── keys.yml
+    │   │   ├── configs.yml
+    │   │   ├── routing.yml
+    │   │   ├── firewall_keep.yml
+    │   │   ├── firewall_disable.yml
+    │   │   ├── services.yml
+    │   │   ├── verify.yml
+    │   │   └── memory.yml
     │   └── templates/
-    │       ├── wg-clients.conf.j2       # Server A: client-facing interface
-    │       ├── wg-uplink-a.conf.j2      # Server A: uplink (Table=off, PostUp routing)
-    │       ├── wg-uplink-b.conf.j2      # Server B: uplink receiver
-    │       └── client.conf.j2           # Per-client device config
+    │       ├── wg-clients.conf.j2
+    │       ├── wg-uplink-a.conf.j2
+    │       ├── wg-uplink-b.conf.j2
+    │       └── client.conf.j2
     ├── relay/                           # XRay L4 relay role
     │   ├── defaults/main.yml
     │   ├── tasks/
@@ -879,100 +368,11 @@ vpn-relay/
 - Collections: `ansible.posix`, `community.general`
 - Controller: `wireguard-tools` (for `add_client.yml` client keygen)
 
-Install:
-```bash
-# On Ubuntu/Debian (control node)
-sudo apt install ansible sshpass wireguard-tools -y
+## Further Reading
 
-# Install Ansible collections (reads requirements.yml)
-ansible-galaxy collection install -r requirements.yml
-```
-
-## Running from Windows (WSL2)
-
-Ansible control nodes don't run natively on Windows. Use WSL2 (Windows Subsystem for Linux).
-
-### Install WSL2
-
-Open PowerShell as Administrator:
-
-```powershell
-wsl --install
-```
-
-Restart your computer when prompted. On first boot, WSL will ask you to create a Linux username and password.
-
-### Enter WSL2
-
-From PowerShell, Command Prompt, or Windows Terminal:
-
-```powershell
-wsl
-```
-
-Or search for "Ubuntu" in the Start menu.
-
-### Setup Ansible in WSL2
-
-```bash
-# Update packages and install Ansible
-sudo apt update && sudo apt install ansible sshpass -y
-
-# Install required collections
-ansible-galaxy collection install ansible.posix community.general
-```
-
-**Note:** `sshpass` is required for password authentication (`--ask-pass`).
-
-### Access the Project
-
-Windows drives are mounted under `/mnt/` in WSL2:
-
-```bash
-# Navigate to the project
-cd /mnt/c/Users/YOUR_USERNAME/Projects/vpn-relay
-
-# Verify files are accessible
-ls -la
-```
-
-### SSH Keys
-
-SSH keys should be in WSL2's home directory, not Windows:
-
-```bash
-# Create .ssh directory
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-
-# Option 1: Copy existing key from Windows
-cp /mnt/c/Users/YOUR_USERNAME/.ssh/id_rsa ~/.ssh/
-cp /mnt/c/Users/YOUR_USERNAME/.ssh/id_rsa.pub ~/.ssh/
-chmod 600 ~/.ssh/id_rsa
-
-# Option 2: Generate new key
-ssh-keygen -t ed25519 -C "your_email@example.com"
-
-# Copy public key to your servers
-ssh-copy-id ubuntu@YOUR_SERVER_IP
-```
-
-### Run the Playbook
-
-```bash
-cd /mnt/c/Users/YOUR_USERNAME/Projects/vpn-relay
-
-# Edit inventory with your server details
-nano inventory/inventory.ini
-
-# Run the playbook (with password prompt)
-ansible-playbook playbooks/relay.yml -e "ip_b=10.0.0.2" --ask-pass
-```
-
-### Tips
-
-- Use Windows Terminal for a better WSL2 experience
-- VS Code with "Remote - WSL" extension lets you edit files directly in WSL2
-- If you get permission errors on `/mnt/c/`, run: `sudo chmod 755 /mnt/c`
+- [Troubleshooting](docs/troubleshooting.md) — cascade, relay, post-kernel-upgrade, iptables nft/legacy
+- [Maintenance](docs/maintenance.md) — update/upgrade workflows, persistence, verification checklists
+- [Windows WSL2](docs/windows-wsl.md) — running Ansible from Windows
 
 ## License
 

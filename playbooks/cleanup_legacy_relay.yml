@@ -1,0 +1,73 @@
+---
+# Remove leftover rules from legacy AWG UDP relay (pre-cascade era)
+# Safe: idempotent, does not touch current cascade or XRay relay rules.
+#
+# Usage:
+#   ansible-playbook playbooks/cleanup_legacy_relay.yml
+
+- name: Clean up legacy AWG UDP relay leftovers
+  hosts: wg_cascade:relay_servers
+  become: true
+
+  tasks:
+    # --- UFW keep mode: remove old VPN-RELAY blockinfile markers ---
+    - name: "[UFW] Check if /etc/ufw/before.rules exists"
+      ansible.builtin.stat:
+        path: /etc/ufw/before.rules
+      register: _before_rules
+
+    - name: "[UFW] Remove legacy VPN-RELAY NAT RULES markers"
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/before.rules
+        marker: "# {mark} VPN-RELAY NAT RULES"
+        state: absent
+      when: _before_rules.stat.exists
+      notify: reload ufw after cleanup
+
+    - name: "[UFW] Remove legacy VPN-RELAY FORWARD RULES markers"
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/before.rules
+        marker: "# {mark} VPN-RELAY FORWARD RULES"
+        state: absent
+      when: _before_rules.stat.exists
+      notify: reload ufw after cleanup
+
+    # --- Detection: show what's left ---
+    - name: Show current iptables nat PREROUTING rules
+      ansible.builtin.command:
+        cmd: iptables -t nat -S PREROUTING
+      register: _prerouting
+      changed_when: false
+      failed_when: false
+
+    - name: Display PREROUTING (should only show current relay/cascade rules)
+      ansible.builtin.debug:
+        var: _prerouting.stdout_lines
+      changed_when: false
+
+    - name: Show current FORWARD rules
+      ansible.builtin.command:
+        cmd: iptables -S FORWARD
+      register: _forward
+      changed_when: false
+      failed_when: false
+
+    - name: Display FORWARD rules
+      ansible.builtin.debug:
+        var: _forward.stdout_lines
+      changed_when: false
+
+    - name: Check for stale vpn-relay-ports.state file
+      ansible.builtin.stat:
+        path: /etc/vpn-relay-ports.state
+      register: _ports_state
+
+    - name: Display vpn-relay-ports.state if it exists
+      ansible.builtin.debug:
+        msg: "Legacy port state file found: /etc/vpn-relay-ports.state — review and remove manually if no longer needed."
+      when: _ports_state.stat.exists
+
+  handlers:
+    - name: reload ufw after cleanup
+      community.general.ufw:
+        state: reloaded

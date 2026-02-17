@@ -8,8 +8,8 @@
 #   ansible-playbook playbooks/update.yml
 #   ansible-playbook playbooks/update.yml --ask-pass
 
-- name: Update packages on relay servers
-  hosts: relay_servers
+- name: Update packages on all VPN servers
+  hosts: wg_cascade:relay_servers
   become: true
 
   vars:

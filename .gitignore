@@ -4,6 +4,8 @@ inventory/host_vars/
 
 # Local variable overrides with real IPs and credentials
 inventory/group_vars/all.yml
+inventory/group_vars/wg_cascade.yml
+inventory/group_vars/relay_servers.yml
 
 # XRay/V2Ray client config with real credentials
 config.json

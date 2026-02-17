@@ -1,63 +1,6 @@
 ---
 # IPTables rules for disable mode (direct iptables management)
-
-# =============================================================================
-# UDP RELAY RULES (AWG/WireGuard)
-# =============================================================================
-
-- name: UDP DNAT - Redirect incoming to Server B
-  ansible.builtin.iptables:
-    table: nat
-    chain: PREROUTING
-    in_interface: "{{ wan_if_final }}"
-    protocol: udp
-    destination_port: "{{ port_a_udp }}"
-    jump: DNAT
-    to_destination: "{{ ip_b }}:{{ port_b_udp }}"
-    action: insert
-    rule_num: 1
-    comment: "VPN Relay UDP DNAT"
-  notify: save netfilter rules
-
-- name: UDP MASQUERADE - SNAT for outgoing to Server B
-  ansible.builtin.iptables:
-    table: nat
-    chain: POSTROUTING
-    out_interface: "{{ wan_if_final }}"
-    protocol: udp
-    destination: "{{ ip_b }}"
-    destination_port: "{{ port_b_udp }}"
-    jump: MASQUERADE
-    comment: "VPN Relay UDP MASQUERADE"
-  notify: save netfilter rules
-
-- name: UDP FORWARD to Server B
-  ansible.builtin.iptables:
-    chain: FORWARD
-    in_interface: "{{ wan_if_final }}"
-    protocol: udp
-    destination: "{{ ip_b }}"
-    destination_port: "{{ port_b_udp }}"
-    ctstate: NEW,ESTABLISHED,RELATED
-    jump: ACCEPT
-    comment: "VPN Relay UDP FORWARD to B"
-  notify: save netfilter rules
-
-- name: UDP FORWARD from Server B
-  ansible.builtin.iptables:
-    chain: FORWARD
-    in_interface: "{{ wan_if_final }}"
-    protocol: udp
-    source: "{{ ip_b }}"
-    source_port: "{{ port_b_udp }}"
-    ctstate: ESTABLISHED,RELATED
-    jump: ACCEPT
-    comment: "VPN Relay UDP FORWARD from B"
-  notify: save netfilter rules
-
-# =============================================================================
-# TCP RELAY RULES (XRay)
-# =============================================================================
+# TCP relay only (XRay/VLESS). UDP/WireGuard is handled by the cascade role.
 
 - name: TCP DNAT - Redirect incoming to Server B
   ansible.builtin.iptables:
@@ -67,7 +10,7 @@
     protocol: tcp
     destination_port: "{{ port_a_tcp }}"
     jump: DNAT
-    to_destination: "{{ ip_b }}:{{ port_b_tcp }}"
+    to_destination: "{{ server_b_public_ip }}:{{ port_b_tcp }}"
     action: insert
     rule_num: 1
     comment: "VPN Relay TCP DNAT"
@@ -79,7 +22,7 @@
     chain: POSTROUTING
     out_interface: "{{ wan_if_final }}"
     protocol: tcp
-    destination: "{{ ip_b }}"
+    destination: "{{ server_b_public_ip }}"
     destination_port: "{{ port_b_tcp }}"
     jump: MASQUERADE
     comment: "VPN Relay TCP MASQUERADE"
@@ -90,7 +33,7 @@
     chain: FORWARD
     in_interface: "{{ wan_if_final }}"
     protocol: tcp
-    destination: "{{ ip_b }}"
+    destination: "{{ server_b_public_ip }}"
     destination_port: "{{ port_b_tcp }}"
     ctstate: NEW,ESTABLISHED,RELATED
     jump: ACCEPT
@@ -102,7 +45,7 @@
     chain: FORWARD
     in_interface: "{{ wan_if_final }}"
     protocol: tcp
-    source: "{{ ip_b }}"
+    source: "{{ server_b_public_ip }}"
     source_port: "{{ port_b_tcp }}"
     ctstate: ESTABLISHED,RELATED
     jump: ACCEPT
