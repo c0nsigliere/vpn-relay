@@ -292,18 +292,23 @@ ansible-playbook playbooks/cascade.yml -e "wg_uplink_allow_default_port=true"
 ### apt hangs or OOM during package installation (low RAM)
 
 Server B runs Amnezia + Docker which can leave very little free RAM. The `--tags validate`
-pre-check will warn if free RAM is below 128 MB. If warned, add swap before deploying:
+pre-check will warn if free RAM is below 128 MB. Add swap automatically:
 
 ```bash
-# On the low-memory server (run once, survives reboots)
-fallocate -l 512M /swapfile
+ansible-playbook playbooks/maintenance_add_swap.yml
+```
+
+Or manually on the server (survives reboots):
+
+```bash
+fallocate -l 1G /swapfile
 chmod 600 /swapfile
 mkswap /swapfile
 swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ```
 
-Then verify: `free -h` should show 512M swap available.
+Then verify: `free -h` should show swap available.
 
 ### Run standalone verification
 
@@ -311,20 +316,22 @@ Then verify: `free -h` should show 512M swap available.
 ansible-playbook playbooks/verify_cascade.yml
 ```
 
-The verification output includes a **resource summary** at the end of each host:
+The verification output includes a **resource summary** at the end of each host, reading
+`MemAvailable` directly from `/proc/meminfo`:
 
 ```
-TASK [Display memory and swap] ******
+TASK [Display memory summary (/proc/meminfo)] ******
 ok: [server-b] =>
-  msg:
-  -               total        used        free      shared  buff/cache   available
-  - Mem:           458Mi       260Mi        18Mi       ...
-  - Swap:          512Mi        10Mi       502Mi
+  msg: 'server-b memory: MemTotal=458 MB, MemAvailable=189 MB, SwapTotal=1024 MB, SwapFree=1020 MB'
 
 TASK [Display CPU and load averages] ******
 ok: [server-b] =>
-  msg: 'server-b: CPUs=1, load avg=0.05 (1m) / 0.03 (5m) / 0.01 (15m), RAM free=189 MB / 458 MB total, swap=502 MB free / 512 MB total'
+  msg: 'server-b: CPUs=1, load avg=0.05 (1m) / 0.03 (5m) / 0.01 (15m)'
 ```
+
+**Non-fatal warnings** are emitted when:
+- `MemAvailable < 128 MB` — risk of OOM during WireGuard operation
+- `SwapTotal == 0` — no swap configured
 
 ---
 
@@ -433,6 +440,56 @@ ansible-playbook playbooks/rollback.yml \
   -e "manage_ufw=disable" \
   -e "ip_b=10.0.0.2"
 ```
+
+## Memory & Swap
+
+### Why Swap Matters for Small VPS Instances
+
+Small VPS nodes (1 vCPU, 512 MB–1 GB RAM) frequently OOM-kill WireGuard
+processes or kernel threads under load — particularly during `apt upgrade` or
+when multiple clients are active. Adding a swap file provides a safety buffer
+that prevents hard crashes at the cost of minor performance degradation under
+memory pressure.
+
+**Recommended:** All `wg_cascade` hosts should have at least 1 GB of swap.
+
+### Add Swap (if missing)
+
+```bash
+ansible-playbook playbooks/maintenance_add_swap.yml
+```
+
+This playbook:
+- Checks whether swap is already configured; does nothing if so (idempotent)
+- Creates `/swapfile` (1 GB) using `fallocate` (or `dd` as fallback for sparse-file issues)
+- Enables it with `swapon` and persists the entry in `/etc/fstab`
+- Prints a per-host summary of swap size and `MemAvailable`
+
+To override the default size:
+```bash
+ansible-playbook playbooks/maintenance_add_swap.yml -e "swap_size=2G swap_size_mb=2048"
+```
+
+### Verify Memory State
+
+```bash
+ansible-playbook playbooks/verify_cascade.yml
+```
+
+The verify playbook reads `/proc/meminfo` directly and reports:
+
+| Metric | Description |
+|--------|-------------|
+| `MemTotal` | Total physical RAM |
+| `MemAvailable` | RAM available for new processes (includes reclaimable cache) |
+| `SwapTotal` | Total swap space |
+| `SwapFree` | Free swap space |
+
+**Warnings emitted (non-fatal):**
+- `MemAvailable < 128 MB` — risk of OOM during WireGuard operation
+- `SwapTotal == 0` — no swap configured; add with `maintenance_add_swap.yml`
+
+---
 
 ## Server Maintenance and Updates
 
@@ -763,6 +820,7 @@ vpn-relay/
 │   ├── rollback_cascade.yml             # Teardown cascade
 │   ├── relay.yml                        # Deploy XRay L4 relay (A only)
 │   ├── rollback.yml                     # Remove XRay relay config
+│   ├── maintenance_add_swap.yml         # Add swapfile if missing (wg_cascade hosts)
 │   ├── update.yml                       # Safe package update (no reboot)
 │   ├── upgrade.yml                      # dist-upgrade (maintenance window)
 │   ├── reboot-if-needed.yml             # Conditional reboot
@@ -782,7 +840,8 @@ vpn-relay/
     │   │   ├── firewall_keep.yml        # UFW: blockinfile NAT+FORWARD
     │   │   ├── firewall_disable.yml     # iptables module: NAT+FORWARD
     │   │   ├── services.yml             # wg-quick@wg-uplink + wg-quick@wg-clients
-    │   │   └── verify.yml               # wg show, ip rule, iptables, assertions
+    │   │   ├── verify.yml               # wg show, ip rule, iptables, assertions
+    │   │   └── memory.yml               # Shared /proc/meminfo parser (sets _mem_*_mb facts)
     │   └── templates/
     │       ├── wg-clients.conf.j2       # Server A: client-facing interface
     │       ├── wg-uplink-a.conf.j2      # Server A: uplink (Table=off, PostUp routing)

@@ -110,15 +110,44 @@
   when: inventory_hostname in groups['server_a']
 
 # =============================================================================
-# Resource summary
+# Resource summary — memory and swap (MemAvailable from /proc/meminfo)
 # =============================================================================
-- name: Collect memory and swap usage
+- name: Import memory parsing tasks (/proc/meminfo)
+  ansible.builtin.import_tasks: memory.yml
+
+- name: Display memory summary (/proc/meminfo)
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} memory:
+      MemTotal={{ _mem_total_mb }} MB,
+      MemAvailable={{ _mem_available_mb }} MB,
+      SwapTotal={{ _swap_total_mb }} MB,
+      SwapFree={{ _swap_free_mb }} MB
+
+- name: "WARN: MemAvailable is critically low (< 128 MB)"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ inventory_hostname }} has only {{ _mem_available_mb }} MB available RAM
+      (MemAvailable from /proc/meminfo). WireGuard and system stability may be
+      compromised. Consider adding swap:
+        ansible-playbook playbooks/maintenance_add_swap.yml
+  when: _mem_available_mb | int < 128
+
+- name: "WARN: No swap configured (SwapTotal == 0)"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ inventory_hostname }} has no swap configured (SwapTotal = 0).
+      Small VPS instances may OOM-kill WireGuard or system processes under load.
+      Add swap with: ansible-playbook playbooks/maintenance_add_swap.yml
+  when: _swap_total_mb | int == 0
+
+- name: Collect memory and swap usage (free -h)
   ansible.builtin.command:
     cmd: free -h
   register: _free_h
   changed_when: false
 
-- name: Display memory and swap
+- name: Display free -h output
   ansible.builtin.debug:
     msg: "{{ _free_h.stdout_lines }}"
 
@@ -129,6 +158,4 @@
       CPUs={{ ansible_processor_vcpus }},
       load avg={{ ansible_loadavg['1m'] | round(2) }} (1m) /
       {{ ansible_loadavg['5m'] | round(2) }} (5m) /
-      {{ ansible_loadavg['15m'] | round(2) }} (15m),
-      RAM free={{ ansible_memfree_mb }} MB / {{ ansible_memtotal_mb }} MB total,
-      swap={{ ansible_swapfree_mb }} MB free / {{ ansible_swaptotal_mb }} MB total
+      {{ ansible_loadavg['15m'] | round(2) }} (15m)

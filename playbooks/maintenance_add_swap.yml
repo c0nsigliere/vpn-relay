@@ -1,0 +1,171 @@
+---
+# Add a 1G swapfile to wg_cascade hosts if no swap is currently configured.
+#
+# Usage:
+#   ansible-playbook playbooks/maintenance_add_swap.yml
+#   ansible-playbook playbooks/maintenance_add_swap.yml -e "swap_size=2G swap_size_mb=2048"
+#
+# Behaviour:
+#   - If swap is already active (SwapTotal > 0): prints summary and exits.
+#   - If no swap: creates /swapfile, formats, enables, persists in fstab.
+#   - Handles fallocate producing sparse files (falls back to dd).
+#   - Idempotent: safe to run repeatedly. Never removes or resizes existing swap.
+
+- name: Add swap to wg_cascade hosts (if missing)
+  hosts: wg_cascade
+  become: true
+  gather_facts: true
+
+  vars:
+    swap_path: /swapfile
+    swap_size: 1G          # fallocate size argument
+    swap_size_mb: 1024     # dd block count (MiB), must match swap_size
+
+  tasks:
+
+    # =========================================================================
+    # Step 1: Parse current memory state
+    # =========================================================================
+    - name: Read memory info from /proc/meminfo
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/wg_cascade/tasks/memory.yml"
+
+    # =========================================================================
+    # Step 2: Early exit if swap already active
+    # =========================================================================
+    - name: Skip swap provisioning if swap is already active
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: Swap already active
+          (SwapTotal={{ _swap_total_mb }} MB). Nothing to do.
+      when: _swap_total_mb | int > 0
+
+    - name: End play for hosts that already have swap
+      ansible.builtin.meta: end_host
+      when: _swap_total_mb | int > 0
+
+    # =========================================================================
+    # Step 3: Check whether /swapfile already exists
+    # =========================================================================
+    - name: "Stat {{ swap_path }}"
+      ansible.builtin.stat:
+        path: "{{ swap_path }}"
+      register: _swapfile_stat
+
+    # =========================================================================
+    # Step 4: Create swapfile if it does not exist (fallocate, then dd fallback)
+    # =========================================================================
+    - name: "Allocate {{ swap_path }} with fallocate"
+      ansible.builtin.command:
+        cmd: "fallocate -l {{ swap_size }} {{ swap_path }}"
+        creates: "{{ swap_path }}"
+      register: _fallocate_result
+      ignore_errors: true
+      when: not (_swapfile_stat.stat.exists | default(false))
+
+    - name: "Allocate {{ swap_path }} with dd (fallback if fallocate failed)"
+      ansible.builtin.command:
+        cmd: "dd if=/dev/zero of={{ swap_path }} bs=1M count={{ swap_size_mb }}"
+        creates: "{{ swap_path }}"
+      when:
+        - not (_swapfile_stat.stat.exists | default(false))
+        - _fallocate_result is defined
+        - _fallocate_result is failed
+
+    # =========================================================================
+    # Step 5: Set permissions (idempotent)
+    # =========================================================================
+    - name: "Set {{ swap_path }} permissions to 0600"
+      ansible.builtin.file:
+        path: "{{ swap_path }}"
+        mode: '0600'
+        owner: root
+        group: root
+
+    # =========================================================================
+    # Step 6: Re-check file state after creation
+    # =========================================================================
+    - name: "Check if {{ swap_path }} is formatted as swap (blkid)"
+      ansible.builtin.command:
+        cmd: "blkid -o value -s TYPE {{ swap_path }}"
+      register: _swapfile_blkid
+      changed_when: false
+      failed_when: false
+
+    # =========================================================================
+    # Step 7: Format as swap (only if not already formatted)
+    # =========================================================================
+    - name: "Format {{ swap_path }} as swap (mkswap)"
+      ansible.builtin.command:
+        cmd: "mkswap {{ swap_path }}"
+      when: (_swapfile_blkid.stdout | default('')) != 'swap'
+
+    # =========================================================================
+    # Step 8: Enable swap — with fallback for sparse-file failures
+    # =========================================================================
+    - name: "Enable {{ swap_path }} (swapon)"
+      ansible.builtin.command:
+        cmd: "swapon {{ swap_path }}"
+      register: _swapon_result
+      ignore_errors: true
+
+    # --- Fallback: if swapon failed (sparse file from fallocate), recreate with dd ---
+    - name: "Fallback — disable broken swapfile (swapoff)"
+      ansible.builtin.command:
+        cmd: "swapoff {{ swap_path }}"
+      failed_when: false
+      changed_when: false
+      when: _swapon_result is failed
+
+    - name: "Fallback — remove sparse swapfile"
+      ansible.builtin.file:
+        path: "{{ swap_path }}"
+        state: absent
+      when: _swapon_result is failed
+
+    - name: "Fallback — recreate {{ swap_path }} with dd (non-sparse)"
+      ansible.builtin.command:
+        cmd: "dd if=/dev/zero of={{ swap_path }} bs=1M count={{ swap_size_mb }}"
+      when: _swapon_result is failed
+
+    - name: "Fallback — set permissions on recreated {{ swap_path }}"
+      ansible.builtin.file:
+        path: "{{ swap_path }}"
+        mode: '0600'
+        owner: root
+        group: root
+      when: _swapon_result is failed
+
+    - name: "Fallback — format recreated {{ swap_path }} (mkswap)"
+      ansible.builtin.command:
+        cmd: "mkswap {{ swap_path }}"
+      when: _swapon_result is failed
+
+    - name: "Fallback — enable recreated {{ swap_path }} (swapon)"
+      ansible.builtin.command:
+        cmd: "swapon {{ swap_path }}"
+      when: _swapon_result is failed
+
+    # =========================================================================
+    # Step 9: Persist in /etc/fstab (idempotent, no duplicates)
+    # =========================================================================
+    - name: "Ensure {{ swap_path }} entry in /etc/fstab"
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^{{ swap_path | regex_escape }}\s'
+        line: "{{ swap_path }} none swap sw 0 0"
+        state: present
+
+    # =========================================================================
+    # Step 10: Re-read memory state for final summary
+    # =========================================================================
+    - name: Re-read /proc/meminfo for post-swap summary
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/wg_cascade/tasks/memory.yml"
+
+    - name: Display swap provisioning summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} swap summary:
+          swap_present={{ 'yes' if _swap_total_mb | int > 0 else 'no' }},
+          SwapTotal={{ _swap_total_mb }} MB,
+          SwapFree={{ _swap_free_mb }} MB,
+          MemAvailable={{ _mem_available_mb }} MB

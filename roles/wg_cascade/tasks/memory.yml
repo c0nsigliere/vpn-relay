@@ -1,0 +1,29 @@
+---
+# Shared memory info parsing from /proc/meminfo
+#
+# Sets facts (all integers, in MB):
+#   _mem_total_mb
+#   _mem_available_mb
+#   _swap_total_mb
+#   _swap_free_mb
+#
+# Usage from within the role:
+#   ansible.builtin.import_tasks: memory.yml
+#
+# Usage from a standalone playbook:
+#   ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/wg_cascade/tasks/memory.yml"
+
+- name: Read /proc/meminfo
+  ansible.builtin.slurp:
+    src: /proc/meminfo
+  register: _meminfo_raw
+  changed_when: false
+
+- name: Parse /proc/meminfo into facts (kB to MB)
+  vars:
+    _meminfo: "{{ _meminfo_raw.content | b64decode }}"
+  ansible.builtin.set_fact:
+    _mem_total_mb: "{{ ((_meminfo | regex_search('MemTotal:\\s+(\\d+)', '\\1'))[0] | int / 1024) | round | int }}"
+    _mem_available_mb: "{{ ((_meminfo | regex_search('MemAvailable:\\s+(\\d+)', '\\1'))[0] | int / 1024) | round | int }}"
+    _swap_total_mb: "{{ ((_meminfo | regex_search('SwapTotal:\\s+(\\d+)', '\\1'))[0] | int / 1024) | round | int }}"
+    _swap_free_mb: "{{ ((_meminfo | regex_search('SwapFree:\\s+(\\d+)', '\\1'))[0] | int / 1024) | round | int }}"
