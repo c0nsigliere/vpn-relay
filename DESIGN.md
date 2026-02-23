@@ -251,6 +251,9 @@ relay_servers:
 
 ## Shared (group_vars/all.yml)
 
+* server_b_public_ip
+* port_a_tcp (8443)
+* port_b_tcp (443)
 * manage_ufw
 * wan_if
 * maintenance flags
@@ -267,7 +270,7 @@ relay_servers:
 
 ## Relay
 
-* ip_b (желательно вычислять из hostvars server_b)
+* server_b_public_ip (из group_vars/all.yml — канонический адрес B)
 * port_a_tcp = 8443
 * port_b_tcp = 443
 
@@ -338,7 +341,7 @@ ansible-playbook playbooks/add_xray_user.yml -e "user_name=..."
 * Relay TCP работает
 * Native XRay развёрнут (systemd, без Docker)
 * Amnezia/Docker полностью удалены из кодовой базы
-* Архитектура переходит к single-entry stack
+* Реализован single-entry entrypoint `stack.yml`
 * DPI hardening: рекомендуется порт 443 вместо 8443 на relay, гео-нейтральный SNI вместо cloudflare, flow `xtls-rprx-vision`
 * Control-plane (Telegram бот) — спроектирован, не реализован (см. секцию ниже)
 
