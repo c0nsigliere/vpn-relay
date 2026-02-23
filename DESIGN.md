@@ -175,11 +175,13 @@ Client → Server A (TCP relay 8443)
 * MemAvailable
 * SwapTotal
 * free -h
+* External TCP reachability: controller → A:`port_a_tcp`, controller → B:`port_b_tcp`
 
 Если:
 
 * MemAvailable < 128MB → WARN
 * SwapTotal == 0 → WARN
+* TCP endpoint unreachable → WARN (assert с `ignore_errors: true`)
 
 Не падает, только предупреждает.
 

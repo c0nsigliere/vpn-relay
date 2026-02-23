@@ -32,9 +32,13 @@
    - `firewall_keep.yml` — `blockinfile` injects `*mangle … --clamp-mss-to-pmtu … COMMIT` before `*filter`
    - `firewall_disable.yml` — `ansible.builtin.iptables` task on `mangle` table with `clamp_mss_to_pmtu: true`
 
-5. **External reachability verify** — controller-side `wait_for`/`uri` checks
-   - Add tasks in verify playbooks that test connectivity from Ansible controller
-   - Check: verify playbooks have `delegate_to: localhost` checks?
+5. ~~**External reachability verify**~~ ✅ — controller-side `wait_for` checks in `verify_all.yml`
+   - New play "External Reachability (Controller → Servers)" runs on `localhost`
+   - TCP connect: controller → Server A:`port_a_tcp`, controller → Server B:`port_b_tcp`
+   - `assert` with `ignore_errors: true` (warning-only, playbook continues to summary)
+   - Final `debug` shows OK/FAIL per endpoint
+   - UDP WireGuard ports excluded (stateless, requires live WG client)
+   - Tags: `verify`, `reachability` — run subset with `--tags reachability`
 
 6. **DPI evasion defaults** — evaluate relay port 443, geo-neutral SNI, `xtls-rprx-vision` flow
    - See CLAUDE.md "DPI Evasion Notes" for details

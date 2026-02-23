@@ -84,3 +84,58 @@
           load avg={{ ansible_loadavg['1m'] | round(2) }} (1m) /
           {{ ansible_loadavg['5m'] | round(2) }} (5m) /
           {{ ansible_loadavg['15m'] | round(2) }} (15m)
+
+- name: External Reachability (Controller → Servers)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [verify, reachability]
+  vars:
+    _ip_a: "{{ hostvars[groups['server_a'][0]]['ansible_host'] }}"
+    _ip_b: "{{ hostvars[groups['server_b'][0]]['ansible_host'] }}"
+  tasks:
+    - name: "[Controller→A] TCP connect to relay entry {{ _ip_a }}:{{ port_a_tcp }}"
+      ansible.builtin.wait_for:
+        host: "{{ _ip_a }}"
+        port: "{{ port_a_tcp }}"
+        timeout: 10
+        state: started
+      register: _reach_a_tcp
+      changed_when: false
+      failed_when: false
+
+    - name: "[Controller→B] TCP connect to XRay entry {{ _ip_b }}:{{ port_b_tcp }}"
+      ansible.builtin.wait_for:
+        host: "{{ _ip_b }}"
+        port: "{{ port_b_tcp }}"
+        timeout: 10
+        state: started
+      register: _reach_b_tcp
+      changed_when: false
+      failed_when: false
+
+    - name: Assert relay entry reachable from controller
+      ansible.builtin.assert:
+        that: not _reach_a_tcp.failed
+        fail_msg: >-
+          Relay entry {{ _ip_a }}:{{ port_a_tcp }} is NOT reachable from controller.
+          Check firewall on Server A and that the relay service is running.
+        success_msg: "Relay entry {{ _ip_a }}:{{ port_a_tcp }} is reachable"
+      ignore_errors: true
+
+    - name: Assert XRay entry reachable from controller
+      ansible.builtin.assert:
+        that: not _reach_b_tcp.failed
+        fail_msg: >-
+          XRay entry {{ _ip_b }}:{{ port_b_tcp }} is NOT reachable from controller.
+          Check firewall on Server B and that xray.service is running.
+        success_msg: "XRay entry {{ _ip_b }}:{{ port_b_tcp }} is reachable"
+      ignore_errors: true
+
+    - name: External reachability summary
+      ansible.builtin.debug:
+        msg: |
+          External Reachability Summary (from controller):
+            Server A relay  {{ _ip_a }}:{{ port_a_tcp }}/tcp  →  {{ "OK" if not _reach_a_tcp.failed else "FAIL" }}
+            Server B XRay   {{ _ip_b }}:{{ port_b_tcp }}/tcp  →  {{ "OK" if not _reach_b_tcp.failed else "FAIL" }}
+          Note: WireGuard UDP ports are not tested (UDP is stateless, requires a live WG client).
