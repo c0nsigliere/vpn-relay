@@ -1,5 +1,5 @@
 ---
-# Verify all active features: cascade (A+B) + relay (A) + memory/swap
+# Verify all active features: cascade (A+B) + relay (A) + xray (B) + memory/swap (all)
 #
 # Usage:
 #   ansible-playbook playbooks/verify_all.yml
@@ -33,3 +33,54 @@
         name: xray_server
         tasks_from: verify
       tags: [verify, xray]
+
+- name: Verify memory and swap (all hosts)
+  hosts: all
+  become: true
+  gather_facts: true
+  tags: [verify, memory]
+  tasks:
+    - name: Parse /proc/meminfo
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/wg_cascade/tasks/memory.yml"
+
+    - name: Display memory summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} memory:
+          MemTotal={{ _mem_total_mb }} MB,
+          MemAvailable={{ _mem_available_mb }} MB,
+          SwapTotal={{ _swap_total_mb }} MB,
+          SwapFree={{ _swap_free_mb }} MB
+
+    - name: "WARN: MemAvailable is critically low (< 128 MB)"
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: {{ inventory_hostname }} has only {{ _mem_available_mb }} MB available RAM.
+          Consider adding swap: ansible-playbook playbooks/maintenance_add_swap.yml
+      when: _mem_available_mb | int < 128
+
+    - name: "WARN: No swap configured (SwapTotal == 0)"
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: {{ inventory_hostname }} has no swap configured (SwapTotal = 0).
+          Add swap with: ansible-playbook playbooks/maintenance_add_swap.yml
+      when: _swap_total_mb | int == 0
+
+    - name: Collect memory and swap usage (free -h)
+      ansible.builtin.command:
+        cmd: free -h
+      register: _free_h
+      changed_when: false
+
+    - name: Display free -h output
+      ansible.builtin.debug:
+        msg: "{{ _free_h.stdout_lines }}"
+
+    - name: Display CPU and load averages
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          CPUs={{ ansible_processor_vcpus }},
+          load avg={{ ansible_loadavg['1m'] | round(2) }} (1m) /
+          {{ ansible_loadavg['5m'] | round(2) }} (5m) /
+          {{ ansible_loadavg['15m'] | round(2) }} (15m)

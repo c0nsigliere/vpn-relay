@@ -1,0 +1,39 @@
+---
+# Full stack deployment — single entrypoint for the entire VPN relay infrastructure.
+#
+# Runs all subsystems in the correct order:
+#   1. maintenance   — apt update/upgrade, health checks (A + B)
+#   2. swap          — ensure swap exists on cascade hosts (A + B)
+#   3. cascade       — WireGuard cascade VPN (A + B)
+#   4. xray          — XRay VLESS+Reality server (B)
+#   5. relay         — TCP L4 relay (A)
+#   6. verify_all    — full verification across all subsystems + memory/swap
+#
+# Usage:
+#   ansible-playbook playbooks/stack.yml
+#
+#   # Skip maintenance (deploy only):
+#   ansible-playbook playbooks/stack.yml --skip-tags maintenance,update,upgrade,reboot,health,unattended
+#
+#   # Verify only:
+#   ansible-playbook playbooks/stack.yml --tags verify
+#
+# Each imported playbook can still be run standalone.
+
+- name: "Stack [1/6]: Maintenance"
+  ansible.builtin.import_playbook: maintenance.yml
+
+- name: "Stack [2/6]: Swap provisioning"
+  ansible.builtin.import_playbook: maintenance_add_swap.yml
+
+- name: "Stack [3/6]: WireGuard cascade"
+  ansible.builtin.import_playbook: cascade.yml
+
+- name: "Stack [4/6]: XRay VLESS+Reality"
+  ansible.builtin.import_playbook: xray.yml
+
+- name: "Stack [5/6]: TCP relay"
+  ansible.builtin.import_playbook: relay.yml
+
+- name: "Stack [6/6]: Full verification"
+  ansible.builtin.import_playbook: verify_all.yml

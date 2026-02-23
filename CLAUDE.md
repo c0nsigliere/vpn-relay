@@ -81,8 +81,20 @@ See `TODO.md` for the full list. Target architecture is in `DESIGN.md`. Key them
 - ~~Legacy Amnezia/Docker references in code and docs~~ (done)
 - `ip_b_public` duplicates `server_b_public_ip`
 - `cleanup_legacy_relay.yml` should be deleted
-- `verify_all.yml` missing memory/swap checks
-- No `stack.yml` single entrypoint yet
+- ~~`verify_all.yml` missing memory/swap checks~~ (done)
+- ~~No `stack.yml` single entrypoint yet~~ (done — `playbooks/stack.yml`)
+
+## After Each Change
+
+After completing any modification, verify that the following docs reflect the
+current state of the codebase:
+
+- **`DESIGN.md`** — architecture, target state, subsystem diagrams
+- **`README.md`** — setup instructions, usage examples, public-facing info
+- **`TODO.md`** — completed items marked done, new debt items added
+
+If a change makes any of these files stale, update them as part of the same
+task before finishing.
 
 ## DPI Evasion Notes
 

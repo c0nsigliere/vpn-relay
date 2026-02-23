@@ -7,6 +7,7 @@ Production-ready Ansible repository for Ubuntu 22.04/24.04 supporting two VPN fo
 | **WireGuard cascade** | `playbooks/cascade.yml` | Client → A → B → Internet (AWG/plain WireGuard) |
 | **XRay L4 relay** | `playbooks/relay.yml` | Transparent TCP forward A → B (XRay/VLESS) |
 | **XRay VLESS+Reality** | `playbooks/xray.yml` | Native XRay server on B (VLESS+Reality :443) |
+| **Full stack** | `playbooks/stack.yml` | Single entrypoint: maintenance → swap → cascade → xray → relay → verify |
 
 All three can run simultaneously. The cascade replaces the broken UDP relay for WireGuard/AWG. The XRay relay on A forwards TCP to B where the native XRay server handles VLESS+Reality.
 
@@ -100,14 +101,13 @@ ansible-playbook playbooks/maintenance_add_swap.yml
 ### 5. Deploy
 
 ```bash
-# Deploy cascade (Server A + Server B)
-ansible-playbook playbooks/cascade.yml
+# Full stack (recommended — runs everything in correct order):
+ansible-playbook playbooks/stack.yml
 
-# Deploy relay (Server A only)
-ansible-playbook playbooks/relay.yml
-
-# Deploy XRay VLESS+Reality (Server B only)
-ansible-playbook playbooks/xray.yml
+# Or deploy individual subsystems:
+ansible-playbook playbooks/cascade.yml    # WireGuard cascade (A + B)
+ansible-playbook playbooks/xray.yml       # XRay VLESS+Reality (B)
+ansible-playbook playbooks/relay.yml      # TCP relay (A)
 ```
 
 ### 6. Verify
@@ -115,6 +115,8 @@ ansible-playbook playbooks/xray.yml
 ```bash
 ansible-playbook playbooks/verify_all.yml
 ```
+
+Note: `stack.yml` already includes verification as the final step.
 
 ### 7. Add clients
 
@@ -325,6 +327,7 @@ vpn-relay/
 │   ├── maintenance.md                  # Update/upgrade workflows, persistence, checklists
 │   └── windows-wsl.md                  # WSL2 setup for Windows users
 ├── playbooks/
+│   ├── stack.yml                        # Full stack single entrypoint
 │   ├── cascade.yml                      # Deploy WireGuard cascade (A+B)
 │   ├── add_client.yml                   # Add WG client, fetch .conf
 │   ├── verify_cascade.yml               # Standalone cascade verification

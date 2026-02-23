@@ -18,12 +18,13 @@
 
 ## Priorities (in order)
 
-1. **Memory checks in verify_all.yml** — add memory/swap warnings
-   - Reuse logic from `roles/wg_cascade/tasks/memory.yml`
-   - Check: `playbooks/verify_all.yml` includes memory/swap checks?
+1. ~~**Memory checks in verify_all.yml**~~ ✅ — added "Verify memory and swap (all hosts)" play
+   - Reuses `roles/wg_cascade/tasks/memory.yml` via `include_tasks`
+   - Warns on MemAvailable < 128 MB and SwapTotal == 0
+   - Shows `free -h` and CPU/load averages
 
-2. **Create stack.yml** — single entrypoint: maintenance → swap → cascade → xray → relay → verify
-   - Check: `playbooks/stack.yml` exists?
+2. ~~**Create stack.yml**~~ ✅ — `playbooks/stack.yml` created with import_playbook chain
+   - Order: maintenance → swap → cascade → xray → relay → verify_all
 
 3. **Update DESIGN.md** — sync with actual state after above items
 
