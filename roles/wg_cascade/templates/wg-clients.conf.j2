@@ -1,12 +1,12 @@
 # /etc/wireguard/wg-clients.conf
 # Managed by Ansible wg_cascade role (roles/wg_cascade/tasks/configs.yml)
 # DO NOT manually edit the [Interface] section.
-# Client peers are managed by playbooks/add_client.yml.
+# Client peers are managed by playbooks/add_wg_client.yml.
 
 [Interface]
 Address    = {{ wg_clients_addr_a }}
 ListenPort = {{ wg_clients_port }}
 PrivateKey = {{ _wg_clients_privkey.content | b64decode | trim }}
 
-# Client peers are appended below by add_client.yml (blockinfile markers).
+# Client peers are appended below by add_wg_client.yml (blockinfile markers).
 # Each peer block is wrapped: # BEGIN CLIENT <name> ... # END CLIENT <name>

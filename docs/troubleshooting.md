@@ -56,7 +56,7 @@ Typical causes in order:
 
 2. **ip rule missing on A** — `ip rule show` does not contain `from 10.66.0.0/24 lookup 200`. Means `wg-quick@wg-uplink` didn't run PostUp. Restart: `sudo systemctl restart wg-quick@wg-uplink`.
 
-3. **MASQUERADE missing on B** — `iptables -t nat -L POSTROUTING -n -v` on B shows no rule for `10.200.0.0/30`. Re-run: `ansible-playbook playbooks/cascade.yml --tags firewall`.
+3. **MASQUERADE missing on B** — `iptables -t nat -L POSTROUTING -n -v` on B shows no rule for `10.200.0.0/30`. Re-run: `ansible-playbook playbooks/wg_cascade.yml --tags firewall`.
 
 4. **Port conflict on Server B** — If another WireGuard instance is using port 51820 and B's firewall blocks `wg_uplink_port_b`. Open it: re-run cascade with `--tags firewall` or allow the port manually.
 
@@ -66,18 +66,18 @@ Typical causes in order:
    sudo systemctl restart wg-quick@wg-clients
    ```
 
-### add_client.yml fails: "wg: command not found"
+### add_wg_client.yml fails: "wg: command not found"
 
 The controller needs `wireguard-tools` installed:
 ```bash
 sudo apt install wireguard-tools   # Ubuntu/Debian
 ```
 
-### add_client.yml: "keys.yml requires both server_a and server_b"
+### add_wg_client.yml: "keys.yml requires both server_a and server_b"
 
-You ran `cascade.yml` with `--limit`. Key exchange requires both hosts. Run without `--limit`:
+You ran `wg_cascade.yml` with `--limit`. Key exchange requires both hosts. Run without `--limit`:
 ```bash
-ansible-playbook playbooks/cascade.yml
+ansible-playbook playbooks/wg_cascade.yml
 ```
 
 ### wg_uplink_port_b hard-fail at 51820
@@ -89,7 +89,7 @@ wg_uplink_port_b: 51821
 ```
 Or if you have confirmed 51820 is free on B:
 ```bash
-ansible-playbook playbooks/cascade.yml -e "wg_uplink_allow_default_port=true"
+ansible-playbook playbooks/wg_cascade.yml -e "wg_uplink_allow_default_port=true"
 ```
 
 ### apt hangs or OOM during package installation (low RAM)
@@ -257,4 +257,4 @@ sudo update-alternatives --set iptables /usr/sbin/iptables-nft
 sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
 ```
 
-Then re-apply: `ansible-playbook playbooks/cascade.yml --tags firewall`
+Then re-apply: `ansible-playbook playbooks/wg_cascade.yml --tags firewall`

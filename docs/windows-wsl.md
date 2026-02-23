@@ -84,7 +84,7 @@ nano inventory/inventory.ini
 nano inventory/group_vars/all.yml
 
 # 3. Deploy
-ansible-playbook playbooks/cascade.yml
+ansible-playbook playbooks/wg_cascade.yml
 ansible-playbook playbooks/relay.yml
 
 # 4. Verify

@@ -2,10 +2,10 @@
 # Deploy WireGuard cascade VPN (A → B)
 #
 # Usage:
-#   ansible-playbook playbooks/cascade.yml
-#   ansible-playbook playbooks/cascade.yml --tags validate   # validation only
-#   ansible-playbook playbooks/cascade.yml --tags keys       # key generation only
-#   ansible-playbook playbooks/cascade.yml --tags verify     # verification only
+#   ansible-playbook playbooks/wg_cascade.yml
+#   ansible-playbook playbooks/wg_cascade.yml --tags validate   # validation only
+#   ansible-playbook playbooks/wg_cascade.yml --tags keys       # key generation only
+#   ansible-playbook playbooks/wg_cascade.yml --tags verify     # verification only
 #
 # Requirements:
 #   - server_b_public_ip must be set in inventory/group_vars/all.yml

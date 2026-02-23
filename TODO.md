@@ -46,10 +46,12 @@
    - `xray_vless_flow`: `""` → `"xtls-rprx-vision"` (xray_server/defaults, xray_servers.yml.example)
    - Removed "DPI Evasion Notes" section from CLAUDE.md (guidance now lives in the defaults)
 
-7. **Unify client/user terminology** — в проекте WireGuard-сущности называются "client" (`add_client.yml`), а XRay — "user" (`add_xray_user.yml`). Выбрать единый термин (client или user) и применить ко всем playbooks, ролям, переменным и документации
-   - Переименовать плейбуки: либо `add_client.yml` + `add_xray_client.yml`, либо `add_user.yml` + `add_xray_user.yml`
-   - Привести в соответствие переменные, шаблоны, команды бота (`/add_client`, `/clients` vs `/add_xray`, `/users`)
-   - Check: единый термин используется во всех файлах?
+7. ~~**Unify client/user terminology**~~ ✅ — unified on "client" across all playbooks, roles, variables, and docs
+   - Playbooks renamed: `add_client.yml` → `add_wg_client.yml`, `add_xray_user.yml` → `add_xray_client.yml`, `cascade.yml` → `wg_cascade.yml`, etc.
+   - XRay extra vars: `user_name`/`user_uuid` → `client_name`/`client_uuid`
+   - XRay data file: `users.json` → `clients.json` (with one-time migration task)
+   - Internal facts: `_xray_users` → `_xray_clients`, `_user_uuid` → `_client_uuid`, etc.
+   - XRay JSON protocol keys (`"clients"`, `"users"`) left unchanged (spec-dictated)
 
 ## Future: Control-Plane (Telegram Bot)
 
@@ -57,6 +59,6 @@
 
 - [ ] Server C setup — отдельный сервер с repo clone, SSH ключами к A/B
 - [ ] `bot/` scaffold — TypeScript + grammY + systemd unit
-- [ ] Команды: `/add_client`, `/add_xray`, `/status`, `/update`, `/reboot`, `/clients`, `/users`, `/deploy` *(имена команд зависят от решения по п.8 — унификация терминологии client/user)*
+- [ ] Команды: `/add_client`, `/add_xray`, `/status`, `/update`, `/reboot`, `/clients`, `/clients_xray`, `/deploy`
 - [ ] SQLite аудит-лог
 - [ ] Ansible JSON callback parsing

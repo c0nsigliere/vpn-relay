@@ -27,7 +27,7 @@
             "port": {{ _client_port }},
             "users": [
               {
-                "id": "{{ _user_uuid }}",
+                "id": "{{ _client_uuid }}",
                 "encryption": "none"{% if xray_vless_flow | length > 0 %},
                 "flow": "{{ xray_vless_flow }}"{% endif %}
 

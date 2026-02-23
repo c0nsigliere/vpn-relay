@@ -17,7 +17,7 @@ WG cascade:  wg-clients :51888/udp  ──► wg-uplink :51821/udp ──► Int
 TCP relay:   :443/tcp ─────────────────► :443/tcp (DNAT+MASQUERADE)
              pure L4, zero secrets       XRay VLESS+Reality (systemd)
                                          Reality keys in /etc/xray/keys/
-                                         Users in /etc/xray/users.json
+                                         Clients in /etc/xray/clients.json
 ```
 
 **Critical invariants:**
@@ -31,7 +31,7 @@ TCP relay:   :443/tcp ─────────────────► :44
 
 | Group | Hosts | Role | Playbook |
 |-------|-------|------|----------|
-| `wg_cascade` | A + B | `wg_cascade` | `cascade.yml` |
+| `wg_cascade` | A + B | `wg_cascade` | `wg_cascade.yml` |
 | `relay_servers` | A | `relay` | `relay.yml` |
 | `xray_servers` | B | `xray_server` | `xray.yml` |
 | (all) | A + B | `maintenance` | `maintenance.yml` |

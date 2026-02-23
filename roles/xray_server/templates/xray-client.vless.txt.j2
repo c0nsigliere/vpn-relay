@@ -1,0 +1,1 @@
+vless://{{ _client_uuid }}@{{ _client_address }}:{{ _client_port }}?encryption=none&security=reality&sni={{ xray_reality_server_names[0] }}&fp={{ xray_reality_fingerprint }}&pbk={{ _xray_reality_pubkey }}&sid={{ _xray_shortid }}&type=tcp{% if xray_vless_flow | length > 0 %}&flow={{ xray_vless_flow }}{% endif %}#{{ _client_name }}

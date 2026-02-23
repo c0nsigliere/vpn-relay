@@ -3,10 +3,10 @@
 #
 # Usage:
 #   # Auto-assign next available IP:
-#   ansible-playbook playbooks/add_client.yml -e "client_name=alice"
+#   ansible-playbook playbooks/add_wg_client.yml -e "client_name=alice"
 #
 #   # Or specify IP explicitly:
-#   ansible-playbook playbooks/add_client.yml \
+#   ansible-playbook playbooks/add_wg_client.yml \
 #     -e "client_name=alice" -e "client_ip=10.66.0.10"
 #
 # Required extra vars:

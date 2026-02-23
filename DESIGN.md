@@ -91,7 +91,7 @@ Client → Server A (TCP relay 443)
 * SNI: `www.microsoft.com`
 * Fingerprint: `chrome`
 * Flow: `xtls-rprx-vision` (TLS-in-TLS splice, DPI protection)
-* Users хранятся в `/etc/xray/users.json`
+* Clients хранятся в `/etc/xray/clients.json`
 * Reality ключи:
 
   * `/etc/xray/keys/reality.key`
@@ -120,7 +120,7 @@ Client → Server A (TCP relay 443)
 * Только Server B
 * Установка XRay binary
 * Генерация Reality ключей
-* users.json
+* clients.json
 * systemd service
 * Firewall allow 443
 * Verify
@@ -187,7 +187,7 @@ Client → Server A (TCP relay 443)
 
 ---
 
-### playbooks/add_client.yml
+### playbooks/add_wg_client.yml
 
 Добавляет WireGuard клиента:
 
@@ -197,12 +197,12 @@ Client → Server A (TCP relay 443)
 
 ---
 
-### playbooks/add_xray_user.yml
+### playbooks/add_xray_client.yml
 
-Добавляет XRay пользователя:
+Добавляет XRay клиента:
 
 * генерит UUID
-* обновляет `/etc/xray/users.json`
+* обновляет `/etc/xray/clients.json`
 * перерендерит config.json
 * перезапускает xray
 * генерит артефакты на контроллере:
@@ -326,13 +326,13 @@ ansible-playbook playbooks/verify_all.yml
 Добавить WG клиента:
 
 ```
-ansible-playbook playbooks/add_client.yml -e "client_name=..."
+ansible-playbook playbooks/add_wg_client.yml -e "client_name=..."
 ```
 
-Добавить XRay пользователя:
+Добавить XRay клиента:
 
 ```
-ansible-playbook playbooks/add_xray_user.yml -e "user_name=..."
+ansible-playbook playbooks/add_xray_client.yml -e "client_name=..."
 ```
 
 ---
@@ -385,13 +385,13 @@ Server C (control-plane)
 
 | Команда | Playbook | Результат |
 |---------|----------|-----------|
-| `/add_client <name>` | `add_client.yml` | .conf + QR в Telegram |
-| `/add_xray <name>` | `add_xray_user.yml` | VLESS URI + QR в Telegram |
+| `/add_client <name>` | `add_wg_client.yml` | .conf + QR в Telegram |
+| `/add_xray <name>` | `add_xray_client.yml` | VLESS URI + QR в Telegram |
 | `/status` | `verify_all.yml` | Сводка статуса |
 | `/update` | `maintenance.yml` | Результат обновления |
 | `/reboot` | `reboot-if-needed.yml` | Статус ребута |
 | `/clients` | wg-clients.conf с A | Список WG пиров |
-| `/users` | users.json с B | Список XRay юзеров |
+| `/clients_xray` | clients.json с B | Список XRay клиентов |
 | `/deploy` | `stack.yml` | Полный передеплой (с подтверждением) |
 
 ## Требования к Ansible для bot-ready

@@ -20,7 +20,7 @@ xray_vless_flow: "xtls-rprx-vision"
 # Paths
 xray_config_dir: "/etc/xray"
 xray_keys_dir: "/etc/xray/keys"
-xray_users_file: "/etc/xray/users.json"
+xray_clients_file: "/etc/xray/clients.json"
 xray_bin: "/usr/local/bin/xray"
 
 # Firewall management mode (shared with other roles)

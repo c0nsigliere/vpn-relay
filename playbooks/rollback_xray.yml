@@ -15,7 +15,7 @@
   vars:
     xray_config_dir: "/etc/xray"
     xray_keys_dir: "/etc/xray/keys"
-    xray_users_file: "/etc/xray/users.json"
+    xray_clients_file: "/etc/xray/clients.json"
     xray_bin: "/usr/local/bin/xray"
     xray_remove_keys: false
 
@@ -38,9 +38,9 @@
         path: "{{ xray_config_dir }}/config.json"
         state: absent
 
-    - name: Remove xray users.json
+    - name: Remove xray clients.json
       ansible.builtin.file:
-        path: "{{ xray_users_file }}"
+        path: "{{ xray_clients_file }}"
         state: absent
 
     - name: Remove xray key material

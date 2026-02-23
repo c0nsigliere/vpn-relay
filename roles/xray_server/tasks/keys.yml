@@ -70,7 +70,7 @@
         group: root
 
 # =========================================================================
-# Read keys into facts (always — needed by config.yml and add_xray_user.yml)
+# Read keys into facts (always — needed by config.yml and add_xray_client.yml)
 # =========================================================================
 
 - name: Read Reality private key into fact

@@ -2,7 +2,7 @@
 # Standalone verification playbook for WireGuard cascade
 #
 # Usage:
-#   ansible-playbook playbooks/verify_cascade.yml
+#   ansible-playbook playbooks/verify_wg_cascade.yml
 #
 # Checks:
 #   - wg show (both servers)

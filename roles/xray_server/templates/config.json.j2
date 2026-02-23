@@ -9,10 +9,10 @@
       "protocol": "vless",
       "settings": {
         "clients": [
-{% for user in _xray_users %}
+{% for client in _xray_clients %}
           {
-            "id": "{{ user.uuid }}",
-            "email": "{{ user.name }}@xray"{% if xray_vless_flow | length > 0 %},
+            "id": "{{ client.uuid }}",
+            "email": "{{ client.name }}@xray"{% if xray_vless_flow | length > 0 %},
             "flow": "{{ xray_vless_flow }}"{% endif %}
 
           }{% if not loop.last %},{% endif %}

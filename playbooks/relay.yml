@@ -1,6 +1,6 @@
 ---
 # Main playbook to configure VPN relay servers (TCP only — XRay/VLESS)
-# UDP/WireGuard is handled by the cascade role (playbooks/cascade.yml).
+# UDP/WireGuard is handled by the cascade role (playbooks/wg_cascade.yml).
 #
 # Usage:
 #   ansible-playbook playbooks/relay.yml

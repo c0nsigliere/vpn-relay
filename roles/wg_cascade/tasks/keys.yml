@@ -19,7 +19,7 @@
     fail_msg: >-
       Public key exchange requires both server_a and server_b to be in the same play.
       Cannot run keys.yml with --limit targeting only one group.
-      Run the full cascade playbook: ansible-playbook playbooks/cascade.yml
+      Run the full cascade playbook: ansible-playbook playbooks/wg_cascade.yml
   run_once: true
 
 # =============================================================================

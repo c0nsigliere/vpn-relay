@@ -15,8 +15,8 @@ server-a  ansible_host=YOUR_SERVER_A_IP
 server-b  ansible_host=YOUR_SERVER_B_IP
 
 # --- WireGuard Cascade: targets BOTH Server A and Server B ---
-# Playbooks: cascade.yml, verify_cascade.yml, rollback_cascade.yml,
-#            add_client.yml, maintenance_add_swap.yml
+# Playbooks: wg_cascade.yml, verify_wg_cascade.yml, rollback_wg_cascade.yml,
+#            add_wg_client.yml, maintenance_add_swap.yml
 # Vars:      inventory/group_vars/wg_cascade.yml
 [wg_cascade:children]
 server_a
@@ -37,7 +37,7 @@ ansible_python_interpreter=/usr/bin/python3
 ansible_user=root
 
 # --- XRay VLESS+Reality Server: targets Server B ONLY ---
-# Playbooks: xray.yml, add_xray_user.yml, verify_xray.yml, rollback_xray.yml
+# Playbooks: xray.yml, add_xray_client.yml, verify_xray.yml, rollback_xray.yml
 # Vars:      inventory/group_vars/xray_servers.yml
 [xray_servers:children]
 server_b

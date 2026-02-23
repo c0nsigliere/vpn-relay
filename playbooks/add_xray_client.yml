@@ -1,44 +1,44 @@
 ---
-# Add an XRay VLESS+Reality user to Server B
+# Add an XRay VLESS+Reality client to Server B
 #
 # Usage:
 #   # Generate UUID automatically:
-#   ansible-playbook playbooks/add_xray_user.yml -e "user_name=alice"
+#   ansible-playbook playbooks/add_xray_client.yml -e "client_name=alice"
 #
 #   # Provide UUID explicitly:
-#   ansible-playbook playbooks/add_xray_user.yml \
-#     -e "user_name=alice" -e "user_uuid=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+#   ansible-playbook playbooks/add_xray_client.yml \
+#     -e "client_name=alice" -e "client_uuid=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 #
 # Required extra vars:
-#   user_name  - Unique identifier for the user (no spaces)
+#   client_name  - Unique identifier for the client (no spaces)
 #
 # Optional extra vars:
-#   user_uuid  - UUID for the user (auto-generated if omitted)
+#   client_uuid  - UUID for the client (auto-generated if omitted)
 #
 # Output:
-#   artifacts/xray/<user_name>.vless.txt  — VLESS share URI (mobile app import)
-#   artifacts/xray/<user_name>.json       — XRay client JSON config
-#   artifacts/xray/<user_name>.vless.qr.png — QR code (if qrencode available)
+#   artifacts/xray/<client_name>.vless.txt  — VLESS share URI (mobile app import)
+#   artifacts/xray/<client_name>.json       — XRay client JSON config
+#   artifacts/xray/<client_name>.vless.qr.png — QR code (if qrencode available)
 #
 # Security note:
 #   - Reality private key never leaves Server B
 #   - Client artifacts contain ONLY public values (pubkey, shortId, UUID)
 #   - artifacts/xray/ is gitignored
 
-- name: Add XRay VLESS+Reality user
+- name: Add XRay VLESS+Reality client
   hosts: xray_servers
   become: true
 
   vars:
-    user_name: ""
-    user_uuid: ""
+    client_name: ""
+    client_uuid: ""
 
   pre_tasks:
-    - name: Assert user_name is provided
+    - name: Assert client_name is provided
       ansible.builtin.assert:
         that:
-          - user_name | length > 0
-        fail_msg: "user_name is required. Use: -e 'user_name=alice'"
+          - client_name | length > 0
+        fail_msg: "client_name is required. Use: -e 'client_name=alice'"
 
     - name: Ensure artifacts/xray directory exists on controller
       ansible.builtin.file:
@@ -58,49 +58,49 @@
         cmd: "{{ xray_bin }} uuid"
       register: _xray_uuid_output
       changed_when: false
-      when: user_uuid | length == 0
+      when: client_uuid | length == 0
 
-    - name: Set user UUID fact
+    - name: Set client UUID fact
       ansible.builtin.set_fact:
-        _user_uuid: "{{ user_uuid if user_uuid | length > 0 else _xray_uuid_output.stdout | trim }}"
+        _client_uuid: "{{ client_uuid if client_uuid | length > 0 else _xray_uuid_output.stdout | trim }}"
 
-    - name: Display new user info
+    - name: Display new client info
       ansible.builtin.debug:
-        msg: "Adding user '{{ user_name }}' with UUID {{ _user_uuid }}"
+        msg: "Adding client '{{ client_name }}' with UUID {{ _client_uuid }}"
 
     # =========================================================================
-    # Read and update users.json (duplicate prevention, sorted by name)
+    # Read and update clients.json (duplicate prevention, sorted by name)
     # =========================================================================
 
-    - name: Read current users.json
+    - name: Read current clients.json
       ansible.builtin.slurp:
-        src: "{{ xray_users_file }}"
-      register: _xray_users_slurp
+        src: "{{ xray_clients_file }}"
+      register: _xray_clients_slurp
 
-    - name: Parse current users list
+    - name: Parse current clients list
       ansible.builtin.set_fact:
-        _xray_current_users: "{{ _xray_users_slurp.content | b64decode | from_json }}"
+        _xray_current_clients: "{{ _xray_clients_slurp.content | b64decode | from_json }}"
 
     - name: Check for duplicate name
       ansible.builtin.assert:
         that:
-          - _xray_current_users | selectattr('name', 'equalto', user_name) | list | length == 0
-        fail_msg: "User '{{ user_name }}' already exists in users.json"
+          - _xray_current_clients | selectattr('name', 'equalto', client_name) | list | length == 0
+        fail_msg: "Client '{{ client_name }}' already exists in clients.json"
 
     - name: Check for duplicate UUID
       ansible.builtin.assert:
         that:
-          - _xray_current_users | selectattr('uuid', 'equalto', _user_uuid) | list | length == 0
-        fail_msg: "UUID '{{ _user_uuid }}' already exists in users.json"
+          - _xray_current_clients | selectattr('uuid', 'equalto', _client_uuid) | list | length == 0
+        fail_msg: "UUID '{{ _client_uuid }}' already exists in clients.json"
 
-    - name: Build updated users list (sorted by name)
+    - name: Build updated clients list (sorted by name)
       ansible.builtin.set_fact:
-        _xray_updated_users: "{{ (_xray_current_users + [{'name': user_name, 'uuid': _user_uuid}]) | sort(attribute='name') }}"
+        _xray_updated_clients: "{{ (_xray_current_clients + [{'name': client_name, 'uuid': _client_uuid}]) | sort(attribute='name') }}"
 
-    - name: Write updated users.json
+    - name: Write updated clients.json
       ansible.builtin.copy:
-        content: "{{ _xray_updated_users | to_nice_json }}"
-        dest: "{{ xray_users_file }}"
+        content: "{{ _xray_updated_clients | to_nice_json }}"
+        dest: "{{ xray_clients_file }}"
         mode: '0600'
         owner: root
         group: root
@@ -114,9 +114,9 @@
         name: xray_server
         tasks_from: keys
 
-    - name: Re-parse users for config template
+    - name: Re-parse clients for config template
       ansible.builtin.set_fact:
-        _xray_users: "{{ _xray_updated_users }}"
+        _xray_clients: "{{ _xray_updated_clients }}"
 
     - name: Re-template XRay config.json
       ansible.builtin.template:
@@ -127,7 +127,7 @@
         group: root
       no_log: true
 
-    - name: Restart xray to pick up new user
+    - name: Restart xray to pick up new client
       ansible.builtin.systemd:
         name: xray
         state: restarted
@@ -140,27 +140,27 @@
       ansible.builtin.set_fact:
         _client_address: "{{ hostvars[groups['server_a'][0]]['ansible_host'] }}"
         _client_port: "{{ port_a_tcp | default(443) }}"
-        _user_name: "{{ user_name }}"
+        _client_name: "{{ client_name }}"
 
     - name: Generate VLESS share URI
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../roles/xray_server/templates/xray-user.vless.txt.j2"
-        dest: "{{ playbook_dir }}/../artifacts/xray/{{ user_name }}.vless.txt"
+        src: "{{ playbook_dir }}/../roles/xray_server/templates/xray-client.vless.txt.j2"
+        dest: "{{ playbook_dir }}/../artifacts/xray/{{ client_name }}.vless.txt"
         mode: '0600'
       delegate_to: localhost
       become: false
 
     - name: Generate XRay client JSON config
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../roles/xray_server/templates/xray-user.json.j2"
-        dest: "{{ playbook_dir }}/../artifacts/xray/{{ user_name }}.json"
+        src: "{{ playbook_dir }}/../roles/xray_server/templates/xray-client.json.j2"
+        dest: "{{ playbook_dir }}/../artifacts/xray/{{ client_name }}.json"
         mode: '0600'
       delegate_to: localhost
       become: false
 
     - name: Read generated VLESS URI for QR and display
       ansible.builtin.slurp:
-        src: "{{ playbook_dir }}/../artifacts/xray/{{ user_name }}.vless.txt"
+        src: "{{ playbook_dir }}/../artifacts/xray/{{ client_name }}.vless.txt"
       register: _vless_uri_slurp
       delegate_to: localhost
       become: false
@@ -184,7 +184,7 @@
 
     - name: Generate QR code PNG
       ansible.builtin.command:
-        cmd: "qrencode -o {{ playbook_dir }}/../artifacts/xray/{{ user_name }}.vless.qr.png '{{ _vless_uri }}'"
+        cmd: "qrencode -o {{ playbook_dir }}/../artifacts/xray/{{ client_name }}.vless.qr.png '{{ _vless_uri }}'"
       delegate_to: localhost
       become: false
       when: _qrencode_check.rc == 0
@@ -199,17 +199,17 @@
     # Summary
     # =========================================================================
 
-    - name: Display user creation summary
+    - name: Display client creation summary
       ansible.builtin.debug:
         msg: |
-          XRay user '{{ user_name }}' added successfully.
+          XRay client '{{ client_name }}' added successfully.
 
           VLESS URI (safe to share — contains only public values):
             {{ _vless_uri }}
 
           Client artifacts:
-            artifacts/xray/{{ user_name }}.vless.txt   — VLESS share link
-            artifacts/xray/{{ user_name }}.json         — XRay client config
-            {{ 'artifacts/xray/' + user_name + '.vless.qr.png — QR code' if _qrencode_check.rc == 0 else '(QR code skipped — install qrencode)' }}
+            artifacts/xray/{{ client_name }}.vless.txt   — VLESS share link
+            artifacts/xray/{{ client_name }}.json         — XRay client config
+            {{ 'artifacts/xray/' + client_name + '.vless.qr.png — QR code' if _qrencode_check.rc == 0 else '(QR code skipped — install qrencode)' }}
 
           Endpoint: {{ _client_address }}:{{ _client_port }}

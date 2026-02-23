@@ -1,5 +1,5 @@
 ---
-# Read users.json and template XRay config.json
+# Read clients.json and template XRay config.json
 
 - name: Ensure xray config directory exists
   ansible.builtin.file:
@@ -9,28 +9,41 @@
     owner: root
     group: root
 
-- name: Check if users.json exists
+# One-time migration: rename users.json → clients.json (idempotent)
+- name: Check if legacy users.json exists
   ansible.builtin.stat:
-    path: "{{ xray_users_file }}"
-  register: _xray_users_stat
+    path: "{{ xray_config_dir }}/users.json"
+  register: _xray_legacy_users_stat
 
-- name: Create empty users.json if missing
+- name: Rename users.json → clients.json (one-time migration)
+  ansible.builtin.command:
+    cmd: "mv {{ xray_config_dir }}/users.json {{ xray_clients_file }}"
+  when:
+    - _xray_legacy_users_stat.stat.exists
+  changed_when: true
+
+- name: Check if clients.json exists
+  ansible.builtin.stat:
+    path: "{{ xray_clients_file }}"
+  register: _xray_clients_stat
+
+- name: Create empty clients.json if missing
   ansible.builtin.copy:
     content: "[]"
-    dest: "{{ xray_users_file }}"
+    dest: "{{ xray_clients_file }}"
     mode: '0600'
     owner: root
     group: root
-  when: not _xray_users_stat.stat.exists
+  when: not _xray_clients_stat.stat.exists
 
-- name: Read users.json
+- name: Read clients.json
   ansible.builtin.slurp:
-    src: "{{ xray_users_file }}"
-  register: _xray_users_slurp
+    src: "{{ xray_clients_file }}"
+  register: _xray_clients_slurp
 
-- name: Parse users list
+- name: Parse clients list
   ansible.builtin.set_fact:
-    _xray_users: "{{ _xray_users_slurp.content | b64decode | from_json }}"
+    _xray_clients: "{{ _xray_clients_slurp.content | b64decode | from_json }}"
 
 - name: Template XRay config.json
   ansible.builtin.template:

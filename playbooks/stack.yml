@@ -27,7 +27,7 @@
   ansible.builtin.import_playbook: maintenance_add_swap.yml
 
 - name: "Stack [3/6]: WireGuard cascade"
-  ansible.builtin.import_playbook: cascade.yml
+  ansible.builtin.import_playbook: wg_cascade.yml
 
 - name: "Stack [4/6]: XRay VLESS+Reality"
   ansible.builtin.import_playbook: xray.yml

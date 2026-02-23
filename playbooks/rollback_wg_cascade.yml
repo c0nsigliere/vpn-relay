@@ -2,9 +2,9 @@
 # Rollback / teardown WireGuard cascade VPN
 #
 # Usage:
-#   ansible-playbook playbooks/rollback_cascade.yml
-#   ansible-playbook playbooks/rollback_cascade.yml --tags server_a  # Server A only
-#   ansible-playbook playbooks/rollback_cascade.yml -e "wg_cascade_remove_keys=true"  # also delete keys
+#   ansible-playbook playbooks/rollback_wg_cascade.yml
+#   ansible-playbook playbooks/rollback_wg_cascade.yml --tags server_a  # Server A only
+#   ansible-playbook playbooks/rollback_wg_cascade.yml -e "wg_cascade_remove_keys=true"  # also delete keys
 #
 # This will:
 #   - Stop and disable wg-quick@wg-clients and wg-quick@wg-uplink
