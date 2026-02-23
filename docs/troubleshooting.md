@@ -58,7 +58,7 @@ Typical causes in order:
 
 3. **MASQUERADE missing on B** — `iptables -t nat -L POSTROUTING -n -v` on B shows no rule for `10.200.0.0/30`. Re-run: `ansible-playbook playbooks/cascade.yml --tags firewall`.
 
-4. **Port conflict on Server B** — If Amnezia is using port 51820 and `wg_uplink_port_b=51821` but B's firewall blocks 51821. Open it: re-run cascade with `--tags firewall` or allow 51821/udp manually.
+4. **Port conflict on Server B** — If another WireGuard instance is using port 51820 and B's firewall blocks `wg_uplink_port_b`. Open it: re-run cascade with `--tags firewall` or allow the port manually.
 
 5. **wg-clients started before wg-uplink** — `ip route show table 200` is empty. Restart in order:
    ```bash
@@ -82,7 +82,7 @@ ansible-playbook playbooks/cascade.yml
 
 ### wg_uplink_port_b hard-fail at 51820
 
-Amnezia/AWG on Server B almost certainly listens on 51820. Use a different port:
+Port 51820 is the WireGuard default and may already be in use on Server B. Use a different port:
 ```yaml
 # inventory/group_vars/wg_cascade.yml
 wg_uplink_port_b: 51821
@@ -94,7 +94,7 @@ ansible-playbook playbooks/cascade.yml -e "wg_uplink_allow_default_port=true"
 
 ### apt hangs or OOM during package installation (low RAM)
 
-Server B runs Amnezia + Docker which can leave very little free RAM. The `--tags validate`
+Low-RAM servers may not have enough free memory for apt. The `--tags validate`
 pre-check will warn if free RAM is below 128 MB. Add swap automatically:
 
 ```bash

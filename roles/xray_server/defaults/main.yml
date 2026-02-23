@@ -31,8 +31,5 @@ manage_ufw: "keep"
 # WAN interface — leave empty for auto-detection
 wan_if: ""
 
-# Stop conflicting Amnezia/Docker containers on xray_port
-xray_takeover_443: true
-
 # Rollback: also remove key material
 xray_remove_keys: false

@@ -13,7 +13,7 @@ wg_uplink_addr_b: "10.200.0.2/30"
 wg_uplink_port_b: 51821
 
 # Safety override: set to true only after confirming port 51820 is free on Server B.
-# (51820 is the WireGuard/Amnezia default — likely in use on B already.)
+# (51820 is the WireGuard default — commonly used by other instances.)
 wg_uplink_allow_default_port: false
 
 # --- Server B WAN IP — REQUIRED, no default ---

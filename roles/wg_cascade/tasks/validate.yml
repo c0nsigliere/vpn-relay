@@ -63,14 +63,14 @@
     fail_msg: "wg_clients_net ({{ wg_clients_net }}) and wg_uplink_net ({{ wg_uplink_net }}) must be different"
     success_msg: "Cascade subnets are different"
 
-- name: Hard-fail if wg_uplink_port_b is 51820 (Amnezia/WireGuard default — likely in use on B)
+- name: Hard-fail if wg_uplink_port_b is 51820 (WireGuard default — likely in use on B)
   ansible.builtin.assert:
     that:
       - wg_uplink_allow_default_port | default(false) | bool
     fail_msg: >-
-      wg_uplink_port_b={{ wg_uplink_port_b }} conflicts with the WireGuard default port.
-      Server B runs Amnezia Docker which almost certainly listens on 51820/udp already.
-      Change wg_uplink_port_b to a different port in group_vars/all.yml (e.g. 51821).
+      wg_uplink_port_b={{ wg_uplink_port_b }} conflicts with the WireGuard default port
+      (51820/udp is commonly used by other WireGuard instances).
+      Change wg_uplink_port_b to a different port in group_vars (e.g. 51821).
       If you have confirmed port 51820 is free on Server B, pass:
         -e "wg_uplink_allow_default_port=true"
   when:

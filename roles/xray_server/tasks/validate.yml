@@ -81,58 +81,12 @@
   changed_when: false
   failed_when: false
 
-- name: Handle port conflict with Amnezia/Docker container
-  when:
-    - _port_check.stdout | length > 0
-    - xray_takeover_443 | bool
-  block:
-    - name: Detect Docker container using the port
-      ansible.builtin.shell:
-        cmd: >-
-          docker ps --format '{{ '{{' }}.Names{{ '}}' }}' --filter "publish={{ xray_port }}" 2>/dev/null || true
-        executable: /bin/bash
-      register: _docker_container
-      changed_when: false
-      failed_when: false
-
-    - name: Stop conflicting Docker container
-      ansible.builtin.shell:
-        cmd: "docker stop {{ _docker_container.stdout_lines[0] }}"
-        executable: /bin/bash
-      when:
-        - _docker_container.stdout_lines | length > 0
-      register: _docker_stop
-      changed_when: _docker_stop.rc == 0
-      failed_when: false
-
-    - name: Disable conflicting Docker container auto-start
-      ansible.builtin.shell:
-        cmd: "docker update --restart=no {{ _docker_container.stdout_lines[0] }}"
-        executable: /bin/bash
-      when:
-        - _docker_container.stdout_lines | length > 0
-        - _docker_stop is changed
-      changed_when: true
-      failed_when: false
-
-- name: Re-check port after container stop
-  ansible.builtin.shell:
-    cmd: "ss -lntp sport = :{{ xray_port }} | tail -n +2"
-    executable: /bin/bash
-  register: _port_recheck
-  changed_when: false
-  failed_when: false
-  when:
-    - _port_check.stdout | length > 0
-    - xray_takeover_443 | bool
-
-- name: Fail if port is still occupied by non-xray process
+- name: Fail if port is occupied by non-xray process
   ansible.builtin.fail:
     msg: >-
       Port {{ xray_port }} is already in use:
-      {{ (_port_recheck.stdout | default(_port_check.stdout)) }}
+      {{ _port_check.stdout }}
       Stop the conflicting process or choose a different xray_port.
-      If this is a Docker/Amnezia container, set xray_takeover_443=true.
   when:
-    - (_port_recheck.stdout | default(_port_check.stdout)) | length > 0
-    - "'xray' not in (_port_recheck.stdout | default(_port_check.stdout))"
+    - _port_check.stdout | length > 0
+    - "'xray' not in _port_check.stdout"

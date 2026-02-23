@@ -21,8 +21,8 @@ All three can run simultaneously. The cascade replaces the broken UDP relay for 
 │  Client  │ ────────────────>  │   Server A       │ ────────────────>  │   Server B       │
 │          │    :51888/udp      │  10.66.0.1/24    │    :51821/udp      │  10.200.0.2/30   │
 │ own keys │                    │  10.200.0.1/30   │                    │  MASQUERADE→WAN  │
-│ A's IP   │                    │  ip rule table   │                    │  (Amnezia Docker │
-└──────────┘                    │  200 (SSH safe)  │                    │   untouched)     │
+│ A's IP   │                    │  ip rule table   │                    │                  │
+└──────────┘                    │  200 (SSH safe)  │                    │                  │
                                 └──────────────────┘                    └──────────────────┘
 ```
 
@@ -202,27 +202,6 @@ ansible-playbook playbooks/verify_all.yml
 
 ---
 
-## Clean Up Legacy AWG Relay Leftovers
-
-If you previously used the AWG UDP relay (pre-cascade era), old iptables/UFW rules may linger.
-
-### Detect
-
-```bash
-grep "VPN-RELAY" /etc/ufw/before.rules   # should return nothing
-iptables -t nat -S PREROUTING            # no old DNAT rules
-```
-
-### Remove
-
-```bash
-ansible-playbook playbooks/cleanup_legacy_relay.yml
-```
-
-Safe to run multiple times. Does not touch current cascade or XRay relay rules.
-
----
-
 ## Variable Reference
 
 ### Shared (`all.yml`)
@@ -270,7 +249,6 @@ Safe to run multiple times. Does not touch current cascade or XRay relay rules.
 | `xray_reality_server_names` | `[www.cloudflare.com]` | Reality SNI list |
 | `xray_reality_fingerprint` | `chrome` | TLS fingerprint |
 | `xray_vless_flow` | (empty) | VLESS flow (e.g. `xtls-rprx-vision`) |
-| `xray_takeover_443` | `true` | Stop Docker containers on port conflict |
 | `xray_remove_keys` | `false` | Remove keys during rollback |
 
 ---
@@ -358,7 +336,6 @@ vpn-relay/
 │   ├── verify_xray.yml                  # Standalone XRay verification
 │   ├── rollback_xray.yml               # Teardown XRay server
 │   ├── rollback.yml                     # Remove XRay relay config
-│   ├── cleanup_legacy_relay.yml         # Remove old AWG relay leftovers
 │   ├── maintenance_add_swap.yml         # Add swapfile if missing
 │   ├── update.yml                       # Safe package update (no reboot)
 │   ├── upgrade.yml                      # dist-upgrade (maintenance window)

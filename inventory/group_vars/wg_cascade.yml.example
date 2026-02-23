@@ -11,7 +11,7 @@ wg_clients_port: 51888
 wg_uplink_net: "10.200.0.0/30"
 wg_uplink_addr_a: "10.200.0.1/30"
 wg_uplink_addr_b: "10.200.0.2/30"
-wg_uplink_port_b: 51821         # Avoid 51820 (Amnezia default on B)
+wg_uplink_port_b: 51821         # Avoid 51820 (WireGuard default, often in use)
 
 # DNS embedded in generated client configs
 wg_client_dns: "1.1.1.1,1.0.0.1"

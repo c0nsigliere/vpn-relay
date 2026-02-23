@@ -5,7 +5,7 @@
 #
 # Default setup uses both features on the same server pair:
 #   Server A — relay entry point + cascade node A
-#   Server B — VPN endpoint + cascade node B (may run Amnezia Docker)
+#   Server B — VPN endpoint + cascade node B
 
 # --- Host definitions (fill in real IPs) ---
 [server_a]
