@@ -6,7 +6,6 @@
 #   3. Optional dist-upgrade (when do_dist_upgrade=true)
 #   4. Reboot if /var/run/reboot-required exists (when maintenance_reboot=true)
 #   5. Post-maintenance health checks
-#   6. Relay verify (confirms relay is still operational)
 #
 # Usage:
 #   # Standard safe update (default - recommended for routine maintenance)
@@ -41,7 +40,6 @@
 #   upgrade       - dist-upgrade only (requires do_dist_upgrade=true)
 #   reboot        - Conditional reboot only
 #   health        - Health checks only (maintenance role)
-#   verify        - Health checks + relay verification
 #   unattended    - unattended-upgrades management only
 
 - name: Full maintenance workflow
@@ -50,22 +48,3 @@
 
   roles:
     - maintenance
-
-  post_tasks:
-    - name: Run relay verify (relay_servers hosts only)
-      ansible.builtin.import_role:
-        name: relay
-        tasks_from: verify
-      when: "'relay_servers' in group_names"
-      tags:
-        - verify
-        - maintenance
-
-    - name: Run cascade verify (wg_cascade hosts only)
-      ansible.builtin.import_role:
-        name: wg_cascade
-        tasks_from: verify
-      when: "'wg_cascade' in group_names"
-      tags:
-        - verify
-        - maintenance

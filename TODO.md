@@ -53,6 +53,24 @@
    - Internal facts: `_xray_users` → `_xray_clients`, `_user_uuid` → `_client_uuid`, etc.
    - XRay JSON protocol keys (`"clients"`, `"users"`) left unchanged (spec-dictated)
 
+## Priorities (continued)
+
+- [x] **`health.yml` false-fails on fresh servers** ✅ — all CRITICAL assertions and iptables
+  display tasks now gated on `/etc/sysctl.d/99-vpn-relay.conf` existing (deployment state
+  probe). Fresh servers skip ip_forward / UFW / rules.v4 / iptables checks with a warning;
+  regressions on configured servers still hard-fail as intended. Duplicate sysctl stat block
+  removed. iptables tasks also carry `failed_when: false` as belt-and-suspenders against
+  missing binary on fresh Ubuntu 22+ hosts.
+
+- [x] **Strip service verification from maintenance.yml** ✅ — removed `post_tasks` blocks that
+  duplicated `relay/tasks/verify.yml` and `wg_cascade/tasks/verify.yml`; removed iptables counter
+  and listening-port display tasks from `health.yml` (covered by dedicated verify playbooks);
+  kept hard-fail assertions (`ip_forward`, UFW active, `rules.v4`) which are unique post-maintenance checks.
+
+- [ ] **Remove plaintext `ansible_password` from `inventory/inventory.ini`** — run `bootstrap_ssh.yml`
+  to push SSH keys to both servers, verify key login works, run `--tags harden` to disable
+  password auth, then delete the `ansible_password=` lines from inventory.
+
 ## Future: Control-Plane (Telegram Bot)
 
 Спроектирован, не реализован. Подробности в DESIGN.md, секция "Control-Plane".

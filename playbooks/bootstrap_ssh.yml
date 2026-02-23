@@ -1,0 +1,178 @@
+---
+# =============================================================================
+# Bootstrap SSH Key Authentication
+# =============================================================================
+# Transitions servers from root password login to SSH key authentication.
+#
+# WORKFLOW (two separate runs to avoid lockout):
+#
+#   Step 1 — push key (still using ansible_password from inventory):
+#     ansible-playbook playbooks/bootstrap_ssh.yml --tags push_key \
+#       -e "ssh_public_key_file=~/.ssh/id_rsa.pub"
+#
+#   Verify manually that key works:
+#     ssh root@<server-a>
+#     ssh root@<server-b>
+#
+#   Step 2 — disable password auth (now using SSH key):
+#     Remove ansible_password lines from inventory/inventory.ini first, then:
+#     ansible-playbook playbooks/bootstrap_ssh.yml --tags harden
+#
+# VARIABLES:
+#   ssh_public_key_file  — path to public key on controller (default: ~/.ssh/id_rsa.pub)
+#   ssh_public_key       — key content as string (alternative to ssh_public_key_file)
+#   ssh_key_type         — key type to generate if missing: ed25519 (default) or rsa
+# =============================================================================
+
+- name: Generate SSH keypair on controller (if missing)
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tags: [push_key]
+
+  vars:
+    ssh_public_key_file: "~/.ssh/id_rsa.pub"
+    ssh_key_type: "ed25519"
+
+  tasks:
+    - name: Remove stale SSH host keys from known_hosts (safe on first bootstrap)
+      known_hosts:
+        name: "{{ hostvars[item]['ansible_host'] | default(item) }}"
+        state: absent
+      loop: "{{ groups['all'] | reject('equalto', 'localhost') | list }}"
+
+    - name: Check if public key file already exists
+      stat:
+        path: "{{ ssh_public_key_file }}"
+      register: _key_file_stat
+      when: ssh_public_key is not defined
+
+    - name: Generate SSH keypair (key file missing and no inline key provided)
+      community.crypto.openssh_keypair:
+        path: "{{ ssh_public_key_file | regex_replace('\\.pub$', '') }}"
+        type: "{{ ssh_key_type }}"
+        comment: "ansible-bootstrap"
+      when:
+        - ssh_public_key is not defined
+        - not _key_file_stat.stat.exists
+      register: _generated_key
+
+    - name: Report generated key
+      debug:
+        msg: >
+          Generated new SSH keypair: {{ _generated_key.filename }}
+          Public key: {{ _generated_key.public_key }}
+      when: _generated_key is changed
+
+
+- name: Push SSH public key to servers
+  hosts: all
+  gather_facts: false
+  tags: [push_key]
+
+  vars:
+    ssh_public_key_file: "~/.ssh/id_rsa.pub"
+
+  tasks:
+    - name: Read public key from file
+      delegate_to: localhost
+      become: false
+      slurp:
+        src: "{{ ssh_public_key_file }}"
+      register: _key_file_content
+      when: ssh_public_key is not defined
+
+    - name: Set _resolved_key fact
+      set_fact:
+        _resolved_key: >-
+          {{ ssh_public_key
+             if ssh_public_key is defined
+             else (_key_file_content.content | b64decode | trim) }}
+
+    - name: Validate — key looks like a public key
+      assert:
+        that:
+          - _resolved_key is match('^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|sk-ssh-ed25519) ')
+        fail_msg: "Provided value does not look like an SSH public key: {{ _resolved_key[:40] }}..."
+
+    - name: Ensure /root/.ssh directory exists (0700)
+      file:
+        path: /root/.ssh
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Add public key to /root/.ssh/authorized_keys
+      authorized_key:
+        user: root
+        key: "{{ _resolved_key }}"
+        state: present
+
+    - name: Report success
+      debug:
+        msg: >
+          SSH key deployed to {{ inventory_hostname }}.
+          Test with: ssh root@{{ ansible_host | default(inventory_hostname) }}
+          Then remove ansible_password from inventory and run --tags harden.
+
+
+- name: Harden SSH — disable password authentication
+  hosts: all
+  gather_facts: false
+  tags: [harden]
+
+  tasks:
+    - name: Validate — confirm authorized_keys exists before hardening
+      stat:
+        path: /root/.ssh/authorized_keys
+      register: _ak_stat
+
+    - name: Validate — abort if no authorized_keys (would lock out)
+      assert:
+        that:
+          - _ak_stat.stat.exists
+          - _ak_stat.stat.size > 0
+        fail_msg: >
+          /root/.ssh/authorized_keys is missing or empty on {{ inventory_hostname }}.
+          Run --tags push_key first and verify SSH key login works before hardening.
+
+    - name: Drop hardening config into sshd_config.d/
+      copy:
+        dest: /etc/ssh/sshd_config.d/99-harden.conf
+        content: |
+          # Managed by Ansible (bootstrap_ssh.yml) — do not edit manually
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          ChallengeResponseAuthentication no
+          PermitRootLogin prohibit-password
+        owner: root
+        group: root
+        mode: "0600"
+      notify: Reload sshd
+
+    - name: Validate sshd_config syntax before reload
+      command: sshd -t
+      changed_when: false
+
+    - name: Flush handlers (reload sshd now, before verify)
+      meta: flush_handlers
+
+    - name: Verify — sshd is still running after reload
+      service:
+        name: ssh
+        state: started
+      register: _sshd_state
+
+    - name: Verify — report hardening result
+      debug:
+        msg: >
+          SSH hardened on {{ inventory_hostname }}:
+          PasswordAuthentication=no, PermitRootLogin=prohibit-password.
+          Remove ansible_password from inventory/inventory.ini if not done yet.
+
+  handlers:
+    - name: Reload sshd
+      service:
+        name: ssh
+        state: reloaded

@@ -71,6 +71,26 @@ cp inventory/inventory.ini.example inventory/inventory.ini
 
 Fill in real IPs for `server-a` and `server-b`.
 
+### 2a. Bootstrap SSH keys (first-time setup from root password)
+
+If your servers currently use root password login, run this once to switch to key auth:
+
+```bash
+# Step 1: push your SSH public key (uses ansible_password from inventory)
+ansible-playbook playbooks/bootstrap_ssh.yml --tags push_key \
+  -e "ssh_public_key_file=~/.ssh/id_rsa.pub"
+
+# Verify key login works manually:
+ssh root@<server-a-ip>
+ssh root@<server-b-ip>
+
+# Step 2: disable password authentication on both servers
+ansible-playbook playbooks/bootstrap_ssh.yml --tags harden
+```
+
+After step 2 succeeds, **remove `ansible_password` lines from `inventory/inventory.ini`**.
+The servers will reject password logins going forward.
+
 ### 3. Copy and edit group_vars
 
 ```bash
@@ -269,9 +289,13 @@ ansible-playbook playbooks/verify_all.yml
 
 `validate` `install` `keys` `config` `firewall` `service` `verify`
 
+### `bootstrap_ssh.yml`
+
+`push_key` `harden`
+
 ### `maintenance.yml`
 
-`maintenance` `update` `upgrade` `reboot` `health` `verify` `unattended`
+`maintenance` `update` `upgrade` `reboot` `health` `unattended`
 
 ---
 
@@ -339,6 +363,7 @@ vpn-relay/
 │   ├── verify_xray.yml                  # Standalone XRay verification
 │   ├── rollback_xray.yml               # Teardown XRay server
 │   ├── rollback.yml                     # Remove XRay relay config
+│   ├── bootstrap_ssh.yml                # First-time: push SSH key + harden sshd
 │   ├── maintenance_add_swap.yml         # Add swapfile if missing
 │   ├── update.yml                       # Safe package update (no reboot)
 │   ├── upgrade.yml                      # dist-upgrade (maintenance window)
