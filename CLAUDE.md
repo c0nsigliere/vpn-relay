@@ -83,3 +83,16 @@ See `TODO.md` for the full list. Target architecture is in `DESIGN.md`. Key them
 - `cleanup_legacy_relay.yml` should be deleted
 - `verify_all.yml` missing memory/swap checks
 - No `stack.yml` single entrypoint yet
+
+## DPI Evasion Notes
+
+Operational guidance for avoiding deep packet inspection fingerprinting:
+
+- **Relay port:** Port 8443 is a known DPI red flag for TLS tunnels. If port 443
+  is available on Server A, use it instead (`port_a_tcp: 443` in group vars).
+- **Reality SNI:** Using `www.cloudflare.com` as SNI while the client connects to
+  a Russian IP creates a detectable mismatch. Choose a geo-neutral domain that
+  plausibly resolves near Server A's location.
+- **VLESS flow:** Set `xray_vless_flow: "xtls-rprx-vision"` to enable TLS-in-TLS
+  splice protection. The variable is already supported in templates; it is empty
+  by default to avoid breaking existing clients.

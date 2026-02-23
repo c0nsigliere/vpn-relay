@@ -15,3 +15,9 @@ Everything already works on clean servers — this is cosmetic/hygiene cleanup.
 - [x] `roles/wg_cascade/defaults/main.yml` — remove Amnezia references from comments
 - [x] `inventory/inventory.ini.example` — remove "may run Amnezia Docker" from comment
 - [x] `inventory/group_vars/wg_cascade.yml.example` — remove "Amnezia default" from comment
+
+## DPI hardening and verification improvements
+
+- [ ] **MSS clamping** — add `iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu` rules in `roles/wg_cascade/tasks/firewall_keep.yml` and `firewall_disable.yml` to prevent MTU-related black holes through the WireGuard tunnel
+- [ ] **External reachability checks** — add `wait_for` or `uri` tasks in verify playbooks that test connectivity from the Ansible controller (delegate_to: localhost) to confirm the relay and XRay ports are reachable from outside
+- [ ] **Default VLESS flow** — evaluate changing `xray_vless_flow` default to `xtls-rprx-vision` for TLS-in-TLS splice protection; requires coordinating with existing clients before switching
