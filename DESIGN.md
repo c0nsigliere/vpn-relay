@@ -264,7 +264,6 @@ relay_servers:
 * wg_uplink_addr_a
 * wg_uplink_addr_b
 * wg_uplink_port_b
-* ip_b_public (может вычисляться из hostvars server_b)
 
 ## Relay
 

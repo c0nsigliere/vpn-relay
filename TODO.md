@@ -2,6 +2,8 @@
 
 ## Completed
 
+- [x] **Unify IP variable** — removed `ip_b_public` from `inventory/group_vars/all.yml` and `DESIGN.md`; canonical variable is `server_b_public_ip`
+
 - [x] **Legacy cleanup** — remove Amnezia/Docker references from codebase
   - `roles/xray_server/tasks/validate.yml` — removed Docker takeover block and `xray_takeover_443` variable
   - `roles/wg_cascade/tasks/validate.yml` — softened 51820 hard-fail (removed Amnezia references)
@@ -16,28 +18,30 @@
 
 ## Priorities (in order)
 
-1. **Unify IP variable** — remove `ip_b_public`, keep `server_b_public_ip`
-   - Check: `inventory/group_vars/all.yml` still has `ip_b_public`?
-
-2. **Memory checks in verify_all.yml** — add memory/swap warnings
+1. **Memory checks in verify_all.yml** — add memory/swap warnings
    - Reuse logic from `roles/wg_cascade/tasks/memory.yml`
    - Check: `playbooks/verify_all.yml` includes memory/swap checks?
 
-3. **Create stack.yml** — single entrypoint: maintenance → swap → cascade → xray → relay → verify
+2. **Create stack.yml** — single entrypoint: maintenance → swap → cascade → xray → relay → verify
    - Check: `playbooks/stack.yml` exists?
 
-4. **Update DESIGN.md** — sync with actual state after above items
+3. **Update DESIGN.md** — sync with actual state after above items
 
-5. **MSS clamping** — add TCPMSS rules in wg_cascade firewall tasks
+4. **MSS clamping** — add TCPMSS rules in wg_cascade firewall tasks
    - Add `iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu` in `firewall_keep.yml` and `firewall_disable.yml`
    - Check: `roles/wg_cascade/tasks/firewall_keep.yml` has TCPMSS rules?
 
-6. **External reachability verify** — controller-side `wait_for`/`uri` checks
+5. **External reachability verify** — controller-side `wait_for`/`uri` checks
    - Add tasks in verify playbooks that test connectivity from Ansible controller
    - Check: verify playbooks have `delegate_to: localhost` checks?
 
-7. **DPI evasion defaults** — evaluate relay port 443, geo-neutral SNI, `xtls-rprx-vision` flow
+6. **DPI evasion defaults** — evaluate relay port 443, geo-neutral SNI, `xtls-rprx-vision` flow
    - See CLAUDE.md "DPI Evasion Notes" for details
+
+7. **Unify client/user terminology** — в проекте WireGuard-сущности называются "client" (`add_client.yml`), а XRay — "user" (`add_xray_user.yml`). Выбрать единый термин (client или user) и применить ко всем playbooks, ролям, переменным и документации
+   - Переименовать плейбуки: либо `add_client.yml` + `add_xray_client.yml`, либо `add_user.yml` + `add_xray_user.yml`
+   - Привести в соответствие переменные, шаблоны, команды бота (`/add_client`, `/clients` vs `/add_xray`, `/users`)
+   - Check: единый термин используется во всех файлах?
 
 ## Future: Control-Plane (Telegram Bot)
 
@@ -45,6 +49,6 @@
 
 - [ ] Server C setup — отдельный сервер с repo clone, SSH ключами к A/B
 - [ ] `bot/` scaffold — TypeScript + grammY + systemd unit
-- [ ] Команды: `/add_client`, `/add_xray`, `/status`, `/update`, `/reboot`, `/clients`, `/users`, `/deploy`
+- [ ] Команды: `/add_client`, `/add_xray`, `/status`, `/update`, `/reboot`, `/clients`, `/users`, `/deploy` *(имена команд зависят от решения по п.8 — унификация терминологии client/user)*
 - [ ] SQLite аудит-лог
 - [ ] Ansible JSON callback parsing
