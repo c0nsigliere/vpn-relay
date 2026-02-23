@@ -40,8 +40,11 @@
    - UDP WireGuard ports excluded (stateless, requires live WG client)
    - Tags: `verify`, `reachability` — run subset with `--tags reachability`
 
-6. **DPI evasion defaults** — evaluate relay port 443, geo-neutral SNI, `xtls-rprx-vision` flow
-   - See CLAUDE.md "DPI Evasion Notes" for details
+6. ~~**DPI evasion defaults**~~ ✅ — baked better defaults into roles and inventory
+   - `port_a_tcp`: `8443` → `443` (all.yml, relay/defaults, relay_servers.yml.example)
+   - `xray_reality_dest` / `xray_reality_server_names`: `www.cloudflare.com` → `www.microsoft.com`
+   - `xray_vless_flow`: `""` → `"xtls-rprx-vision"` (xray_server/defaults, xray_servers.yml.example)
+   - Removed "DPI Evasion Notes" section from CLAUDE.md (guidance now lives in the defaults)
 
 7. **Unify client/user terminology** — в проекте WireGuard-сущности называются "client" (`add_client.yml`), а XRay — "user" (`add_xray_user.yml`). Выбрать единый термин (client или user) и применить ко всем playbooks, ролям, переменным и документации
    - Переименовать плейбуки: либо `add_client.yml` + `add_xray_client.yml`, либо `add_user.yml` + `add_xray_user.yml`

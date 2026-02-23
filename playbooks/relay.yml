@@ -7,7 +7,7 @@
 #
 # With specific options:
 #   ansible-playbook playbooks/relay.yml \
-#     -e "port_a_tcp=8443" \
+#     -e "port_a_tcp=443" \
 #     -e "manage_ufw=keep"
 #
 # Run specific tags:

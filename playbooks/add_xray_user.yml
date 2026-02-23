@@ -139,7 +139,7 @@
     - name: Set client endpoint variables
       ansible.builtin.set_fact:
         _client_address: "{{ hostvars[groups['server_a'][0]]['ansible_host'] }}"
-        _client_port: "{{ port_a_tcp | default(8443) }}"
+        _client_port: "{{ port_a_tcp | default(443) }}"
         _user_name: "{{ user_name }}"
 
     - name: Generate VLESS share URI

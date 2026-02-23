@@ -41,7 +41,7 @@ All three can run simultaneously. The cascade replaces the broken UDP relay for 
 │ B's keys │         │ DNAT+MASQ (TCP)  │         │ VLESS+Reality    │
 │ A's IP   │         │ No keys/decrypt  │         │   :443           │
 └──────────┘         └──────────────────┘         └──────────────────┘
-     :8443                                              :443
+     :443                                               :443
 ```
 
 - Client uses **Server B's keys** (relay is transparent)
@@ -238,7 +238,7 @@ ansible-playbook playbooks/verify_all.yml
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `port_a_tcp` | `8443` | TCP entry port on A |
+| `port_a_tcp` | `443` | TCP entry port on A |
 | `port_b_tcp` | `443` | TCP target port on B |
 
 ### XRay Server (`xray_servers.yml`)
@@ -247,10 +247,10 @@ ansible-playbook playbooks/verify_all.yml
 |----------|---------|-------------|
 | `xray_version` | `24.11.30` | XRay release version (GitHub tag) |
 | `xray_port` | `443` | VLESS+Reality listening port |
-| `xray_reality_dest` | `www.cloudflare.com:443` | Reality camouflage destination |
-| `xray_reality_server_names` | `[www.cloudflare.com]` | Reality SNI list |
+| `xray_reality_dest` | `www.microsoft.com:443` | Reality camouflage destination |
+| `xray_reality_server_names` | `[www.microsoft.com]` | Reality SNI list |
 | `xray_reality_fingerprint` | `chrome` | TLS fingerprint |
-| `xray_vless_flow` | (empty) | VLESS flow (e.g. `xtls-rprx-vision`) |
+| `xray_vless_flow` | `xtls-rprx-vision` | VLESS flow (set to `""` to disable) |
 | `xray_remove_keys` | `false` | Remove keys during rollback |
 
 ---

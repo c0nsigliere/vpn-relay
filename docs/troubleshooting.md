@@ -166,7 +166,7 @@ sudo tcpdump -i eth0 '(udp port 51821) or (udp port 51820 and host <server_b_ip>
 From client:
 ```bash
 # Test TCP relay (XRay)
-nc -v SERVER_A_IP 8443
+nc -v SERVER_A_IP 443
 ```
 
 ### Common Issues

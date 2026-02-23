@@ -2,7 +2,7 @@
 # Deploy XRay VLESS+Reality on Server B (native systemd service)
 #
 # Prerequisites:
-#   - relay.yml already deployed (TCP forward A:8443 -> B:443)
+#   - relay.yml already deployed (TCP forward A:443 -> B:443)
 #   - Server B reachable from controller (or via cascade/relay)
 #
 # Usage:

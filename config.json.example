@@ -19,7 +19,7 @@
                 "vnext": [
                     {
                         "address": "YOUR_RELAY_SERVER_IP",
-                        "port": 8443,
+                        "port": 443,
                         "users": [
                             {
                                 "encryption": "none",

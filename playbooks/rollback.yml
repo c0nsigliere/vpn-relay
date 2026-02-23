@@ -18,7 +18,7 @@
     # These should match the values used during setup
     # Override with -e if different
     server_b_public_ip: ""
-    port_a_tcp: 8443
+    port_a_tcp: 443
     port_b_tcp: 443
     wan_if: ""
     manage_ufw: "keep"

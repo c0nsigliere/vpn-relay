@@ -57,7 +57,7 @@ Client → Server A (wg-clients)
 ## 2️⃣ XRay Access (Proxy plane)
 
 ```
-Client → Server A (TCP relay 8443)
+Client → Server A (TCP relay 443)
         → DNAT → Server B (XRay 443)
         → Internet
 ```
@@ -66,7 +66,7 @@ Client → Server A (TCP relay 8443)
 
 * TCP relay:
 
-  * 8443/tcp → B:443/tcp (рекомендуется 443 если порт свободен — порт 8443 является DPI-маркером)
+  * 443/tcp → B:443/tcp
 * Используется роль `relay`
 * Никаких ключей XRay на A нет
 * Только DNAT + MASQUERADE
@@ -88,9 +88,9 @@ Client → Server A (TCP relay 8443)
 * Transport: TCP
 * Security: Reality
 * encryption: none
-* SNI: `www.cloudflare.com`
+* SNI: `www.microsoft.com`
 * Fingerprint: `chrome`
-* Flow: по умолчанию отсутствует; рекомендуется `xtls-rprx-vision` для защиты от DPI (TLS-in-TLS splice)
+* Flow: `xtls-rprx-vision` (TLS-in-TLS splice, DPI protection)
 * Users хранятся в `/etc/xray/users.json`
 * Reality ключи:
 
@@ -216,10 +216,10 @@ artifacts/xray/<user>.qr.png (если qrencode)
 В конфиге клиента:
 
 * address = Server A public IP
-* port = 8443
+* port = 443
 * pbk = reality public key
 * sid = shortId
-* sni = [www.cloudflare.com](http://www.cloudflare.com)
+* sni = www.microsoft.com
 * fp = chrome
 
 ---
@@ -254,7 +254,7 @@ relay_servers:
 ## Shared (group_vars/all.yml)
 
 * server_b_public_ip
-* port_a_tcp (8443)
+* port_a_tcp (443)
 * port_b_tcp (443)
 * manage_ufw
 * wan_if
@@ -273,7 +273,7 @@ relay_servers:
 ## Relay
 
 * server_b_public_ip (из group_vars/all.yml — канонический адрес B)
-* port_a_tcp = 8443
+* port_a_tcp = 443
 * port_b_tcp = 443
 
 ## XRay
@@ -344,7 +344,7 @@ ansible-playbook playbooks/add_xray_user.yml -e "user_name=..."
 * Native XRay развёрнут (systemd, без Docker)
 * Amnezia/Docker полностью удалены из кодовой базы
 * Реализован single-entry entrypoint `stack.yml`
-* DPI hardening: рекомендуется порт 443 вместо 8443 на relay, гео-нейтральный SNI вместо cloudflare, flow `xtls-rprx-vision`
+* DPI hardening: порт 443 на relay, SNI `www.microsoft.com` (гео-нейтральный), flow `xtls-rprx-vision` — активны по умолчанию
 * Control-plane (Telegram бот) — спроектирован, не реализован (см. секцию ниже)
 
 ---

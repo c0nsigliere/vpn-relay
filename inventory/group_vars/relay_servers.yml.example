@@ -4,7 +4,7 @@
 # TCP only — UDP/WireGuard is handled by the cascade role.
 
 # Entry port on Server A (what clients connect to)
-port_a_tcp: 8443
+port_a_tcp: 443
 
 # Target port on Server B (where traffic is forwarded)
 port_b_tcp: 443

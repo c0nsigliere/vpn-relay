@@ -13,7 +13,7 @@
   ansible.builtin.assert:
     that:
       - xray_reality_dest | length > 0
-    fail_msg: "xray_reality_dest must be set (e.g. 'www.cloudflare.com:443')"
+    fail_msg: "xray_reality_dest must be set (e.g. 'www.microsoft.com:443')"
     success_msg: "xray_reality_dest: {{ xray_reality_dest }}"
 
 - name: Validate xray_reality_server_names is non-empty
