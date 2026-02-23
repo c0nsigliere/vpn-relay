@@ -341,5 +341,60 @@ ansible-playbook playbooks/add_xray_user.yml -e "user_name=..."
 * Amnezia/Docker полностью удалены из кодовой базы
 * Архитектура переходит к single-entry stack
 * DPI hardening: рекомендуется порт 443 вместо 8443 на relay, гео-нейтральный SNI вместо cloudflare, flow `xtls-rprx-vision`
-* Планируется возможный control-plane (позже)
-* Возможен Telegram бот для выдачи конфигов (не реализован)
+* Control-plane (Telegram бот) — спроектирован, не реализован (см. секцию ниже)
+
+---
+
+# 🤖 Control-Plane (Telegram Bot)
+
+## Назначение
+
+Admin-only Telegram бот для управления стеком без SSH. Один пользователь (allowlist по Telegram user ID), без self-service.
+
+## Архитектура
+
+Бот живёт на отдельном Server C, чтобы A и B можно было перенакатывать независимо:
+
+```
+Server C (control-plane)
+├── repo clone + ansible
+├── SSH keys → A, B
+├── telegram bot (systemd)
+└── artifacts/ (сгенерированные конфиги)
+```
+
+Бот вызывает Ansible playbooks из этого репозитория и возвращает результат в Telegram.
+
+## Tech Stack
+
+* **TypeScript** — основной язык
+* **grammY** — Telegram bot framework (TS-first, активно поддерживается)
+* **child_process.spawn** + `ANSIBLE_STDOUT_CALLBACK=json` — вызов Ansible
+* **SQLite** (better-sqlite3 / drizzle) — аудит-лог команд
+* **systemd** — управление процессом бота
+
+## Расположение в репозитории
+
+`bot/` директория в этом же репо (монорепо). Бот тесно связан с playbooks и inventory.
+
+## Команды (целевые)
+
+| Команда | Playbook | Результат |
+|---------|----------|-----------|
+| `/add_client <name>` | `add_client.yml` | .conf + QR в Telegram |
+| `/add_xray <name>` | `add_xray_user.yml` | VLESS URI + QR в Telegram |
+| `/status` | `verify_all.yml` | Сводка статуса |
+| `/update` | `maintenance.yml` | Результат обновления |
+| `/reboot` | `reboot-if-needed.yml` | Статус ребута |
+| `/clients` | wg-clients.conf с A | Список WG пиров |
+| `/users` | users.json с B | Список XRay юзеров |
+| `/deploy` | `stack.yml` | Полный передеплой (с подтверждением) |
+
+## Требования к Ansible для bot-ready
+
+Текущая архитектура уже совместима. Принципы при доработке playbooks:
+
+1. Не добавлять `pause` / `vars_prompt` — бот не может вводить интерактивно
+2. Предсказуемые пути артефактов: `artifacts/<type>/<name>.<ext>`
+3. Относительные пути от корня репо, без хардкода абсолютных
+4. Verify playbooks — warning-only (`failed_when: false`)
