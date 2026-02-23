@@ -26,11 +26,11 @@
 2. ~~**Create stack.yml**~~ ✅ — `playbooks/stack.yml` created with import_playbook chain
    - Order: maintenance → swap → cascade → xray → relay → verify_all
 
-3. **Update DESIGN.md** — sync with actual state after above items
+3. ~~**Update DESIGN.md**~~ ✅ — sync with actual state after above items
 
-4. **MSS clamping** — add TCPMSS rules in wg_cascade firewall tasks
-   - Add `iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu` in `firewall_keep.yml` and `firewall_disable.yml`
-   - Check: `roles/wg_cascade/tasks/firewall_keep.yml` has TCPMSS rules?
+4. ~~**MSS clamping**~~ ✅ — add TCPMSS rules in wg_cascade firewall tasks
+   - `firewall_keep.yml` — `blockinfile` injects `*mangle … --clamp-mss-to-pmtu … COMMIT` before `*filter`
+   - `firewall_disable.yml` — `ansible.builtin.iptables` task on `mangle` table with `clamp_mss_to_pmtu: true`
 
 5. **External reachability verify** — controller-side `wait_for`/`uri` checks
    - Add tasks in verify playbooks that test connectivity from Ansible controller

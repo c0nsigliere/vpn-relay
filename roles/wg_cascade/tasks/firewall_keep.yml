@@ -31,6 +31,19 @@
     state: present
   notify: reload ufw
 
+- name: "Inject mangle TCPMSS rules into /etc/ufw/before.rules"
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before.rules
+    insertbefore: '^\*filter'
+    marker: "# {mark} WG-CASCADE MANGLE RULES"
+    block: |
+      *mangle
+      :FORWARD ACCEPT [0:0]
+      -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+      COMMIT
+    state: present
+  notify: reload ufw
+
 # =============================================================================
 # SERVER A: Allow client-facing WireGuard port
 # =============================================================================

@@ -19,6 +19,22 @@
     state: started
   failed_when: false
 
+- name: "Clamp TCP MSS to PMTU on FORWARD chain (mangle table)"
+  ansible.builtin.iptables:
+    table: mangle
+    chain: FORWARD
+    protocol: tcp
+    tcp_flags:
+      flags:
+        - SYN
+        - RST
+      flags_set:
+        - SYN
+    jump: TCPMSS
+    clamp_mss_to_pmtu: true
+    comment: "WG cascade: clamp MSS to PMTU"
+  notify: save netfilter rules
+
 # =============================================================================
 # SERVER A: FORWARD rules (wg-clients ↔ wg-uplink)
 # =============================================================================
