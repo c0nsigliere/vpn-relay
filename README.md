@@ -6,7 +6,7 @@ Production-ready Ansible repository for Ubuntu 22.04/24.04 supporting two VPN fo
 |------|----------|---------|
 | **WireGuard cascade** | `playbooks/wg_cascade.yml` | Client → A → B → Internet (AWG/plain WireGuard) |
 | **XRay L4 relay** | `playbooks/relay.yml` | Transparent TCP forward A → B (XRay/VLESS) |
-| **XRay VLESS+Reality** | `playbooks/xray.yml` | Native XRay server on B (VLESS+Reality :443) |
+| **XRay VLESS+Reality** | `playbooks/xray.yml` | Native XRay server on B (VLESS+Reality :8443) |
 | **Full stack** | `playbooks/stack.yml` | Single entrypoint: maintenance → swap → cascade → xray → relay → verify |
 
 All three can run simultaneously. The cascade replaces the broken UDP relay for WireGuard/AWG. The XRay relay on A forwards TCP to B where the native XRay server handles VLESS+Reality.
@@ -39,15 +39,16 @@ All three can run simultaneously. The cascade replaces the broken UDP relay for 
 │  Client  │ ──────> │   Server A       │ ──────> │   Server B       │
 │          │         │   (Relay)        │         │ XRay native svc  │
 │ B's keys │         │ DNAT+MASQ (TCP)  │         │ VLESS+Reality    │
-│ A's IP   │         │ No keys/decrypt  │         │   :443           │
+│ A's IP   │         │ No keys/decrypt  │         │   :8443          │
 └──────────┘         └──────────────────┘         └──────────────────┘
-     :443                                               :443
+     :443                                               :8443
 ```
 
 - Client uses **Server B's keys** (relay is transparent)
 - Server A forwards raw TCP to Server B unchanged (`roles/relay/`)
 - Server B runs native XRay VLESS+Reality (`roles/xray_server/`)
 - Managed by `playbooks/relay.yml` (A) + `playbooks/xray.yml` (B)
+- **From Russia**: clients connect to Server A (Russian IP) to bypass DPI — direct connections to Server B are filtered (see DPI notes below)
 
 ---
 
@@ -202,7 +203,7 @@ Expected: DNAT rules in PREROUTING, FORWARD ACCEPT rules, UFW status active (kee
 ansible-playbook playbooks/verify_xray.yml
 ```
 
-Expected: xray service active, port 443 listening, client count displayed.
+Expected: xray service active, port 8443 listening, client count displayed.
 
 ### Memory/swap checks
 
@@ -265,10 +266,10 @@ ansible-playbook playbooks/verify_all.yml
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `xray_version` | `24.11.30` | XRay release version (GitHub tag) |
-| `xray_port` | `443` | VLESS+Reality listening port |
-| `xray_reality_dest` | `www.microsoft.com:443` | Reality camouflage destination |
-| `xray_reality_server_names` | `[www.microsoft.com]` | Reality SNI list |
+| `xray_version` | `26.2.6` | XRay release version (GitHub tag) |
+| `xray_port` | `8443` | VLESS+Reality listening port |
+| `xray_reality_dest` | `www.googletagmanager.com:443` | Reality camouflage destination |
+| `xray_reality_server_names` | `[www.googletagmanager.com]` | Reality SNI list |
 | `xray_reality_fingerprint` | `chrome` | TLS fingerprint |
 | `xray_vless_flow` | `xtls-rprx-vision` | VLESS flow (set to `""` to disable) |
 | `xray_remove_keys` | `false` | Remove keys during rollback |
@@ -441,6 +442,74 @@ vpn-relay/
 - Collections: `ansible.posix`, `community.general`
 - Controller: `wireguard-tools` (for `add_wg_client.yml` client keygen)
 - Controller (optional): `qrencode` (for `add_xray_client.yml` QR code generation)
+
+## DPI Evasion Notes (Russia / TSPU)
+
+Empirically tested findings — update this section when behaviour changes.
+
+### SNI is the primary DPI bypass factor
+
+Russian TSPU specifically blocks VLESS+Reality on port 443 when the SNI matches
+well-known Reality camouflage domains. `www.microsoft.com` is catalogued and
+blocked. `www.googletagmanager.com` is not (as of 2026-02).
+
+| SNI | Port | From Russia | Notes |
+|-----|------|-------------|-------|
+| `www.microsoft.com` | 443 | ❌ | DPI drops TLS data after TCP handshake — "failed to read client hello" |
+| `www.googletagmanager.com` | 443 | ✅ | Works — DPI sees legitimate Google traffic |
+| `www.googletagmanager.com` | 8443 | ✅ | Works — less DPI scrutiny + good SNI |
+
+**Current defaults use `www.googletagmanager.com:8443`** — double protection: if
+the SNI gets catalogued, port 8443 still receives less scrutiny than 443; if
+8443 gets flagged as non-standard HTTPS, the SNI camouflage still holds.
+
+### How the relay bypasses DPI for Russian clients
+
+Direct connection (client in Russia → Server B abroad) is filtered on port 443
+with common SNIs. The relay path works because:
+
+1. Client → Server A `:443` — looks like normal HTTPS to a domestic IP
+2. Server A DNAT forwards raw TCP to Server B `:8443` — kernel-level, opaque to DPI
+3. Server B verifies the Reality handshake; from its view, source is Server A
+
+The client's Reality authentication happens end-to-end (A is a transparent byte
+relay, not a termination point). Server A never sees keys or decrypted traffic.
+
+### VLESS link strategy
+
+Generate two links per client (both in `artifacts/xray/<name>.vless.txt`):
+
+- **`#name`** — direct to Server B `:8443` — use from non-Russian locations
+- **`#name-via-relay`** — via Server A `:443` — use from Russia
+
+### xray version compatibility
+
+Reality protocol handshake is not backward compatible across major versions.
+Clients running xray 26.x fail to authenticate against a server running 24.x
+("failed to read client hello" / "processed invalid connection").
+
+**Keep server and client xray versions in sync.** Pin `xray_version` in
+`roles/xray_server/defaults/main.yml` and update when clients upgrade.
+
+### Diagnosing DPI issues
+
+```bash
+# Does the server see the ClientHello at all?
+# Enable debug on server-b and watch logs while client connects:
+ssh root@<server-b> "journalctl -u xray -f"
+
+# "failed to read client hello" → DPI is dropping TLS data before it reaches the server
+# "processed invalid connection" → connection reaches server, Reality auth fails (wrong keys/SNI)
+# "received real certificate" (client-side) → server rejected auth, fell back to camouflage site
+
+# Test TCP reachability:
+nc -zv <server-b-ip> <port>
+
+# Test Reality fallback (non-VLESS client — should return camouflage site cert):
+openssl s_client -connect <server-b-ip>:<port> -servername <sni>
+```
+
+---
 
 ## Further Reading
 

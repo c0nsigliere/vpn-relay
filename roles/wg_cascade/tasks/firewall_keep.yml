@@ -121,6 +121,8 @@
       :POSTROUTING ACCEPT [0:0]
       # MASQUERADE uplink subnet → WAN (Server B Internet egress NAT)
       -A POSTROUTING -s {{ wg_uplink_net }} -o {{ wan_if_final }} -j MASQUERADE
+      # Safety net: also MASQUERADE client subnet in case Server A MASQUERADE is bypassed
+      -A POSTROUTING -s {{ wg_clients_net }} -o {{ wan_if_final }} -j MASQUERADE
       COMMIT
     state: present
   when: inventory_hostname in groups['server_b']

@@ -2,15 +2,15 @@
 # XRay VLESS+Reality server role defaults
 
 # XRay binary version — must match a GitHub release tag (e.g. "24.11.30")
-xray_version: "24.11.30"
+xray_version: "26.2.6"
 
 # Listening port for VLESS+Reality inbound
-xray_port: 443
+xray_port: 8443
 
 # Reality camouflage destination and SNI
-xray_reality_dest: "www.microsoft.com:443"
+xray_reality_dest: "www.googletagmanager.com:443"
 xray_reality_server_names:
-  - "www.microsoft.com"
+  - "www.googletagmanager.com"
 xray_reality_fingerprint: "chrome"
 
 # VLESS flow — enables XTLS Vision TLS-in-TLS splice protection.
