@@ -25,7 +25,6 @@ TCP relay:   :443/tcp ─────────────────► :44
 - Reality private key never leaves Server B
 - Table 200 isolates client traffic from SSH/default route on A — breaking this means losing SSH
 - TCP relay is pure L4 byte forwarding — no protocol awareness, no decryption
-- No Docker, no Amnezia anywhere in the stack
 
 ## Inventory Groups → Roles → Playbooks
 
@@ -35,6 +34,12 @@ TCP relay:   :443/tcp ─────────────────► :44
 | `relay_servers` | A | `relay` | `relay.yml` |
 | `xray_servers` | B | `xray_server` | `xray.yml` |
 | (all) | A + B | `maintenance` | `maintenance.yml` |
+
+## All Playbooks
+
+Run order for full stack deploy: `bootstrap_ssh.yml` first, then `stack.yml` (chains the rest).
+
+`stack.yml` supports `--skip-tags maintenance,update,upgrade,reboot,health` for partial runs.
 
 ## Code Conventions
 
@@ -62,6 +67,27 @@ Validate inputs before touching the system, verify state after.
 `_mem_available_mb`, `_swap_total_mb`, `_swap_free_mb`, `_mem_total_mb`.
 Reusable from any playbook via `include_tasks`.
 
+**Terminology:** Always use `client` (not `user`): `client_name`, `client_uuid`, `clients.json`, `_xray_clients`.
+
+**DPI evasion defaults** (in role `defaults/main.yml` — wrong values break clients):
+- `xray_port: 8443` — XRay listens on B (not 443)
+- `port_a_tcp: 443` / `port_b_tcp: 8443` — relay A→B forwarding
+- `xray_reality_dest: "www.googletagmanager.com:443"` — camouflage domain
+- `xray_vless_flow: "xtls-rprx-vision"`, `xray_reality_fingerprint: "chrome"`
+
+**MSS clamping** — required for MTU stability across tunnel boundaries:
+`firewall_keep.yml` uses `*mangle` table with `--clamp-mss-to-pmtu`;
+`firewall_disable.yml` uses `clamp_mss_to_pmtu: true` parameter.
+
+**Tag dual-pattern:** Verify tasks carry two tags: `tags: [verify, cascade]` — hit by
+`--tags verify` (all checks) or `--tags cascade` (subsystem-specific).
+
+**Health sentinel:** `/etc/sysctl.d/99-vpn-relay.conf` marks a host as deployed.
+Fresh hosts skip hard-fail assertions; deployed hosts fail on firewall/routing drift.
+
+**Rollback safety gates:** `wg_cascade_remove_keys: false` and `xray_remove_keys: false`
+prevent accidental key deletion — must explicitly set to `true` to wipe keys.
+
 ## Variable Hierarchy
 
 ```
@@ -75,14 +101,13 @@ inventory/host_vars/*.yml    ← per-host overrides (rarely used)
 Canonical IP variable: `server_b_public_ip`. If you see `ip_b_public` — that's
 a legacy duplicate, use `server_b_public_ip`.
 
-## Known Technical Debt
+## Artifacts
 
-See `TODO.md` for the full list. Target architecture is in `DESIGN.md`. Key themes:
-- ~~Legacy Amnezia/Docker references in code and docs~~ (done)
-- `ip_b_public` duplicates `server_b_public_ip`
-- `cleanup_legacy_relay.yml` should be deleted
-- ~~`verify_all.yml` missing memory/swap checks~~ (done)
-- ~~No `stack.yml` single entrypoint yet~~ (done — `playbooks/stack.yml`)
+Client provisioning playbooks write locally to `artifacts/` (relative to repo root):
+
+## Other tasks
+
+You can connect to servers directly via SSH (the keys are already registered) to conduct diagnostics.
 
 ## After Each Change
 

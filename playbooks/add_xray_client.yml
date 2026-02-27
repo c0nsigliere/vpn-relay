@@ -16,9 +16,11 @@
 #   client_uuid  - UUID for the client (auto-generated if omitted)
 #
 # Output:
-#   artifacts/xray/<client_name>.vless.txt  — VLESS share URI (mobile app import)
-#   artifacts/xray/<client_name>.json       — XRay client JSON config
-#   artifacts/xray/<client_name>.vless.qr.png — QR code (if qrencode available)
+#   artifacts/xray/<client_name>.vless.txt           — VLESS share URIs (direct + via-relay)
+#   artifacts/xray/<client_name>.json                — XRay client JSON config (via relay)
+#   artifacts/xray/<client_name>.direct.json         — XRay client JSON config (direct to B)
+#   artifacts/xray/<client_name>.vless.qr.png        — QR code via relay (if qrencode available)
+#   artifacts/xray/<client_name>.direct.vless.qr.png — QR code direct (if qrencode available)
 #
 # Security note:
 #   - Reality private key never leaves Server B
@@ -128,9 +130,11 @@
       no_log: true
 
     - name: Restart xray to pick up new client
-      ansible.builtin.systemd:
-        name: xray
-        state: restarted
+      # Deferred restart: SSH session may be tunneled through XRay itself.
+      # sleep 2 lets Ansible close the connection before XRay stops.
+      ansible.builtin.shell: "sleep 2 && systemctl restart xray"
+      async: 30
+      poll: 0
 
     # =========================================================================
     # Generate client artifacts on controller
@@ -138,8 +142,10 @@
 
     - name: Set client endpoint variables
       ansible.builtin.set_fact:
-        _client_address: "{{ hostvars[groups['server_a'][0]]['ansible_host'] }}"
-        _client_port: "{{ port_a_tcp | default(443) }}"
+        _client_address_relay:  "{{ hostvars[groups['server_a'][0]]['ansible_host'] }}"
+        _client_port_relay:     "{{ port_a_tcp | default(443) }}"
+        _client_address_direct: "{{ server_b_public_ip }}"
+        _client_port_direct:    "{{ xray_port }}"
         _client_name: "{{ client_name }}"
 
     - name: Generate VLESS share URI
@@ -150,11 +156,25 @@
       delegate_to: localhost
       become: false
 
-    - name: Generate XRay client JSON config
+    - name: Generate XRay client JSON config (via relay)
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../roles/xray_server/templates/xray-client.json.j2"
         dest: "{{ playbook_dir }}/../artifacts/xray/{{ client_name }}.json"
         mode: '0600'
+      vars:
+        _client_address: "{{ _client_address_relay }}"
+        _client_port: "{{ _client_port_relay }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Generate XRay client JSON config (direct)
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/xray_server/templates/xray-client.json.j2"
+        dest: "{{ playbook_dir }}/../artifacts/xray/{{ client_name }}.direct.json"
+        mode: '0600'
+      vars:
+        _client_address: "{{ _client_address_direct }}"
+        _client_port: "{{ _client_port_direct }}"
       delegate_to: localhost
       become: false
 
@@ -165,9 +185,10 @@
       delegate_to: localhost
       become: false
 
-    - name: Set VLESS URI fact
+    - name: Set VLESS URI facts
       ansible.builtin.set_fact:
-        _vless_uri: "{{ _vless_uri_slurp.content | b64decode | trim }}"
+        _vless_uri_direct: "{{ (_vless_uri_slurp.content | b64decode).splitlines()[0] }}"
+        _vless_uri_relay:  "{{ (_vless_uri_slurp.content | b64decode).splitlines()[2] }}"
 
     # =========================================================================
     # Optional QR code generation (non-fatal if qrencode missing)
@@ -182,9 +203,17 @@
       delegate_to: localhost
       become: false
 
-    - name: Generate QR code PNG
+    - name: Generate QR code PNG (via relay)
       ansible.builtin.command:
-        cmd: "qrencode -o {{ playbook_dir }}/../artifacts/xray/{{ client_name }}.vless.qr.png '{{ _vless_uri }}'"
+        cmd: "qrencode -o {{ playbook_dir }}/../artifacts/xray/{{ client_name }}.vless.qr.png '{{ _vless_uri_relay }}'"
+      delegate_to: localhost
+      become: false
+      when: _qrencode_check.rc == 0
+      changed_when: true
+
+    - name: Generate QR code PNG (direct)
+      ansible.builtin.command:
+        cmd: "qrencode -o {{ playbook_dir }}/../artifacts/xray/{{ client_name }}.direct.vless.qr.png '{{ _vless_uri_direct }}'"
       delegate_to: localhost
       become: false
       when: _qrencode_check.rc == 0
@@ -204,12 +233,14 @@
         msg: |
           XRay client '{{ client_name }}' added successfully.
 
-          VLESS URI (safe to share — contains only public values):
-            {{ _vless_uri }}
+          VLESS URI — direct (Server B {{ _client_address_direct }}:{{ _client_port_direct }}):
+            {{ _vless_uri_direct }}
+
+          VLESS URI — via relay (Server A {{ _client_address_relay }}:{{ _client_port_relay }}):
+            {{ _vless_uri_relay }}
 
           Client artifacts:
-            artifacts/xray/{{ client_name }}.vless.txt   — VLESS share link
-            artifacts/xray/{{ client_name }}.json         — XRay client config
-            {{ 'artifacts/xray/' + client_name + '.vless.qr.png — QR code' if _qrencode_check.rc == 0 else '(QR code skipped — install qrencode)' }}
-
-          Endpoint: {{ _client_address }}:{{ _client_port }}
+            artifacts/xray/{{ client_name }}.vless.txt              — VLESS share links (both)
+            artifacts/xray/{{ client_name }}.json                   — XRay client config (via relay)
+            artifacts/xray/{{ client_name }}.direct.json            — XRay client config (direct)
+            {{ 'artifacts/xray/' + client_name + '.vless.qr.png        — QR code (via relay)\n            artifacts/xray/' + client_name + '.direct.vless.qr.png — QR code (direct)' if _qrencode_check.rc == 0 else '(QR codes skipped — install qrencode)' }}
