@@ -318,6 +318,31 @@ ansible-playbook playbooks/verify_all.yml
 | `xray_remove_keys` | `false` | Remove keys during rollback |
 | `xray_api_port` | `10085` | gRPC API port (loopback only, used by Telegram bot) |
 
+### Telegram Bot (`deploy_bot.yml` / `roles/telegram_bot/`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `bot_telegram_token` | **required** | Bot token from [@BotFather](https://t.me/BotFather) |
+| `bot_admin_id` | **required** | Your numeric Telegram user ID (bot rejects all other users) |
+| `bot_app_dir` | `/opt/vpn-bot` | Application directory on Server B |
+| `bot_data_dir` | `/var/lib/vpn-bot` | Persistent data dir (SQLite DB, SSH key) — survives re-deploys |
+| `bot_user` | `vpn-bot` | System user the bot runs as |
+| `node_major_version` | `20` | Node.js major version to install |
+| `bot_remove` | `false` | Safety gate for `remove_bot.yml` — must set to `true` to remove |
+| `bot_remove_data` | `false` | Also remove `bot_data_dir` (SQLite DB) when removing |
+
+Pass credentials as extra vars or store them in an Ansible vault file:
+```bash
+# Extra vars (simple):
+ansible-playbook playbooks/deploy_bot.yml \
+  -e "bot_telegram_token=123456:ABC bot_admin_id=987654321"
+
+# Vault (recommended for production):
+ansible-vault create inventory/host_vars/server-b/vault.yml
+# Add: bot_telegram_token: "..." and bot_admin_id: "..."
+ansible-playbook playbooks/deploy_bot.yml --ask-vault-pass
+```
+
 ---
 
 ## Tags Reference
