@@ -1,8 +1,8 @@
 ---
 # XRay VLESS+Reality server role defaults
 
-# XRay binary version — must match a GitHub release tag (e.g. "24.11.30")
-xray_version: "26.2.6"
+# XRay binary version — set in group_vars/all.yml (single source of truth)
+# xray_version: "26.2.6"   ← override here or with -e if needed
 
 # Listening port for VLESS+Reality inbound
 xray_port: 8443

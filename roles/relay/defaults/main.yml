@@ -24,7 +24,7 @@ manage_ufw: "keep"
 # =============================================================================
 # XRay binary / service configuration (must match xray_server role values)
 xray_bin:        "/usr/local/bin/xray"
-xray_version:    "26.2.6"
+# xray_version: set in group_vars/all.yml (single source of truth)
 xray_config_dir: "/etc/xray"
 xray_keys_dir:   "/etc/xray/keys"
 

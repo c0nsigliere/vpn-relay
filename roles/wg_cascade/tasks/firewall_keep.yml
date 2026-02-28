@@ -52,6 +52,19 @@
 # Private/loopback/multicast destinations are exempted (returned to normal routing).
 # =============================================================================
 
+- name: "[A] Inject INPUT accept rule for TPROXY-marked packets into /etc/ufw/before.rules"
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before.rules
+    insertafter: '^-A ufw-before-input -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT'
+    marker: "# {mark} WG-CASCADE TPROXY INPUT RULES"
+    block: |
+      # Accept TPROXY-redirected WG client traffic (fwmark 0x1) before ufw-not-local drops it
+      # TPROXY packets have external dst IPs, ufw-not-local would otherwise DROP them
+      -A ufw-before-input -m mark --mark 0x1/0x1 -j ACCEPT
+    state: present
+  when: inventory_hostname in groups['server_a']
+  notify: reload ufw
+
 - name: "[A] Inject mangle TPROXY rules into /etc/ufw/before.rules"
   ansible.builtin.blockinfile:
     path: /etc/ufw/before.rules

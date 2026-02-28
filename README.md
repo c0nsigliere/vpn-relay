@@ -263,13 +263,13 @@ ansible-playbook playbooks/verify_all.yml
 | `xray_wg_uplink_uuid` | **required** | UUID authenticating Server A's XRay to Server B (set in `all.yml`) |
 | `xray_tproxy_port` | `12345` | XRay TPROXY inbound port on A (matches wg_cascade role) |
 | `xray_port` | `8443` | XRay VLESS+Reality port on B (must match `xray_servers.yml`) |
-| `xray_version` | `26.2.6` | XRay binary version installed on A (keep in sync with B) |
+| `xray_version` | `26.2.6` | XRay binary version on A — set in `all.yml`, single source of truth |
 
 ### XRay Server (`xray_servers.yml`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `xray_version` | `26.2.6` | XRay release version (GitHub tag) |
+| `xray_version` | `26.2.6` (from `all.yml`) | XRay release version (GitHub tag) |
 | `xray_port` | `8443` | VLESS+Reality listening port |
 | `xray_reality_dest` | `www.googletagmanager.com:443` | Reality camouflage destination |
 | `xray_reality_server_names` | `[www.googletagmanager.com]` | Reality SNI list |
