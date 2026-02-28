@@ -99,6 +99,11 @@ bot.on("callback_query:data", async (ctx) => {
 // Text input (session-driven)
 bot.on("message:text", textInputHandler);
 
+// Error handler — prevent unhandled Telegram API errors from crashing the bot
+bot.catch((err) => {
+  console.error("[bot error]", err.message);
+});
+
 // Workers
 const workers = [
   trafficWorker(bot),

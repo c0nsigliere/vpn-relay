@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart xray after VPN bot trigger
+After=xray.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart xray
+ExecStartPost=/bin/rm -f /run/vpn-bot/xray-restart

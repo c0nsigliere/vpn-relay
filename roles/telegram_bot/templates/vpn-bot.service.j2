@@ -21,6 +21,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths={{ bot_data_dir }} {{ xray_config_dir }}
+RuntimeDirectory=vpn-bot
+RuntimeDirectoryMode=0755
 
 [Install]
 WantedBy=multi-user.target

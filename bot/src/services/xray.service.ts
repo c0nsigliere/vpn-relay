@@ -28,18 +28,20 @@ export interface ClientStats {
 }
 
 class XrayService {
-  // Add a VLESS client: sync clients.json for persistence + hot-add via gRPC API
+  // Add a VLESS client: persist to clients.json + update config.json + restart xray
   async addClient(name: string, uuid?: string): Promise<string> {
     const clientUuid = uuid ?? crypto.randomUUID();
     this.syncClientsJson("add", { name, uuid: clientUuid });
-    this.apiAddUser(name, clientUuid);
+    this.syncConfigJson();
+    await this.restartXray();
     return clientUuid;
   }
 
-  // Remove a VLESS client: sync clients.json for persistence + hot-remove via gRPC API
+  // Remove a VLESS client: persist to clients.json + update config.json + restart xray
   async removeClient(name: string, uuid: string): Promise<void> {
     this.syncClientsJson("remove", { name, uuid });
-    this.apiRemoveUser(name);
+    this.syncConfigJson();
+    await this.restartXray();
   }
 
   // Query traffic stats for a client via `xray api statsquery` CLI
@@ -51,13 +53,10 @@ class XrayService {
   async queryAllStats(reset = false): Promise<Map<string, ClientStats>> {
     const result = new Map<string, ClientStats>();
     try {
-      const args = [
-        `--server=127.0.0.1:${env.XRAY_API_PORT}`,
-        "-pattern", ">>>traffic>>>",
-        ...(reset ? ["-reset"] : []),
-      ];
+      // Quote >>>traffic>>> to prevent /bin/sh from misinterpreting >>> as redirects
+      const resetFlag = reset ? " -reset" : "";
       const out = execSync(
-        `${XRAY_BIN} api statsquery ${args.join(" ")}`,
+        `${XRAY_BIN} api statsquery --server=127.0.0.1:${env.XRAY_API_PORT} '-pattern' '>>>traffic>>>'${resetFlag}`,
         { encoding: "utf8", timeout: 10000 }
       );
       // Output is JSON array of {name, value} objects
@@ -136,65 +135,69 @@ class XrayService {
     fs.renameSync(tmp, file);
   }
 
-  // Hot-add a user to the running xray instance via gRPC API (no restart needed)
-  private apiAddUser(name: string, uuid: string): void {
-    const userJson = JSON.stringify({
-      inboundTag: "vless-in",
-      user: {
-        level: 0,
-        email: `${name}@xray`,
-        account: {
-          "@type": "type.googleapis.com/xray.proxy.vless.Account",
-          id: uuid,
-          flow: env.XRAY_FLOW || undefined,
-          encryption: "none",
-        },
-      },
-    });
-    const tmp = path.join(os.tmpdir(), `xray-user-${process.pid}.json`);
-    try {
-      fs.writeFileSync(tmp, userJson, { mode: 0o600 });
-      execSync(
-        `${XRAY_BIN} api adu --server=127.0.0.1:${env.XRAY_API_PORT} ${tmp}`,
-        { timeout: 10000 }
-      );
-    } catch (err) {
-      throw new Error(`Failed to hot-add user to xray: ${(err as Error).message}`);
-    } finally {
-      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+  // Sync bot-managed clients into config.json so they survive xray restarts.
+  // Preserves Ansible-managed clients (those not in clients.json).
+  private syncConfigJson(): void {
+    const configFile = env.XRAY_CONFIG_FILE;
+    const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
+
+    const vlessIn = (config.inbounds as any[]).find(
+      (i) => i.tag === "vless-in" && i.protocol === "vless"
+    );
+    if (!vlessIn) throw new Error("vless-in inbound not found in config.json");
+
+    // Read current bot-managed clients
+    let botClients: Array<{ name: string; uuid: string }> = [];
+    if (fs.existsSync(env.XRAY_CLIENTS_FILE)) {
+      try {
+        botClients = JSON.parse(fs.readFileSync(env.XRAY_CLIENTS_FILE, "utf8"));
+      } catch { /* start fresh */ }
     }
+    const botUuids = new Set(botClients.map((c) => c.uuid));
+
+    // Keep non-bot clients (Ansible-managed), replace bot clients with current list
+    const staticClients = (vlessIn.settings.clients as any[]).filter(
+      (c) => !botUuids.has(c.id)
+    );
+    const newBotClients = botClients.map((c) => ({
+      id: c.uuid,
+      email: `${c.name}@xray`,
+      ...(env.XRAY_FLOW ? { flow: env.XRAY_FLOW } : {}),
+    }));
+    vlessIn.settings.clients = [...staticClients, ...newBotClients];
+
+    const tmp = `${configFile}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, configFile);
   }
 
-  // Hot-remove a user from the running xray instance via gRPC API (no restart needed)
-  private apiRemoveUser(name: string): void {
-    try {
-      execSync(
-        `${XRAY_BIN} api rmu --server=127.0.0.1:${env.XRAY_API_PORT} -tag=vless-in ${name}@xray`,
-        { timeout: 10000 }
-      );
-    } catch (err) {
-      throw new Error(`Failed to hot-remove user from xray: ${(err as Error).message}`);
+  // Trigger xray restart via systemd path unit — write trigger file, poll until removed.
+  // The xray-restart.path unit watches /run/vpn-bot/xray-restart and fires
+  // xray-restart.service (Type=oneshot) which restarts xray then deletes the file.
+  // No sudo/privilege escalation needed; bot keeps NoNewPrivileges=true.
+  private async restartXray(): Promise<void> {
+    const trigger = "/run/vpn-bot/xray-restart";
+    fs.writeFileSync(trigger, "", { mode: 0o644 });
+
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 300));
+      if (!fs.existsSync(trigger)) return;
     }
+    throw new Error("xray restart timed out after 10s");
   }
 
   private async queryStatsCli(pattern: string, reset: boolean): Promise<ClientStats> {
     try {
-      const upArgs = [
-        `--server=127.0.0.1:${env.XRAY_API_PORT}`,
-        `-name=${pattern}>>>uplink`,
-        ...(reset ? ["-reset"] : []),
-      ];
-      const downArgs = [
-        `--server=127.0.0.1:${env.XRAY_API_PORT}`,
-        `-name=${pattern}>>>downlink`,
-        ...(reset ? ["-reset"] : []),
-      ];
+      // Quote >>> args to prevent /bin/sh from misinterpreting them as redirects
+      const resetFlag = reset ? " -reset" : "";
+      const server = `--server=127.0.0.1:${env.XRAY_API_PORT}`;
       const upOut = execSync(
-        `${XRAY_BIN} api statget ${upArgs.join(" ")} 2>/dev/null || echo '{"stat":{"value":"0"}}'`,
+        `${XRAY_BIN} api statget ${server} '-name=${pattern}>>>uplink'${resetFlag} 2>/dev/null || echo '{"stat":{"value":"0"}}'`,
         { encoding: "utf8", timeout: 5000 }
       );
       const downOut = execSync(
-        `${XRAY_BIN} api statget ${downArgs.join(" ")} 2>/dev/null || echo '{"stat":{"value":"0"}}'`,
+        `${XRAY_BIN} api statget ${server} '-name=${pattern}>>>downlink'${resetFlag} 2>/dev/null || echo '{"stat":{"value":"0"}}'`,
         { encoding: "utf8", timeout: 5000 }
       );
       const up = JSON.parse(upOut);

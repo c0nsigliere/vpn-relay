@@ -21,6 +21,7 @@ const envSchema = z.object({
   XRAY_API_PORT: z.string().transform(Number).pipe(z.number().int()).default("10085"),
   XRAY_KEYS_DIR: z.string().default("/etc/xray/keys"),
   XRAY_CLIENTS_FILE: z.string().default("/etc/xray/clients.json"),
+  XRAY_CONFIG_FILE: z.string().default("/etc/xray/config.json"),
 
   // XRay DPI evasion params
   XRAY_SNI: z.string().default("www.googletagmanager.com"),

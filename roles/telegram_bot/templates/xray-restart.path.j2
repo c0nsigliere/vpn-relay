@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for xray restart trigger from VPN bot
+
+[Path]
+PathExists=/run/vpn-bot/xray-restart
+Unit=xray-restart.service
+
+[Install]
+WantedBy=multi-user.target

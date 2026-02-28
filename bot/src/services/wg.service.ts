@@ -106,9 +106,9 @@ class WgService {
       `bash -c 'sed -i "/^# BEGIN CLIENT ${name}$/,/^# END CLIENT ${name}$/d" ${WG_CONF}'`
     );
 
-    // Reload
+    // Reload (use temp file — no process substitution for compatibility)
     await sshPool.exec(
-      `bash -c 'wg syncconf ${WG_IFACE} <(wg-quick strip ${WG_IFACE})'`
+      `bash -c 'wg-quick strip ${WG_IFACE} > /tmp/wg-sync.conf && wg syncconf ${WG_IFACE} /tmp/wg-sync.conf; rm -f /tmp/wg-sync.conf'`
     );
   }
 

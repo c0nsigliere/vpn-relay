@@ -11,6 +11,34 @@
     - restart vpn-bot
   tags: [service, bot]
 
+- name: Install xray-restart.service (triggered by path unit)
+  template:
+    src: xray-restart.service.j2
+    dest: /etc/systemd/system/xray-restart.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+  tags: [service, bot]
+
+- name: Install xray-restart.path (watches /run/vpn-bot/xray-restart)
+  template:
+    src: xray-restart.path.j2
+    dest: /etc/systemd/system/xray-restart.path
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+  tags: [service, bot]
+
+- name: Enable and start xray-restart.path
+  systemd:
+    name: xray-restart.path
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [service, bot]
+
 - name: Enable and start vpn-bot service
   systemd:
     name: vpn-bot
