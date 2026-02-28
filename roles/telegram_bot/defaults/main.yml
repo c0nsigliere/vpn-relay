@@ -1,0 +1,33 @@
+---
+# Telegram bot deployment role defaults
+
+# Application directory (synced from bot/ in repo)
+bot_app_dir: "/opt/vpn-bot"
+
+# Persistent data directory (survives re-deploys)
+bot_data_dir: "/var/lib/vpn-bot"
+
+# System user to run the bot
+bot_user: "vpn-bot"
+bot_group: "vpn-bot"
+
+# SSH keypair for bot → Server A access
+bot_ssh_key_path: "/var/lib/vpn-bot/.ssh/id_ed25519"
+
+# Node.js version
+node_major_version: 20
+
+# XRay file paths (must match xray_server role)
+xray_config_dir: "/etc/xray"
+xray_keys_dir: "/etc/xray/keys"
+xray_clients_file: "/etc/xray/clients.json"
+xray_api_port: 10085
+
+# Bot Telegram credentials — MUST be overridden in vault or extra vars
+bot_telegram_token: ""
+bot_admin_id: ""
+
+# DPI evasion params — must match xray_server role defaults
+xray_sni: "www.googletagmanager.com"
+xray_fingerprint: "chrome"
+xray_flow: "xtls-rprx-vision"

@@ -1,0 +1,9 @@
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: restart vpn-bot
+  systemd:
+    name: vpn-bot
+    state: restarted

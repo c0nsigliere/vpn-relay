@@ -2,11 +2,33 @@
   "log": {
     "loglevel": "warning"
   },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    },
+    "system": {
+      "statsInboundUplink": true,
+      "statsInboundDownlink": true
+    }
+  },
+  "api": {
+    "tag": "api",
+    "services": [
+      "HandlerService",
+      "StatsService",
+      "LogService"
+    ]
+  },
   "inbounds": [
     {
       "listen": "0.0.0.0",
       "port": {{ xray_port }},
       "protocol": "vless",
+      "tag": "vless-in",
       "settings": {
         "clients": [
 {% for client in _xray_clients %}
@@ -49,6 +71,15 @@
           "quic"
         ]
       }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": {{ xray_api_port }},
+      "protocol": "dokodemo-door",
+      "tag": "api",
+      "settings": {
+        "address": "127.0.0.1"
+      }
     }
   ],
   "outbounds": [
@@ -67,6 +98,11 @@
   "routing": {
     "domainStrategy": "AsIs",
     "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["api"],
+        "outboundTag": "api"
+      },
       {
         "type": "field",
         "ip": ["::/0"],

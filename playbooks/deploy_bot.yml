@@ -1,0 +1,16 @@
+---
+# Deploy Telegram bot control plane to Server B
+# Requires: xray.yml must have run first (reads Reality keys from Server B)
+#
+# Usage:
+#   ansible-playbook playbooks/deploy_bot.yml \
+#     -e "bot_telegram_token=123:ABC bot_admin_id=987654321"
+#
+# Or store credentials in ansible vault:
+#   ansible-vault create inventory/host_vars/server-b/vault.yml
+
+- name: Deploy Telegram bot to Server B
+  hosts: xray_servers
+  gather_facts: false
+  roles:
+    - role: telegram_bot

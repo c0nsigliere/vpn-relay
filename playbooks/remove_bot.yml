@@ -1,0 +1,151 @@
+---
+# Remove Telegram bot from Server B
+#
+# Safety gate: bot_remove: false by default — must explicitly set to true.
+#
+# Usage (dry-run first):
+#   ansible-playbook playbooks/remove_bot.yml --check
+#
+# Full removal:
+#   ansible-playbook playbooks/remove_bot.yml -e "bot_remove=true"
+#
+# Preserve data directory (keep SQLite DB):
+#   ansible-playbook playbooks/remove_bot.yml -e "bot_remove=true bot_remove_data=false"
+
+- name: Remove Telegram bot from Server B
+  hosts: xray_servers
+  gather_facts: false
+
+  vars:
+    bot_remove: false
+    bot_remove_data: true
+
+    # Defaults duplicated here so this playbook is self-contained
+    # (no role import needed, avoids validate.yml credential assertions)
+    bot_app_dir: "/opt/vpn-bot"
+    bot_data_dir: "/var/lib/vpn-bot"
+    bot_user: "vpn-bot"
+    bot_group: "vpn-bot"
+    bot_ssh_key_path: "/var/lib/vpn-bot/.ssh/id_ed25519"
+    xray_config_dir: "/etc/xray"
+    xray_keys_dir: "/etc/xray/keys"
+    xray_clients_file: "/etc/xray/clients.json"
+
+  tasks:
+    - name: Verify safety gate
+      assert:
+        that: bot_remove | bool
+        fail_msg: >-
+          Safety gate: set -e "bot_remove=true" to confirm removal.
+          Add -e "bot_remove_data=false" to keep the SQLite database.
+      tags: [always]
+
+    - name: Stop and disable vpn-bot service
+      systemd:
+        name: vpn-bot
+        state: stopped
+        enabled: false
+        daemon_reload: true
+      ignore_errors: true
+      tags: [service, bot]
+
+    - name: Remove vpn-bot systemd unit
+      file:
+        path: /etc/systemd/system/vpn-bot.service
+        state: absent
+      notify: reload systemd
+      tags: [service, bot]
+
+    - name: Remove ACL — vpn-bot on xray keys dir
+      acl:
+        path: "{{ xray_keys_dir }}"
+        entity: "{{ bot_user }}"
+        etype: user
+        state: absent
+      ignore_errors: true
+      tags: [deploy, bot]
+
+    - name: Remove ACL — vpn-bot on reality.pub
+      acl:
+        path: "{{ xray_keys_dir }}/reality.pub"
+        entity: "{{ bot_user }}"
+        etype: user
+        state: absent
+      ignore_errors: true
+      tags: [deploy, bot]
+
+    - name: Remove ACL — vpn-bot on shortid
+      acl:
+        path: "{{ xray_keys_dir }}/shortid"
+        entity: "{{ bot_user }}"
+        etype: user
+        state: absent
+      ignore_errors: true
+      tags: [deploy, bot]
+
+    - name: Remove ACL — vpn-bot on xray config dir
+      acl:
+        path: "{{ xray_config_dir }}"
+        entity: "{{ bot_user }}"
+        etype: user
+        state: absent
+      ignore_errors: true
+      tags: [deploy, bot]
+
+    - name: Remove ACL — vpn-bot on clients.json
+      acl:
+        path: "{{ xray_clients_file }}"
+        entity: "{{ bot_user }}"
+        etype: user
+        state: absent
+      ignore_errors: true
+      tags: [deploy, bot]
+
+    - name: Read bot SSH public key (before removing data dir)
+      slurp:
+        src: "{{ bot_ssh_key_path }}.pub"
+      register: _bot_pubkey
+      ignore_errors: true
+      tags: [install, bot]
+
+    - name: Revoke bot SSH key from Server A
+      authorized_key:
+        user: "{{ hostvars[groups['server_a'][0]]['ansible_user'] | default('root') }}"
+        key: "{{ _bot_pubkey.content | b64decode }}"
+        state: absent
+      delegate_to: "{{ groups['server_a'][0] }}"
+      when: _bot_pubkey is not failed
+      tags: [install, bot]
+
+    - name: Remove bot app directory
+      file:
+        path: "{{ bot_app_dir }}"
+        state: absent
+      tags: [deploy, bot]
+
+    - name: Remove bot data directory
+      file:
+        path: "{{ bot_data_dir }}"
+        state: absent
+      when: bot_remove_data | bool
+      tags: [install, bot]
+
+    - name: Remove vpn-bot system user
+      user:
+        name: "{{ bot_user }}"
+        state: absent
+        remove: true
+        force: true
+      tags: [install, bot]
+
+    - name: Remove vpn-bot system group
+      group:
+        name: "{{ bot_group }}"
+        state: absent
+      ignore_errors: true
+      tags: [install, bot]
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: true

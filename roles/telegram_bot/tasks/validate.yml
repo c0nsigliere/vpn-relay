@@ -1,0 +1,24 @@
+---
+- name: Assert bot_telegram_token is set
+  assert:
+    that: bot_telegram_token | length > 0
+    fail_msg: "bot_telegram_token must be set (pass via -e or ansible vault)"
+  tags: [validate, bot]
+
+- name: Assert bot_admin_id is set
+  assert:
+    that: bot_admin_id | string | length > 0
+    fail_msg: "bot_admin_id must be set (Telegram numeric user ID)"
+  tags: [validate, bot]
+
+- name: Assert XRay clients.json exists
+  stat:
+    path: "{{ xray_clients_file }}"
+  register: _xray_clients_stat
+  tags: [validate, bot]
+
+- name: Assert XRay keys directory exists
+  assert:
+    that: _xray_clients_stat.stat.exists
+    fail_msg: "{{ xray_clients_file }} not found — run xray.yml first"
+  tags: [validate, bot]

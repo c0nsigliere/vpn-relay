@@ -8,6 +8,7 @@
 #   4. xray          — XRay VLESS+Reality server (B)
 #   5. relay         — TCP L4 relay (A)
 #   6. verify_all    — full verification across all subsystems + memory/swap
+#   7. bot           — Telegram bot (if bot_telegram_token is set)
 #
 # Usage:
 #   ansible-playbook playbooks/stack.yml
@@ -35,5 +36,9 @@
 - name: "Stack [5/6]: TCP relay"
   ansible.builtin.import_playbook: relay.yml
 
-- name: "Stack [6/6]: Full verification"
+- name: "Stack [6/7]: Full verification"
   ansible.builtin.import_playbook: verify_all.yml
+
+- name: "Stack [7/7]: Telegram bot (optional — requires bot_telegram_token + bot_admin_id)"
+  ansible.builtin.import_playbook: deploy_bot.yml
+  when: bot_telegram_token | default('') | length > 0

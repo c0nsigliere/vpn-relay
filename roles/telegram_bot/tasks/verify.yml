@@ -1,0 +1,18 @@
+---
+- name: Wait for vpn-bot service to settle
+  pause:
+    seconds: 5
+  tags: [verify, bot]
+
+- name: Check vpn-bot service is active
+  systemd:
+    name: vpn-bot
+  register: _bot_service
+  tags: [verify, bot]
+
+- name: Assert vpn-bot is running
+  assert:
+    that: _bot_service.status.ActiveState == "active"
+    fail_msg: "vpn-bot service is not active — check: journalctl -u vpn-bot -n 50"
+    success_msg: "vpn-bot service is active"
+  tags: [verify, bot]

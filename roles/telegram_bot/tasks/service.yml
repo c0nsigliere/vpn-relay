@@ -1,0 +1,20 @@
+---
+- name: Install vpn-bot systemd service
+  template:
+    src: vpn-bot.service.j2
+    dest: /etc/systemd/system/vpn-bot.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart vpn-bot
+  tags: [service, bot]
+
+- name: Enable and start vpn-bot service
+  systemd:
+    name: vpn-bot
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [service, bot]

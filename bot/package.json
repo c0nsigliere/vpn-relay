@@ -1,0 +1,30 @@
+{
+  "name": "vpn-relay-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot control plane for VPN relay infrastructure",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node --transpile-only src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "chart.js": "^3.9.1",
+    "chartjs-node-canvas": "^4.1.6",
+    "grammy": "^1.21.1",
+    "qrcode": "^1.5.3",
+    "ssh2": "^1.15.0",
+    "uuid": "^9.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.11.19",
+    "@types/qrcode": "^1.5.5",
+    "@types/ssh2": "^1.11.19",
+    "@types/uuid": "^9.0.8",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

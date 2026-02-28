@@ -27,3 +27,9 @@ artifacts/clients/*.key
 artifacts/xray/*.vless.txt
 artifacts/xray/*.json
 artifacts/xray/*.qr.png
+
+# Telegram bot
+bot/node_modules/
+bot/dist/
+bot/.env
+bot/*.db

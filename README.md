@@ -155,6 +155,46 @@ Output:
 - WireGuard: `artifacts/clients/alice.conf`
 - XRay: `artifacts/xray/alice.vless.txt` (share URI) + `artifacts/xray/alice.json` (client config)
 
+### 8. Deploy Telegram bot (optional)
+
+The bot runs on Server B and provides a Telegram-based admin panel for real-time client management.
+
+```bash
+# Deploy with bot credentials:
+ansible-playbook playbooks/deploy_bot.yml \
+  -e "bot_telegram_token=123456:ABC bot_admin_id=987654321"
+
+# Or include in full stack (bot step only runs when bot_telegram_token is set):
+ansible-playbook playbooks/stack.yml \
+  -e "bot_telegram_token=123456:ABC bot_admin_id=987654321"
+```
+
+**Bot features:**
+- Add/remove/suspend WireGuard and XRay clients from Telegram
+- Send client configs (WG `.conf` file, VLESS URIs + QR codes) directly in chat
+- Traffic graphs (chartjs PNG) per client
+- Server status (CPU/RAM/uptime for A and B)
+- Auto-suspend expired clients (TTL support)
+- Health alerts if Server A goes unreachable
+- Security update notifications (apt-check every 12h)
+
+**Required:** Get a bot token from [@BotFather](https://t.me/BotFather) and your numeric Telegram user ID.
+
+**To remove the bot:**
+
+```bash
+# Dry-run first
+ansible-playbook playbooks/remove_bot.yml --check
+
+# Remove bot, keep SQLite database
+ansible-playbook playbooks/remove_bot.yml -e "bot_remove=true"
+
+# Remove bot and database
+ansible-playbook playbooks/remove_bot.yml -e "bot_remove=true bot_remove_data=true"
+```
+
+The safety gate (`bot_remove=true`) is required to prevent accidental removal. The database at `/var/lib/vpn-bot/data.db` is preserved by default.
+
 ---
 
 ## Alternative: Cascade Only

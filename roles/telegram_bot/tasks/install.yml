@@ -1,0 +1,76 @@
+---
+- name: Install acl package (required for setfacl)
+  apt:
+    name: acl
+    state: present
+    update_cache: false
+  tags: [install, bot]
+
+- name: Install Node.js {{ node_major_version }} (NodeSource)
+  block:
+    - name: Download NodeSource setup script
+      get_url:
+        url: "https://deb.nodesource.com/setup_{{ node_major_version }}.x"
+        dest: /tmp/nodesource_setup.sh
+        mode: "0755"
+
+    - name: Run NodeSource setup script
+      command: bash /tmp/nodesource_setup.sh
+      changed_when: true
+
+    - name: Install nodejs
+      apt:
+        name: nodejs
+        state: present
+        update_cache: true
+  tags: [install, bot]
+
+- name: Create vpn-bot system group
+  group:
+    name: "{{ bot_group }}"
+    system: true
+    state: present
+  tags: [install, bot]
+
+- name: Create vpn-bot system user
+  user:
+    name: "{{ bot_user }}"
+    group: "{{ bot_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ bot_data_dir }}"
+    create_home: true
+    state: present
+  tags: [install, bot]
+
+- name: Create bot data and SSH directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ bot_user }}"
+    group: "{{ bot_group }}"
+    mode: "0700"
+  loop:
+    - "{{ bot_data_dir }}"
+    - "{{ bot_data_dir }}/.ssh"
+  tags: [install, bot]
+
+- name: Generate SSH keypair for bot → Server A access
+  community.crypto.openssh_keypair:
+    path: "{{ bot_ssh_key_path }}"
+    type: ed25519
+    owner: "{{ bot_user }}"
+    group: "{{ bot_group }}"
+    mode: "0600"
+    regenerate: never
+  register: _bot_ssh_key
+  tags: [install, bot]
+
+- name: Authorize bot SSH key on Server A
+  authorized_key:
+    user: "{{ hostvars[groups['server_a'][0]]['ansible_user'] | default('root') }}"
+    key: "{{ _bot_ssh_key.public_key }}"
+    state: present
+    comment: "vpn-bot@{{ inventory_hostname }}"
+  delegate_to: "{{ groups['server_a'][0] }}"
+  tags: [install, bot]

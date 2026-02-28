@@ -1,0 +1,108 @@
+---
+- name: Create bot app directory
+  file:
+    path: "{{ bot_app_dir }}"
+    state: directory
+    owner: "{{ bot_user }}"
+    group: "{{ bot_group }}"
+    mode: "0755"
+  tags: [deploy, bot]
+
+- name: Sync bot source code
+  shell: >
+    rsync -az --delete
+    --exclude=node_modules
+    --exclude=dist
+    --exclude=.env
+    --exclude='*.db'
+    {{ playbook_dir }}/../bot/
+    {{ ansible_user | default('root') }}@{{ ansible_host }}:{{ bot_app_dir }}/
+  delegate_to: localhost
+  become: false
+  changed_when: true
+  notify: restart vpn-bot
+  tags: [deploy, bot]
+
+- name: Set bot app directory ownership
+  file:
+    path: "{{ bot_app_dir }}"
+    state: directory
+    owner: "{{ bot_user }}"
+    group: "{{ bot_group }}"
+    recurse: true
+  tags: [deploy, bot]
+
+- name: Install npm dependencies (including devDeps for build)
+  command: npm ci
+  args:
+    chdir: "{{ bot_app_dir }}"
+  become: true
+  become_user: "{{ bot_user }}"
+  tags: [deploy, bot]
+
+- name: Build TypeScript
+  command: npm run build
+  args:
+    chdir: "{{ bot_app_dir }}"
+  become: true
+  become_user: "{{ bot_user }}"
+  notify: restart vpn-bot
+  tags: [deploy, bot]
+
+- name: Prune devDependencies after build
+  command: npm prune --omit=dev
+  args:
+    chdir: "{{ bot_app_dir }}"
+  become: true
+  become_user: "{{ bot_user }}"
+  tags: [deploy, bot]
+
+- name: Template .env configuration
+  template:
+    src: env.j2
+    dest: "{{ bot_app_dir }}/.env"
+    owner: "{{ bot_user }}"
+    group: "{{ bot_group }}"
+    mode: "0600"
+  no_log: true
+  notify: restart vpn-bot
+  tags: [deploy, bot]
+
+- name: Set ACL — vpn-bot execute on xray keys dir (traverse to read files)
+  acl:
+    path: "{{ xray_keys_dir }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: x
+    state: present
+  tags: [deploy, bot]
+
+- name: Set ACL — vpn-bot reads XRay keys
+  acl:
+    path: "{{ item }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: r
+    state: present
+  loop:
+    - "{{ xray_keys_dir }}/reality.pub"
+    - "{{ xray_keys_dir }}/shortid"
+  tags: [deploy, bot]
+
+- name: Set ACL — vpn-bot write-execute on xray config dir (needed to create temp files)
+  acl:
+    path: "{{ xray_config_dir }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: wx
+    state: present
+  tags: [deploy, bot]
+
+- name: Set ACL — vpn-bot reads/writes clients.json
+  acl:
+    path: "{{ xray_clients_file }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: rw
+    state: present
+  tags: [deploy, bot]

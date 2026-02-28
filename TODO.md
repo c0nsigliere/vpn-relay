@@ -86,12 +86,21 @@
   to push SSH keys to both servers, verify key login works, run `--tags harden` to disable
   password auth, then delete the `ansible_password=` lines from inventory.
 
-## Future: Control-Plane (Telegram Bot)
+## Telegram Bot Control Plane
 
-Спроектирован, не реализован. Подробности в DESIGN.md, секция "Control-Plane".
+- [x] **Phase 0A** — XRay gRPC API enabled in `config.json.j2`: `stats`, `policy`, `api`, dokodemo-door inbound on `127.0.0.1:10085`, routing rule api→api. `xray_api_port: 10085` in `xray_server/defaults/main.yml`.
+- [x] **Phase 1** — Bot scaffold: `bot/package.json`, `tsconfig.json`, `src/config/env.ts` (Zod), `src/db/index.ts` (WAL SQLite), `src/db/queries.ts`, `src/bot/context.ts`, auth middleware, `src/index.ts`
+- [x] **Phase 2** — XRay gRPC service: `src/services/xray.service.ts` — addClient (gRPC AlterInbound + atomic clients.json sync), removeClient, getStats, queryAllStats, generateVlessUris
+- [x] **Phase 3** — WireGuard SSH service: `src/services/ssh.ts` (auto-reconnecting ssh2 pool), `src/services/wg.service.ts` — addClient (keygen on A, mutex IP allocation, syncconf), removeClient, suspendClient, resumeClient, getStats
+- [x] **Phase 4** — Telegram UI: main/add-client/client-list/client-card/server-status/settings menus; text-input handler with session state; full callback router in `index.ts`
+- [x] **Phase 5** — Workers: traffic (10min), TTL (1h), health (1min, 3-failure threshold), updates (12h)
+- [x] **Phase 6** — Support services: charts (chartjs-node-canvas), QR (qrcode), system (local /proc + SSH remote)
+- [x] **Phase 0B/0C** — Ansible role `telegram_bot` (validate/install/deploy/service/verify), `playbooks/deploy_bot.yml`, `stack.yml` updated to step 7
+- [x] **Bot rollback** — `playbooks/remove_bot.yml`: stops service, removes unit, revokes ACLs, revokes SSH key from Server A, removes app dir, optionally removes data dir (SQLite DB), removes system user/group. Safety gate: `-e "bot_remove=true"`, data preserved by default unless `-e "bot_remove_data=true"`
 
-- [ ] Server C setup — отдельный сервер с repo clone, SSH ключами к A/B
-- [ ] `bot/` scaffold — TypeScript + grammY + systemd unit
-- [ ] Команды: `/add_client`, `/add_xray`, `/status`, `/update`, `/reboot`, `/clients`, `/clients_xray`, `/deploy`
-- [ ] SQLite аудит-лог
-- [ ] Ansible JSON callback parsing
+## Debt / Future
+
+- [ ] **Remove plaintext `ansible_password` from inventory** — run `bootstrap_ssh.yml` to push SSH keys, verify key login, run `--tags harden`, then remove `ansible_password=` lines
+- [ ] **Bot: Ansible vault for credentials** — move `bot_telegram_token`/`bot_admin_id` to `inventory/host_vars/server-b/vault.yml` encrypted with `ansible-vault`
+- [ ] **Bot: client expiry UI** — add expiry date input in add-client flow (currently always null, TTL worker ready)
+- [ ] **Bot: WG config re-send** — private key is only available at creation; consider storing encrypted or re-generating on demand

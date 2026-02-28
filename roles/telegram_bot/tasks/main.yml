@@ -1,0 +1,20 @@
+---
+- name: Validate bot configuration
+  import_tasks: validate.yml
+  tags: [validate, bot]
+
+- name: Install Node.js and create system user
+  import_tasks: install.yml
+  tags: [install, bot]
+
+- name: Deploy bot code and configuration
+  import_tasks: deploy.yml
+  tags: [deploy, bot]
+
+- name: Configure systemd service
+  import_tasks: service.yml
+  tags: [service, bot]
+
+- name: Verify bot deployment
+  import_tasks: verify.yml
+  tags: [verify, bot]

@@ -345,7 +345,53 @@ ansible-playbook playbooks/add_xray_client.yml -e "client_name=..."
 * Amnezia/Docker полностью удалены из кодовой базы
 * Реализован single-entry entrypoint `stack.yml`
 * DPI hardening: порт 8443 на relay, SNI `www.googletagmanager.com`, flow `xtls-rprx-vision` — активны по умолчанию
-* Control-plane (Telegram бот) — спроектирован, не реализован (см. `PLAN_TELEGRAM_BOT.md`)
+* Control-plane (Telegram бот) — реализован (`bot/`, роль `telegram_bot`, `playbooks/deploy_bot.yml`)
+
+---
+
+## 3️⃣ Telegram Bot Control Plane
+
+```
+Admin (Telegram)
+    │
+    ▼
+Bot (Server B) ─── gRPC :10085 ──► XRay (local)
+    │                                  (HandlerService + StatsService)
+    │                                  /etc/xray/clients.json (atomic write)
+    │
+    └─── SSH ed25519 ──────────────► Server A
+                                       wg set / wg syncconf / wg show dump
+```
+
+**Stack:** TypeScript + Node.js 20, grammy, better-sqlite3, ssh2, @grpc/grpc-js
+
+**Bot source:** `bot/src/` — deployed to `/opt/vpn-bot` on Server B via Ansible role `telegram_bot`
+
+**Services:**
+- `xray.service.ts` — gRPC AlterInbound (live add/remove) + atomic clients.json sync
+- `wg.service.ts` — SSH to Server A: keypair gen, peer management, syncconf
+- `ssh.ts` — auto-reconnecting ssh2 connection pool
+- `charts.service.ts` — chartjs-node-canvas traffic PNG
+- `qr.service.ts` — QR code PNG for VLESS URIs
+- `system.service.ts` — CPU/RAM/uptime via /proc + SSH
+
+**Workers (background):**
+- `traffic.worker.ts` — 10min: XRay gRPC stats (reset delta) + WG SSH stats → traffic_snapshots
+- `ttl.worker.ts` — 1h: auto-suspend expired clients
+- `health.worker.ts` — 1min: SSH ping Server A, alert after 3 failures
+- `updates.worker.ts` — 12h: apt-check on A+B, alert if security updates > 0
+
+**Security:**
+- `vpn-bot` system user, no shell, data in `/var/lib/vpn-bot/`
+- ACL on `/etc/xray/keys/{reality.pub,shortid}` (read) and `/etc/xray/clients.json` (read+write)
+- SSH keypair generated at deploy time, pubkey pushed to Server A authorized_keys
+- Reality private key never leaves Server B
+
+**Deploy:**
+```bash
+ansible-playbook playbooks/deploy_bot.yml \
+  -e "bot_telegram_token=123:ABC bot_admin_id=987654321"
+```
 
 ---
 
