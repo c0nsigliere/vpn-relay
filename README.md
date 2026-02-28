@@ -7,7 +7,7 @@ Production-ready Ansible repository for Ubuntu 22.04/24.04 supporting two VPN fo
 | **WireGuard cascade** | `playbooks/wg_cascade.yml` | Client → A → B → Internet (AWG/plain WireGuard) |
 | **XRay L4 relay** | `playbooks/relay.yml` | Transparent TCP forward A → B (XRay/VLESS) |
 | **XRay VLESS+Reality** | `playbooks/xray.yml` | Native XRay server on B (VLESS+Reality :8443) |
-| **Full stack** | `playbooks/stack.yml` | Single entrypoint: maintenance → swap → cascade → xray → relay → verify |
+| **Full stack** | `playbooks/stack.yml` | Single entrypoint: maintenance → swap → cascade → xray → relay → verify → bot (optional) |
 
 All three can run simultaneously. The cascade replaces the broken UDP relay for WireGuard/AWG. The XRay relay on A forwards TCP to B where the native XRay server handles VLESS+Reality.
 
@@ -316,6 +316,7 @@ ansible-playbook playbooks/verify_all.yml
 | `xray_reality_fingerprint` | `chrome` | TLS fingerprint |
 | `xray_vless_flow` | `xtls-rprx-vision` | VLESS flow (set to `""` to disable) |
 | `xray_remove_keys` | `false` | Remove keys during rollback |
+| `xray_api_port` | `10085` | gRPC API port (loopback only, used by Telegram bot) |
 
 ---
 
@@ -395,7 +396,7 @@ vpn-relay/
 │   ├── maintenance.md                  # Update/upgrade workflows, persistence, checklists
 │   └── windows-wsl.md                  # WSL2 setup for Windows users
 ├── playbooks/
-│   ├── stack.yml                        # Full stack single entrypoint
+│   ├── stack.yml                        # Full stack single entrypoint (7 steps)
 │   ├── wg_cascade.yml                   # Deploy WireGuard cascade (A+B)
 │   ├── add_wg_client.yml               # Add WG client, fetch .conf
 │   ├── verify_wg_cascade.yml           # Standalone cascade verification
@@ -407,6 +408,8 @@ vpn-relay/
 │   ├── verify_xray.yml                  # Standalone XRay verification
 │   ├── rollback_xray.yml               # Teardown XRay server
 │   ├── rollback.yml                     # Remove XRay relay config
+│   ├── deploy_bot.yml                   # Deploy Telegram bot (B only)
+│   ├── remove_bot.yml                   # Remove Telegram bot (safety gate required)
 │   ├── bootstrap_ssh.yml                # First-time: push SSH key + harden sshd
 │   ├── maintenance_add_swap.yml         # Add swapfile if missing
 │   ├── update.yml                       # Safe package update (no reboot)
@@ -468,6 +471,16 @@ vpn-relay/
     │       ├── xray.service.j2
     │       ├── xray-client.vless.txt.j2
     │       └── xray-client.json.j2
+    ├── telegram_bot/                    # Telegram bot deploy role
+    │   ├── defaults/main.yml
+    │   ├── handlers/main.yml
+    │   └── tasks/
+    │       ├── main.yml
+    │       ├── validate.yml
+    │       ├── install.yml
+    │       ├── deploy.yml
+    │       ├── service.yml
+    │       └── verify.yml
     └── maintenance/                     # OS update/maintenance role
         ├── defaults/main.yml
         └── tasks/
@@ -477,6 +490,30 @@ vpn-relay/
             ├── reboot.yml
             ├── health.yml
             └── unattended_upgrades.yml
+├── bot/                                 # Telegram bot source (TypeScript)
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+│       ├── index.ts                     # Bot entry point + callback router
+│       ├── config/env.ts               # Zod-validated env
+│       ├── db/                          # SQLite (WAL) schema + queries
+│       ├── bot/
+│       │   ├── context.ts              # Session type
+│       │   ├── middlewares/auth.ts     # Admin-only guard
+│       │   ├── handlers/text-input.ts  # Name entry + client creation
+│       │   └── menus/                  # Inline keyboard menus
+│       ├── services/
+│       │   ├── xray.service.ts         # gRPC AlterInbound + clients.json sync
+│       │   ├── wg.service.ts           # SSH WireGuard management on A
+│       │   ├── ssh.ts                  # Auto-reconnecting ssh2 pool
+│       │   ├── charts.service.ts       # Traffic PNG (chartjs-node-canvas)
+│       │   ├── qr.service.ts           # QR code PNG for VLESS URIs
+│       │   └── system.service.ts       # CPU/RAM/uptime via /proc + SSH
+│       └── workers/
+│           ├── traffic.worker.ts       # 10min: collect XRay+WG stats
+│           ├── ttl.worker.ts           # 1h: auto-suspend expired clients
+│           ├── health.worker.ts        # 1min: SSH ping A, alert on failure
+│           └── updates.worker.ts       # 12h: apt-check A+B, alert on updates
 ```
 
 ## Requirements
