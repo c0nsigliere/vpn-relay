@@ -100,14 +100,14 @@
 - name: Display rp_filter settings
   ansible.builtin.debug:
     msg: |
-      rp_filter (expected: 2 = loose mode for asymmetric routing):
+      rp_filter (expected: 0 = disabled, required for TPROXY on wg_cascade hosts):
         net.ipv4.conf.all.rp_filter     = {{ rp_filter_all.stdout | trim | default('unknown') }}
         net.ipv4.conf.default.rp_filter = {{ rp_filter_default.stdout | trim | default('unknown') }}
-      {% if (rp_filter_all.stdout | trim) != '2' or (rp_filter_default.stdout | trim) != '2' %}
-      WARNING: rp_filter is not 2. Asymmetric routing packets may be dropped.
-      Fix: ansible-playbook playbooks/relay.yml --tags sysctl
+      {% if (rp_filter_all.stdout | trim) == '0' and (rp_filter_default.stdout | trim) == '0' %}
+      OK: rp_filter is correctly set to 0 (disabled) for TPROXY.
       {% else %}
-      OK: rp_filter is correctly set to loose mode (2).
+      WARNING: rp_filter is not 0. TPROXY-redirected packets may be dropped on asymmetric paths.
+      Fix: ansible-playbook playbooks/wg_cascade.yml --tags sysctl
       {% endif %}
   changed_when: false
   tags:

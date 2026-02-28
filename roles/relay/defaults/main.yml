@@ -8,8 +8,8 @@ server_b_public_ip: ""
 # Entry port on relay server (Server A) — TCP only
 port_a_tcp: 443
 
-# Target port on VPN server (Server B) — TCP only
-port_b_tcp: 443
+# Target port on VPN server (Server B) — derived from xray_port
+port_b_tcp: "{{ xray_port }}"
 
 # WAN interface - leave empty for auto-detection
 wan_if: ""

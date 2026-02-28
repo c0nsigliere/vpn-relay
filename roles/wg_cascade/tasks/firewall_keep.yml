@@ -61,8 +61,8 @@
       *mangle
       :FORWARD ACCEPT [0:0]
       :PREROUTING ACCEPT [0:0]
+      :XRAY_WG_TPROXY - [0:0]
       -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-      -N XRAY_WG_TPROXY
       -A XRAY_WG_TPROXY -d 10.0.0.0/8 -j RETURN
       -A XRAY_WG_TPROXY -d 127.0.0.0/8 -j RETURN
       -A XRAY_WG_TPROXY -d 169.254.0.0/16 -j RETURN

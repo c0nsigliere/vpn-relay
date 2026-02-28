@@ -9,18 +9,7 @@
     reload: true
     state: present
 
-- name: Set rp_filter to loose mode (all interfaces)
-  ansible.posix.sysctl:
-    name: net.ipv4.conf.all.rp_filter
-    value: '2'
-    sysctl_file: /etc/sysctl.d/99-vpn-relay.conf
-    reload: true
-    state: present
-
-- name: Set rp_filter to loose mode (default)
-  ansible.posix.sysctl:
-    name: net.ipv4.conf.default.rp_filter
-    value: '2'
-    sysctl_file: /etc/sysctl.d/99-vpn-relay.conf
-    reload: true
-    state: present
+# rp_filter is intentionally NOT set here.
+# On Server A, wg_cascade owns rp_filter (must be 0 for TPROXY).
+# relay/sysctl.yml setting rp_filter=2 would override the wg_cascade value
+# because 99-vpn-relay.conf loads after 99-wg-cascade.conf alphabetically.

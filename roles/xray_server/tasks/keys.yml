@@ -27,8 +27,8 @@
 
     - name: Parse private key from x25519 output
       ansible.builtin.set_fact:
-        _xray_reality_privkey: "{{ _xray_x25519_output.stdout | regex_search('Private key:\\s*(\\S+)', '\\1') | first }}"
-        _xray_reality_pubkey: "{{ _xray_x25519_output.stdout | regex_search('Public key:\\s*(\\S+)', '\\1') | first }}"
+        _xray_reality_privkey: "{{ _xray_x25519_output.stdout | regex_search('PrivateKey:\\s*(\\S+)', '\\1') | first }}"
+        _xray_reality_pubkey: "{{ _xray_x25519_output.stdout | regex_search('Password:\\s*(\\S+)', '\\1') | first }}"
 
     - name: Write Reality private key
       ansible.builtin.copy:

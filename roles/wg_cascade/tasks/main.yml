@@ -21,10 +21,6 @@
   ansible.builtin.import_tasks: configs.yml
   tags: [configs]
 
-- name: Import routing tasks
-  ansible.builtin.import_tasks: routing.yml
-  tags: [routing]
-
 - name: Import UFW keep mode firewall tasks
   ansible.builtin.import_tasks: firewall_keep.yml
   when: manage_ufw == "keep"

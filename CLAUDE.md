@@ -112,6 +112,7 @@ Client provisioning playbooks write locally to `artifacts/` (relative to repo ro
 ## Other tasks
 
 You can connect to servers directly via SSH (the keys are already registered) to conduct diagnostics. You can install tools on the local computer and remote servers.
+Servers have names "server-a" and "server-b" in inventory or you can connect as root@* by ssh.
 
 ## After Each Change
 
