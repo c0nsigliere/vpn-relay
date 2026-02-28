@@ -1,6 +1,16 @@
 ---
 # Handlers for relay role
 
+- name: restart xray
+  ansible.builtin.systemd:
+    name: xray
+    state: restarted
+    daemon_reload: true
+
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
 - name: reload ufw
   ansible.builtin.shell: >-
     iptables -t nat -F PREROUTING &&

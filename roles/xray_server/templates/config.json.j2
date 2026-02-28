@@ -15,9 +15,15 @@
             "email": "{{ client.name }}@xray"{% if xray_vless_flow | length > 0 %},
             "flow": "{{ xray_vless_flow }}"{% endif %}
 
-          }{% if not loop.last %},{% endif %}
+          }{% if not loop.last or (xray_wg_uplink_uuid | default('') | length > 0) %},{% endif %}
 
 {% endfor %}
+{% if xray_wg_uplink_uuid | default('') | length > 0 %}
+          {
+            "id": "{{ xray_wg_uplink_uuid }}",
+            "email": "wg-clients@xray"
+          }
+{% endif %}
         ],
         "decryption": "none"
       },

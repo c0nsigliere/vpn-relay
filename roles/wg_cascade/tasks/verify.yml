@@ -1,17 +1,20 @@
 ---
 # Verification tasks for wg_cascade role
 # All tasks are read-only (changed_when: false)
+# wg-uplink is gone — only wg-clients (Server A) is verified here.
 
-- name: "Show wg show all"
+- name: "[A] Show wg show wg-clients"
   ansible.builtin.command:
-    cmd: wg show all
+    cmd: wg show wg-clients
   register: _wg_show
   changed_when: false
   failed_when: false
+  when: inventory_hostname in groups['server_a']
 
-- name: "Display wg show output"
+- name: "[A] Display wg show output"
   ansible.builtin.debug:
     msg: "{{ _wg_show.stdout_lines }}"
+  when: inventory_hostname in groups['server_a']
 
 - name: "[A] Show ip rule list"
   ansible.builtin.command:
@@ -25,73 +28,50 @@
     msg: "{{ _ip_rule.stdout_lines }}"
   when: inventory_hostname in groups['server_a']
 
-- name: "[A] Assert ip rule for table {{ wg_routing_table }} exists"
+- name: "[A] Assert ip rule for TPROXY fwmark 0x1 exists (table {{ xray_tproxy_table }})"
   ansible.builtin.assert:
     that:
-      - wg_clients_net in _ip_rule.stdout
+      - "'fwmark 0x1' in _ip_rule.stdout"
     fail_msg: >-
-      Policy routing rule for {{ wg_clients_net }} → table {{ wg_routing_table }} is missing.
-      Check that wg-quick@wg-uplink is active and PostUp ran successfully.
-    success_msg: "ip rule for table {{ wg_routing_table }} is present"
+      TPROXY fwmark rule (fwmark 0x1 → table {{ xray_tproxy_table }}) is missing on Server A.
+      Check that wg-quick@wg-clients is active and PostUp ran successfully.
+    success_msg: "TPROXY fwmark rule is present"
   when: inventory_hostname in groups['server_a']
 
-- name: "[A] Show ip route table {{ wg_routing_table }}"
+- name: "[A] Show ip route table {{ xray_tproxy_table }}"
   ansible.builtin.command:
-    cmd: "ip route show table {{ wg_routing_table }}"
-  register: _route200
+    cmd: "ip route show table {{ xray_tproxy_table }}"
+  register: _route_tproxy
   changed_when: false
   when: inventory_hostname in groups['server_a']
 
-- name: "[A] Display route table {{ wg_routing_table }} output"
+- name: "[A] Display TPROXY route table output"
   ansible.builtin.debug:
-    msg: "{{ _route200.stdout_lines }}"
+    msg: "{{ _route_tproxy.stdout_lines }}"
   when: inventory_hostname in groups['server_a']
 
-- name: "[A] Assert default route exists in table {{ wg_routing_table }}"
+- name: "[A] Assert local default route exists in table {{ xray_tproxy_table }}"
   ansible.builtin.assert:
     that:
-      - "'default' in _route200.stdout"
+      - "'local' in _route_tproxy.stdout"
     fail_msg: >-
-      Default route in table {{ wg_routing_table }} is missing.
-      Check that wg-quick@wg-uplink is active and PostUp ran successfully.
-    success_msg: "Default route in table {{ wg_routing_table }} is present"
+      Local default route in table {{ xray_tproxy_table }} is missing.
+      Check that wg-quick@wg-clients is active and PostUp ran successfully.
+    success_msg: "Local default route in table {{ xray_tproxy_table }} is present"
   when: inventory_hostname in groups['server_a']
 
-- name: "Show NAT POSTROUTING counters"
+- name: "[A] Show TPROXY mangle rules"
   ansible.builtin.command:
-    cmd: iptables -t nat -L POSTROUTING -n -v
-  register: _nat_post
+    cmd: iptables -t mangle -L XRAY_WG_TPROXY -n
+  register: _tproxy_rules
   changed_when: false
   failed_when: false
+  when: inventory_hostname in groups['server_a']
 
-- name: "Display NAT POSTROUTING counters"
+- name: "[A] Display TPROXY mangle rules"
   ansible.builtin.debug:
-    msg: "{{ _nat_post.stdout_lines }}"
-
-- name: "Show FORWARD chain rules"
-  ansible.builtin.command:
-    cmd: iptables -S FORWARD
-  register: _forward_rules
-  changed_when: false
-  failed_when: false
-
-- name: "Display FORWARD chain rules"
-  ansible.builtin.debug:
-    msg: "{{ _forward_rules.stdout_lines }}"
-
-- name: "Check wg-quick@wg-uplink service status"
-  ansible.builtin.command:
-    cmd: systemctl is-active wg-quick@wg-uplink
-  register: _wg_uplink_status
-  changed_when: false
-  failed_when: false
-
-- name: "Assert wg-quick@wg-uplink is active"
-  ansible.builtin.assert:
-    that:
-      - _wg_uplink_status.rc == 0
-    fail_msg: "wg-quick@wg-uplink is not active on {{ inventory_hostname }} (status: {{ _wg_uplink_status.stdout }})"
-    success_msg: "wg-quick@wg-uplink is active"
+    msg: "{{ _tproxy_rules.stdout_lines }}"
+  when: inventory_hostname in groups['server_a']
 
 - name: "[A] Check wg-quick@wg-clients service status"
   ansible.builtin.command:

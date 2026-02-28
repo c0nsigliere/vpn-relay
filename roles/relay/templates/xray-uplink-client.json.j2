@@ -1,0 +1,69 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "tag": "tproxy-wg-clients",
+      "listen": "0.0.0.0",
+      "port": {{ xray_tproxy_port }},
+      "protocol": "dokodemo-door",
+      "settings": {
+        "network": "tcp,udp",
+        "followRedirect": true
+      },
+      "streamSettings": {
+        "sockopt": { "tproxy": "tproxy" }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy-out",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "{{ server_b_public_ip }}",
+            "port": {{ xray_port }},
+            "users": [
+              {
+                "id": "{{ xray_wg_uplink_uuid }}",
+                "flow": "",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "{{ xray_reality_server_names[0] }}",
+          "fingerprint": "{{ xray_reality_fingerprint }}",
+          "publicKey": "{{ _xray_reality_pubkey | trim }}",
+          "shortId": "{{ _xray_shortid | trim }}"
+        }
+      },
+      "mux": { "enabled": true, "concurrency": 8, "xudpConcurrency": 16 }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "ip": ["{{ server_b_public_ip }}"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["tproxy-wg-clients"],
+        "outboundTag": "proxy-out"
+      }
+    ]
+  }
+}

@@ -1,9 +1,10 @@
 ---
 # Firewall configuration — UFW keep mode
-# Manages forwarding policy and NAT/FORWARD rules via UFW ecosystem
+# Server A only: wg-clients port + TPROXY mangle rules.
+# Server B no longer runs wg_cascade role.
 
 # =============================================================================
-# Common setup (both servers)
+# Common setup (Server A)
 # =============================================================================
 
 - name: Ensure UFW is installed
@@ -31,19 +32,6 @@
     state: present
   notify: reload ufw
 
-- name: "Inject mangle TCPMSS rules into /etc/ufw/before.rules"
-  ansible.builtin.blockinfile:
-    path: /etc/ufw/before.rules
-    insertbefore: '^\*filter'
-    marker: "# {mark} WG-CASCADE MANGLE RULES"
-    block: |
-      *mangle
-      :FORWARD ACCEPT [0:0]
-      -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-      COMMIT
-    state: present
-  notify: reload ufw
-
 # =============================================================================
 # SERVER A: Allow client-facing WireGuard port
 # =============================================================================
@@ -57,91 +45,35 @@
   when: inventory_hostname in groups['server_a']
 
 # =============================================================================
-# SERVER A: NAT rules — MASQUERADE client subnet out via wg-uplink
+# SERVER A: Mangle rules — MSS clamping + TPROXY for wg-clients traffic
+#
+# XRAY_WG_TPROXY chain intercepts all traffic from wg-clients interface and
+# redirects it to XRay TPROXY inbound on xray_tproxy_port.
+# Private/loopback/multicast destinations are exempted (returned to normal routing).
 # =============================================================================
 
-- name: "[A] Inject NAT rules into /etc/ufw/before.rules"
+- name: "[A] Inject mangle TPROXY rules into /etc/ufw/before.rules"
   ansible.builtin.blockinfile:
     path: /etc/ufw/before.rules
     insertbefore: '^\*filter'
-    marker: "# {mark} WG-CASCADE NAT RULES A"
+    marker: "# {mark} WG-CASCADE MANGLE RULES"
     block: |
-      *nat
+      *mangle
+      :FORWARD ACCEPT [0:0]
       :PREROUTING ACCEPT [0:0]
-      :POSTROUTING ACCEPT [0:0]
-      # MASQUERADE client subnet → wg-uplink (Server A SNAT for cascade)
-      -A POSTROUTING -s {{ wg_clients_net }} -o wg-uplink -j MASQUERADE
+      -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+      -N XRAY_WG_TPROXY
+      -A XRAY_WG_TPROXY -d 10.0.0.0/8 -j RETURN
+      -A XRAY_WG_TPROXY -d 127.0.0.0/8 -j RETURN
+      -A XRAY_WG_TPROXY -d 169.254.0.0/16 -j RETURN
+      -A XRAY_WG_TPROXY -d 172.16.0.0/12 -j RETURN
+      -A XRAY_WG_TPROXY -d 192.168.0.0/16 -j RETURN
+      -A XRAY_WG_TPROXY -d 224.0.0.0/4 -j RETURN
+      -A XRAY_WG_TPROXY -d 240.0.0.0/4 -j RETURN
+      -A XRAY_WG_TPROXY -p tcp -j TPROXY --on-port {{ xray_tproxy_port }} --tproxy-mark 0x1/0x1
+      -A XRAY_WG_TPROXY -p udp -j TPROXY --on-port {{ xray_tproxy_port }} --tproxy-mark 0x1/0x1
+      -A PREROUTING -i wg-clients -j XRAY_WG_TPROXY
       COMMIT
     state: present
   when: inventory_hostname in groups['server_a']
-  notify: reload ufw
-
-# =============================================================================
-# SERVER A: FORWARD rules — allow traffic between wg-clients and wg-uplink
-# =============================================================================
-
-- name: "[A] Inject FORWARD rules into ufw-before-forward chain"
-  ansible.builtin.blockinfile:
-    path: /etc/ufw/before.rules
-    insertafter: '^-A ufw-before-forward -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT'
-    marker: "# {mark} WG-CASCADE FORWARD RULES A"
-    block: |
-      # Allow client traffic to flow toward Server B via wg-uplink
-      -A ufw-before-forward -i wg-clients -o wg-uplink -j ACCEPT
-      # Allow established/related traffic back to clients from wg-uplink
-      -A ufw-before-forward -i wg-uplink -o wg-clients -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-    state: present
-  when: inventory_hostname in groups['server_a']
-  notify: reload ufw
-
-# =============================================================================
-# SERVER B: Allow uplink WireGuard port
-# =============================================================================
-
-- name: "[B] Allow wg-uplink UDP port through UFW"
-  community.general.ufw:
-    rule: allow
-    port: "{{ wg_uplink_port_b }}"
-    proto: udp
-    comment: "WG cascade — uplink from Server A (wg-uplink)"
-  when: inventory_hostname in groups['server_b']
-
-# =============================================================================
-# SERVER B: NAT rules — MASQUERADE uplink subnet out to Internet via WAN
-# =============================================================================
-
-- name: "[B] Inject NAT rules into /etc/ufw/before.rules"
-  ansible.builtin.blockinfile:
-    path: /etc/ufw/before.rules
-    insertbefore: '^\*filter'
-    marker: "# {mark} WG-CASCADE NAT RULES B"
-    block: |
-      *nat
-      :PREROUTING ACCEPT [0:0]
-      :POSTROUTING ACCEPT [0:0]
-      # MASQUERADE uplink subnet → WAN (Server B Internet egress NAT)
-      -A POSTROUTING -s {{ wg_uplink_net }} -o {{ wan_if_final }} -j MASQUERADE
-      # Safety net: also MASQUERADE client subnet in case Server A MASQUERADE is bypassed
-      -A POSTROUTING -s {{ wg_clients_net }} -o {{ wan_if_final }} -j MASQUERADE
-      COMMIT
-    state: present
-  when: inventory_hostname in groups['server_b']
-  notify: reload ufw
-
-# =============================================================================
-# SERVER B: FORWARD rules — allow uplink traffic to WAN and back
-# =============================================================================
-
-- name: "[B] Inject FORWARD rules into ufw-before-forward chain"
-  ansible.builtin.blockinfile:
-    path: /etc/ufw/before.rules
-    insertafter: '^-A ufw-before-forward -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT'
-    marker: "# {mark} WG-CASCADE FORWARD RULES B"
-    block: |
-      # Allow uplink traffic to reach the Internet via WAN
-      -A ufw-before-forward -i wg-uplink -o {{ wan_if_final }} -j ACCEPT
-      # Allow established/related traffic back from WAN to wg-uplink
-      -A ufw-before-forward -i {{ wan_if_final }} -o wg-uplink -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-    state: present
-  when: inventory_hostname in groups['server_b']
   notify: reload ufw

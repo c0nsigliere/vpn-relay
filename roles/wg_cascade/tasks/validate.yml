@@ -34,20 +34,13 @@
     fail_msg: "wg_clients_port must be between 1 and 65535, got {{ wg_clients_port }}"
     success_msg: "wg_clients_port is valid: {{ wg_clients_port }}"
 
-- name: Validate wg_uplink_port_b is in valid range
+- name: Validate xray_tproxy_port is in valid range
   ansible.builtin.assert:
     that:
-      - wg_uplink_port_b | int >= 1
-      - wg_uplink_port_b | int <= 65535
-    fail_msg: "wg_uplink_port_b must be between 1 and 65535, got {{ wg_uplink_port_b }}"
-    success_msg: "wg_uplink_port_b is valid: {{ wg_uplink_port_b }}"
-
-- name: Validate client port and uplink port do not collide
-  ansible.builtin.assert:
-    that:
-      - wg_clients_port | int != wg_uplink_port_b | int
-    fail_msg: "wg_clients_port and wg_uplink_port_b cannot be the same (both are {{ wg_clients_port }})"
-    success_msg: "Ports are different (clients: {{ wg_clients_port }}, uplink: {{ wg_uplink_port_b }})"
+      - xray_tproxy_port | int >= 1
+      - xray_tproxy_port | int <= 65535
+    fail_msg: "xray_tproxy_port must be between 1 and 65535, got {{ xray_tproxy_port }}"
+    success_msg: "xray_tproxy_port is valid: {{ xray_tproxy_port }}"
 
 - name: Validate manage_ufw mode
   ansible.builtin.assert:
@@ -56,26 +49,21 @@
     fail_msg: "manage_ufw must be 'keep' or 'disable', got '{{ manage_ufw }}'"
     success_msg: "manage_ufw mode is valid: {{ manage_ufw }}"
 
-- name: Validate wg_clients_net and wg_uplink_net do not overlap
-  ansible.builtin.assert:
-    that:
-      - wg_clients_net != wg_uplink_net
-    fail_msg: "wg_clients_net ({{ wg_clients_net }}) and wg_uplink_net ({{ wg_uplink_net }}) must be different"
-    success_msg: "Cascade subnets are different"
+- name: Auto-detect WAN interface if not specified
+  when: wan_if | length == 0
+  block:
+    - name: Detect WAN interface via ip route
+      ansible.builtin.set_fact:
+        wan_if_detected: "{{ ansible_default_ipv4.interface | default('') }}"
 
-- name: Hard-fail if wg_uplink_port_b is 51820 (WireGuard default — likely in use on B)
-  ansible.builtin.assert:
-    that:
-      - wg_uplink_allow_default_port | default(false) | bool
-    fail_msg: >-
-      wg_uplink_port_b={{ wg_uplink_port_b }} conflicts with the WireGuard default port
-      (51820/udp is commonly used by other WireGuard instances).
-      Change wg_uplink_port_b to a different port in group_vars (e.g. 51821).
-      If you have confirmed port 51820 is free on Server B, pass:
-        -e "wg_uplink_allow_default_port=true"
-  when:
-    - wg_uplink_port_b | int == 51820
-    - inventory_hostname in groups['server_b']
+    - name: Assert auto-detected WAN interface is non-empty
+      ansible.builtin.assert:
+        that:
+          - wan_if_detected | length > 0
+        fail_msg: >-
+          Could not auto-detect WAN interface on {{ inventory_hostname }}.
+          Set wan_if explicitly in group_vars.
+        success_msg: "Auto-detected WAN interface: {{ wan_if_detected }}"
 
 - name: Check if manually specified wan_if exists
   when: wan_if | length > 0
@@ -93,22 +81,6 @@
           - wan_if_check.rc == 0
         fail_msg: "Specified wan_if '{{ wan_if }}' does not exist on {{ inventory_hostname }}"
         success_msg: "Specified wan_if '{{ wan_if }}' exists"
-
-- name: Auto-detect WAN interface if not specified
-  when: wan_if | length == 0
-  block:
-    - name: Detect WAN interface via ip route
-      ansible.builtin.set_fact:
-        wan_if_detected: "{{ ansible_default_ipv4.interface | default('') }}"
-
-    - name: Assert auto-detected WAN interface is non-empty
-      ansible.builtin.assert:
-        that:
-          - wan_if_detected | length > 0
-        fail_msg: >-
-          Could not auto-detect WAN interface on {{ inventory_hostname }}.
-          Set wan_if explicitly in group_vars.
-        success_msg: "Auto-detected WAN interface: {{ wan_if_detected }}"
 
 - name: Set final WAN interface fact
   ansible.builtin.set_fact:

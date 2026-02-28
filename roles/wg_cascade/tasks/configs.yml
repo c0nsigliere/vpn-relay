@@ -1,7 +1,8 @@
 ---
 # Render WireGuard configuration files for wg_cascade role
 #
-# Requires: keys.yml must have run first (public keys must exist on disk)
+# Only wg-clients.conf is needed on Server A.
+# wg-uplink has been replaced by XRay TPROXY.
 
 # =============================================================================
 # SERVER A: Read key material into facts for template rendering
@@ -11,18 +12,6 @@
   ansible.builtin.slurp:
     src: "{{ wg_keys_dir }}/wg-clients.key"
   register: _wg_clients_privkey
-  when: inventory_hostname in groups['server_a']
-
-- name: "[A] Read wg-uplink private key"
-  ansible.builtin.slurp:
-    src: "{{ wg_keys_dir }}/wg-uplink.key"
-  register: _wg_uplink_privkey_a
-  when: inventory_hostname in groups['server_a']
-
-- name: "[A] Read Server B's uplink public key"
-  ansible.builtin.slurp:
-    src: /etc/wireguard/peers/b-uplink.pub
-  register: _wg_b_uplink_pubkey
   when: inventory_hostname in groups['server_a']
 
 # =============================================================================
@@ -38,43 +27,3 @@
     group: root
   when: inventory_hostname in groups['server_a']
   notify: restart wg-clients
-
-- name: "[A] Render /etc/wireguard/wg-uplink.conf"
-  ansible.builtin.template:
-    src: wg-uplink-a.conf.j2
-    dest: /etc/wireguard/wg-uplink.conf
-    mode: '0600'
-    owner: root
-    group: root
-  when: inventory_hostname in groups['server_a']
-  notify: restart wg-uplink-a
-
-# =============================================================================
-# SERVER B: Read key material into facts for template rendering
-# =============================================================================
-
-- name: "[B] Read wg-uplink private key"
-  ansible.builtin.slurp:
-    src: "{{ wg_keys_dir }}/wg-uplink.key"
-  register: _wg_uplink_privkey_b
-  when: inventory_hostname in groups['server_b']
-
-- name: "[B] Read Server A's uplink public key"
-  ansible.builtin.slurp:
-    src: /etc/wireguard/peers/a-uplink.pub
-  register: _wg_a_uplink_pubkey
-  when: inventory_hostname in groups['server_b']
-
-# =============================================================================
-# SERVER B: Render WireGuard config file
-# =============================================================================
-
-- name: "[B] Render /etc/wireguard/wg-uplink.conf"
-  ansible.builtin.template:
-    src: wg-uplink-b.conf.j2
-    dest: /etc/wireguard/wg-uplink.conf
-    mode: '0600'
-    owner: root
-    group: root
-  when: inventory_hostname in groups['server_b']
-  notify: restart wg-uplink-b

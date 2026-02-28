@@ -53,6 +53,21 @@
    - Internal facts: `_xray_users` → `_xray_clients`, `_user_uuid` → `_client_uuid`, etc.
    - XRay JSON protocol keys (`"clients"`, `"users"`) left unchanged (spec-dictated)
 
+- [x] **Remove wg-uplink, replace with XRay TPROXY** ✅ — wg-uplink eliminated from both servers
+  - Server B removed from `[wg_cascade]` group — no WireGuard on B at all
+  - `roles/wg_cascade`: removed wg-uplink keypair generation/exchange, configs, routing (table 200),
+    services, firewall NAT/FORWARD rules for B; added TPROXY mangle chain (XRAY_WG_TPROXY)
+  - `roles/wg_cascade/templates/wg-clients.conf.j2`: PostUp/PreDown for TPROXY routing
+    (ip rule fwmark 0x1 → table 100, ip route local 0.0.0.0/0 dev lo)
+  - `roles/wg_cascade/tasks/sysctl.yml`: rp_filter changed from 2 (loose) to 0 (disabled)
+    — required for TPROXY; per-interface rp_filter set via wg-clients PostUp
+  - `roles/relay/templates/xray-uplink-client.json.j2`: replaced dokodemo-door UDP approach
+    with TPROXY inbound (dokodemo-door + followRedirect) + mux enabled outbound
+  - `roles/relay/defaults/main.yml`: removed `wg_uplink_port_b`/`xray_wg_uplink_port`,
+    added `xray_tproxy_port: 12345`
+  - Deleted: `wg-uplink-a.conf.j2`, `wg-uplink-b.conf.j2`
+  - Rollback playbook fully rewritten for TPROXY teardown
+
 ## Priorities (continued)
 
 - [x] **`health.yml` false-fails on fresh servers** ✅ — all CRITICAL assertions and iptables

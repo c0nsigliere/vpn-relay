@@ -1,5 +1,12 @@
 ---
-# Sysctl configuration for WireGuard cascade routing
+# Sysctl configuration for WireGuard cascade + TPROXY routing (Server A)
+#
+# rp_filter must be 0 (disabled) for TPROXY to work correctly.
+# Value 1 (strict) drops TPROXY-redirected packets; value 2 (loose) may also
+# drop them on asymmetric paths.  Only 0 is safe for TPROXY.
+#
+# Per-interface rp_filter for wg-clients is set via PostUp in wg-clients.conf.j2
+# (can only be applied after the interface exists).
 
 - name: Enable IPv4 forwarding
   ansible.posix.sysctl:
@@ -9,18 +16,18 @@
     reload: true
     state: present
 
-- name: Set rp_filter to loose mode (all interfaces)
+- name: Disable rp_filter on all interfaces (required for TPROXY)
   ansible.posix.sysctl:
     name: net.ipv4.conf.all.rp_filter
-    value: '2'
+    value: '0'
     sysctl_file: /etc/sysctl.d/99-wg-cascade.conf
     reload: true
     state: present
 
-- name: Set rp_filter to loose mode (default)
+- name: Disable rp_filter on default (required for TPROXY)
   ansible.posix.sysctl:
     name: net.ipv4.conf.default.rp_filter
-    value: '2'
+    value: '0'
     sysctl_file: /etc/sysctl.d/99-wg-cascade.conf
     reload: true
     state: present

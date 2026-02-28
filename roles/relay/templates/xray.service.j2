@@ -1,0 +1,14 @@
+[Unit]
+Description=XRay WireGuard Uplink Client (VLESS+Reality)
+Documentation=https://xtls.github.io
+After=network.target nss-lookup.target
+
+[Service]
+Type=simple
+ExecStart={{ xray_bin }} run -config {{ xray_config_dir }}/config.json
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

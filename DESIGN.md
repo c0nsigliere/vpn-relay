@@ -27,58 +27,58 @@
 ## 1️⃣ WireGuard Cascade (VPN plane)
 
 ```
-Client → Server A (wg-clients)
-        → wg-uplink
-        → Server B
-        → Internet
+Client → Server A :51888/udp (wg-clients 10.66.0.0/24)
+        → iptables TPROXY → XRay :12345 (TPROXY inbound, knows original dst)
+        → XRay VLESS+Reality (TCP, DPI bypass) → Server B XRay :8443
+        → freedom outbound → Internet (original dst preserved)
 ```
+
+**Почему XRay TPROXY:** Российские ISP (ТСПУ) блокируют весь исходящий
+UDP из РФ за рубеж. WireGuard wg-uplink не может соединиться с Server B
+напрямую. Вместо этого XRay TPROXY перехватывает весь расшифрованный
+WireGuard-трафик и передаёт его через VLESS+Reality на Server B.
+Server B больше не имеет WireGuard — только XRay.
 
 ### Server A:
 
-* Интерфейс: `wg-clients`
-* Подсеть клиентов: `10.66.0.0/24`
-* Порт: `51888/udp`
-* Policy routing:
-
-  * table 200
-  * ip rule from 10.66.0.0/24 lookup 200
-  * default via wg-uplink
-* SSH и основной default route НЕ ломаются.
+* Интерфейс: `wg-clients` — 10.66.0.0/24, порт 51888/udp
+* iptables mangle PREROUTING: `-i wg-clients -j TPROXY --on-port 12345 --tproxy-mark 0x1`
+* ip rule: `fwmark 0x1 → table 100`, ip route: `local 0.0.0.0/0 dev lo table 100`
+* XRay client (роль `relay`):
+  * TPROXY inbound (dokodemo-door + followRedirect) на порту 12345
+  * VLESS+Reality outbound → Server B:8443
+  * Reality pubkey читается с Server B во время деплоя
+  * UUID: `xray_wg_uplink_uuid` (group_vars/all.yml)
+* SSH и основной default route НЕ ломаются (TPROXY применяется только к wg-clients)
 
 ### Server B:
 
-* Интерфейс: `wg-uplink`
-* Подсеть: `10.200.0.0/30`
-* Порт uplink: `51821/udp`
-* Делает MASQUERADE в WAN
+* WireGuard полностью удалён
+* XRay принимает VLESS+Reality, `freedom` outbound создаёт соединения с оригинальным dst
+* NAT через XRay на уровне приложения — iptables MASQUERADE на B не нужен
 
 ---
 
 ## 2️⃣ XRay Access (Proxy plane)
 
 ```
-Client → Server A (TCP relay 443)
-        → DNAT → Server B (XRay 443)
+Client → Server A :443/tcp (TCP relay DNAT)
+        → Server B :8443/tcp (XRay VLESS+Reality)
         → Internet
 ```
 
 ### Server A:
 
-* TCP relay:
-
-  * 443/tcp → B:443/tcp
-* Используется роль `relay`
-* Никаких ключей XRay на A нет
-* Только DNAT + MASQUERADE
+* TCP relay: DNAT 443/tcp → B:8443/tcp
+* Роль `relay` — только DNAT + MASQUERADE + XRay uplink client
+* Reality private key никогда не попадает на A
 
 ### Server B:
 
-* XRay (systemd)
-* VLESS + Reality
-* Порт: 443/tcp
-* Без Docker
-* Без Amnezia
-* Reality private key хранится только на B
+* XRay (systemd), VLESS + Reality, порт 8443/tcp
+* Порт 443: принимается через TCP relay на Server A
+* Reality private key хранится только на B (`/etc/xray/keys/`)
+* Клиенты в `/etc/xray/clients.json`; wg-uplink peer — отдельный UUID без flow
 
 ---
 
@@ -88,7 +88,7 @@ Client → Server A (TCP relay 443)
 * Transport: TCP
 * Security: Reality
 * encryption: none
-* SNI: `www.microsoft.com`
+* SNI: `www.googletagmanager.com`
 * Fingerprint: `chrome`
 * Flow: `xtls-rprx-vision` (TLS-in-TLS splice, DPI protection)
 * Clients хранятся в `/etc/xray/clients.json`
@@ -106,12 +106,12 @@ Client → Server A (TCP relay 443)
 
 ### roles/wg_cascade
 
-* Управляет A и B
-* Генерация ключей
-* Обмен pubkey
-* Routing
+* Только Server A (Server B больше не в группе `wg_cascade`)
+* Генерация ключей (только wg-clients)
+* TPROXY iptables mangle rules
+* Routing (TPROXY fwmark через wg-clients PostUp/PreDown)
 * Firewall
-* Services
+* Services (только wg-clients)
 * Verify
 * Memory parser (/proc/meminfo)
 
@@ -128,10 +128,12 @@ Client → Server A (TCP relay 443)
 ### roles/relay
 
 * Только Server A
-* DNAT TCP
-* MASQUERADE
-* FORWARD rules
+* DNAT TCP (443 → B:8443)
+* MASQUERADE + FORWARD rules
 * UFW keep mode
+* **XRay TPROXY client** — устанавливает XRay binary, пишет config из шаблона
+  `xray-uplink-client.json.j2` (TPROXY inbound + VLESS+Reality outbound)
+  Читает Reality pubkey с Server B через delegate_to
 * Verify
 
 ### roles/maintenance
@@ -237,8 +239,7 @@ server_b
 
 ```
 wg_cascade: children
-  server_a
-  server_b
+  server_a         # Server B removed — no WireGuard on B
 
 xray_servers:
   server_b
@@ -265,10 +266,8 @@ relay_servers:
 * wg_clients_net
 * wg_clients_addr_a
 * wg_clients_port
-* wg_uplink_net
-* wg_uplink_addr_a
-* wg_uplink_addr_b
-* wg_uplink_port_b
+* xray_tproxy_port (default: 12345)
+* xray_tproxy_table (default: 100)
 
 ## Relay
 
@@ -339,60 +338,16 @@ ansible-playbook playbooks/add_xray_client.yml -e "client_name=..."
 
 # 📌 Текущее состояние
 
-* WireGuard cascade работает
-* Relay TCP работает
+* WireGuard cascade работает (XRay TPROXY — wg-uplink и WireGuard на B полностью удалены)
+* XRay TPROXY перехватывает wg-clients трафик на Server A, туннелирует через VLESS+Reality на B
+* Relay TCP работает (A:443 → B:8443, DNAT+MASQUERADE)
 * Native XRay развёрнут (systemd, без Docker)
 * Amnezia/Docker полностью удалены из кодовой базы
 * Реализован single-entry entrypoint `stack.yml`
-* DPI hardening: порт 443 на relay, SNI `www.microsoft.com` (гео-нейтральный), flow `xtls-rprx-vision` — активны по умолчанию
-* Control-plane (Telegram бот) — спроектирован, не реализован (см. секцию ниже)
+* DPI hardening: порт 8443 на relay, SNI `www.googletagmanager.com`, flow `xtls-rprx-vision` — активны по умолчанию
+* Control-plane (Telegram бот) — спроектирован, не реализован (см. `PLAN_TELEGRAM_BOT.md`)
 
 ---
-
-# 🤖 Control-Plane (Telegram Bot)
-
-## Назначение
-
-Admin-only Telegram бот для управления стеком без SSH. Один пользователь (allowlist по Telegram user ID), без self-service.
-
-## Архитектура
-
-Бот живёт на отдельном Server C, чтобы A и B можно было перенакатывать независимо:
-
-```
-Server C (control-plane)
-├── repo clone + ansible
-├── SSH keys → A, B
-├── telegram bot (systemd)
-└── artifacts/ (сгенерированные конфиги)
-```
-
-Бот вызывает Ansible playbooks из этого репозитория и возвращает результат в Telegram.
-
-## Tech Stack
-
-* **TypeScript** — основной язык
-* **grammY** — Telegram bot framework (TS-first, активно поддерживается)
-* **child_process.spawn** + `ANSIBLE_STDOUT_CALLBACK=json` — вызов Ansible
-* **SQLite** (better-sqlite3 / drizzle) — аудит-лог команд
-* **systemd** — управление процессом бота
-
-## Расположение в репозитории
-
-`bot/` директория в этом же репо (монорепо). Бот тесно связан с playbooks и inventory.
-
-## Команды (целевые)
-
-| Команда | Playbook | Результат |
-|---------|----------|-----------|
-| `/add_client <name>` | `add_wg_client.yml` | .conf + QR в Telegram |
-| `/add_xray <name>` | `add_xray_client.yml` | VLESS URI + QR в Telegram |
-| `/status` | `verify_all.yml` | Сводка статуса |
-| `/update` | `maintenance.yml` | Результат обновления |
-| `/reboot` | `reboot-if-needed.yml` | Статус ребута |
-| `/clients` | wg-clients.conf с A | Список WG пиров |
-| `/clients_xray` | clients.json с B | Список XRay клиентов |
-| `/deploy` | `stack.yml` | Полный передеплой (с подтверждением) |
 
 ## Требования к Ansible для bot-ready
 

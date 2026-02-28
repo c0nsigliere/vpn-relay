@@ -7,18 +7,6 @@
     state: restarted
   when: inventory_hostname in groups['server_a']
 
-- name: restart wg-uplink-a
-  ansible.builtin.systemd:
-    name: wg-quick@wg-uplink
-    state: restarted
-  when: inventory_hostname in groups['server_a']
-
-- name: restart wg-uplink-b
-  ansible.builtin.systemd:
-    name: wg-quick@wg-uplink
-    state: restarted
-  when: inventory_hostname in groups['server_b']
-
 - name: reload ufw
   ansible.builtin.command:
     cmd: ufw reload

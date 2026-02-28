@@ -10,9 +10,11 @@ Two servers, three parallel subsystems:
 ```
 Server A (Russia, entry point)          Server B (abroad, exit point)
 ─────────────────────────────           ─────────────────────────────
-WG cascade:  wg-clients :51888/udp  ──► wg-uplink :51821/udp ──► Internet
-             10.66.0.0/24               10.200.0.0/30
-             policy routing table 200   MASQUERADE → WAN
+WG cascade:  wg-clients :51888/udp      XRay only — no WireGuard on B
+             10.66.0.0/24
+             iptables TPROXY :12345  ──► XRay VLESS+Reality :8443
+             ip rule fwmark 0x1          freedom outbound → Internet
+             → table 100 → lo           (original dst preserved)
 
 TCP relay:   :443/tcp ─────────────────► :443/tcp (DNAT+MASQUERADE)
              pure L4, zero secrets       XRay VLESS+Reality (systemd)
@@ -23,14 +25,16 @@ TCP relay:   :443/tcp ─────────────────► :44
 **Critical invariants:**
 - Server A never holds XRay keys or Reality secrets
 - Reality private key never leaves Server B
-- Table 200 isolates client traffic from SSH/default route on A — breaking this means losing SSH
+- Server B has NO WireGuard — only XRay. wg-uplink is gone from both servers.
+- TPROXY (fwmark 0x1 → table 100) isolates client traffic from SSH/default route on A
 - TCP relay is pure L4 byte forwarding — no protocol awareness, no decryption
+- `xray_tproxy_port` (default 12345) must match between wg_cascade role and relay role
 
 ## Inventory Groups → Roles → Playbooks
 
 | Group | Hosts | Role | Playbook |
 |-------|-------|------|----------|
-| `wg_cascade` | A + B | `wg_cascade` | `wg_cascade.yml` |
+| `wg_cascade` | A only | `wg_cascade` | `wg_cascade.yml` |
 | `relay_servers` | A | `relay` | `relay.yml` |
 | `xray_servers` | B | `xray_server` | `xray.yml` |
 | (all) | A + B | `maintenance` | `maintenance.yml` |
@@ -107,7 +111,7 @@ Client provisioning playbooks write locally to `artifacts/` (relative to repo ro
 
 ## Other tasks
 
-You can connect to servers directly via SSH (the keys are already registered) to conduct diagnostics.
+You can connect to servers directly via SSH (the keys are already registered) to conduct diagnostics. You can install tools on the local computer and remote servers.
 
 ## After Each Change
 

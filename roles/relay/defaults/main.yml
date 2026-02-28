@@ -18,3 +18,28 @@ wan_if: ""
 # - "keep": Keep UFW enabled, add NAT rules to /etc/ufw/before.rules
 # - "disable": Disable UFW, use iptables-persistent
 manage_ufw: "keep"
+
+# =============================================================================
+# XRay uplink client (WG client traffic over VLESS+Reality via TPROXY)
+# =============================================================================
+# XRay binary / service configuration (must match xray_server role values)
+xray_bin:        "/usr/local/bin/xray"
+xray_version:    "26.2.6"
+xray_config_dir: "/etc/xray"
+xray_keys_dir:   "/etc/xray/keys"
+
+# XRay server listening port on Server B (VLESS+Reality inbound)
+xray_port: 8443
+
+# Reality camouflage settings (must match xray_server role values)
+xray_reality_server_names:
+  - "www.googletagmanager.com"
+xray_reality_fingerprint: "chrome"
+
+# wg-clients tunnel UUID — set in group_vars/all.yml
+# Used to authenticate Server A's XRay against Server B's XRay
+xray_wg_uplink_uuid: ""
+
+# TPROXY port on Server A — XRay listens here for TPROXY-redirected packets
+# iptables mangle: -i wg-clients -j TPROXY --on-port xray_tproxy_port
+xray_tproxy_port: 12345

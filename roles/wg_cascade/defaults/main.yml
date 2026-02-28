@@ -6,16 +6,6 @@ wg_clients_net: "10.66.0.0/24"
 wg_clients_addr_a: "10.66.0.1/24"
 wg_clients_port: 51888
 
-# --- Uplink tunnel (Server A ↔ Server B) ---
-wg_uplink_net: "10.200.0.0/30"
-wg_uplink_addr_a: "10.200.0.1/30"
-wg_uplink_addr_b: "10.200.0.2/30"
-wg_uplink_port_b: 51821
-
-# Safety override: set to true only after confirming port 51820 is free on Server B.
-# (51820 is the WireGuard default — commonly used by other instances.)
-wg_uplink_allow_default_port: false
-
 # --- Server B WAN IP — REQUIRED, no default ---
 server_b_public_ip: ""
 
@@ -31,8 +21,14 @@ manage_ufw: "keep"
 # --- Key storage directory ---
 wg_keys_dir: "/etc/wireguard/keys"
 
-# --- Policy routing table number ---
-wg_routing_table: 200
-
 # --- Safety gate: only remove keys during rollback if explicitly set ---
 wg_cascade_remove_keys: false
+
+# --- XRay TPROXY port — XRay inbound listens here on Server A ---
+# iptables TPROXY redirects all wg-clients traffic to this port.
+xray_tproxy_port: 12345
+
+# --- Routing table for TPROXY fwmark delivery ---
+# ip rule: fwmark 0x1/0x1 → table xray_tproxy_table
+# ip route: local 0.0.0.0/0 dev lo (in that table)
+xray_tproxy_table: 100

@@ -1,34 +1,10 @@
 ---
 # WireGuard service management for wg_cascade role
 #
-# Order on Server A: wg-uplink must start before wg-clients.
-# The systemd drop-in in routing.yml ensures this at boot.
-# Here we start them in the correct sequence for the current session.
+# Only wg-clients runs on Server A. wg-uplink is replaced by XRay TPROXY.
 
 # =============================================================================
-# SERVER B: Start wg-uplink (receiving end of cascade)
-# =============================================================================
-
-- name: "[B] Enable and start wg-quick@wg-uplink"
-  ansible.builtin.systemd:
-    name: wg-quick@wg-uplink
-    enabled: true
-    state: started
-  when: inventory_hostname in groups['server_b']
-
-# =============================================================================
-# SERVER A: Start wg-uplink first (PostUp adds routing rules)
-# =============================================================================
-
-- name: "[A] Enable and start wg-quick@wg-uplink"
-  ansible.builtin.systemd:
-    name: wg-quick@wg-uplink
-    enabled: true
-    state: started
-  when: inventory_hostname in groups['server_a']
-
-# =============================================================================
-# SERVER A: Start wg-clients after wg-uplink is up and routes exist
+# SERVER A: Start wg-clients
 # =============================================================================
 
 - name: "[A] Enable and start wg-quick@wg-clients"

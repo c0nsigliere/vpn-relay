@@ -1,5 +1,5 @@
 ---
-# WireGuard Cascade Variables (wg_cascade group: Server A + Server B)
+# WireGuard Cascade Variables (wg_cascade group: Server A only)
 # Copy to: inventory/group_vars/wg_cascade.yml
 
 # Client-facing interface on Server A
@@ -7,11 +7,9 @@ wg_clients_net: "10.66.0.0/24"
 wg_clients_addr_a: "10.66.0.1/24"
 wg_clients_port: 51888
 
-# Uplink tunnel between A and B
-wg_uplink_net: "10.200.0.0/30"
-wg_uplink_addr_a: "10.200.0.1/30"
-wg_uplink_addr_b: "10.200.0.2/30"
-wg_uplink_port_b: 51821         # Avoid 51820 (WireGuard default, often in use)
-
 # DNS embedded in generated client configs
 wg_client_dns: "1.1.1.1,1.0.0.1"
+
+# TPROXY routing (XRay intercepts wg-clients traffic → VLESS+Reality → Server B)
+# xray_tproxy_port: 12345   # must match relay role
+# xray_tproxy_table: 100    # routing table for fwmark 0x1

@@ -1,0 +1,95 @@
+---
+# Install XRay and configure as VLESS+Reality TPROXY client for wg-clients.
+#
+# Russian ISPs (ТСПУ) block all outbound UDP, preventing WireGuard from
+# connecting directly to Server B.  This task configures XRay on Server A
+# to forward all wg-clients traffic via VLESS+Reality (TCP) using TPROXY.
+#
+# Data path:
+#   WG client (10.66.0.x) → wg-clients interface (Server A)
+#   → iptables mangle PREROUTING: -i wg-clients → TPROXY :xray_tproxy_port, mark 0x1
+#   → ip rule fwmark 0x1 → table xray_tproxy_table → local delivery to lo
+#   → XRay TPROXY inbound (dokodemo-door + followRedirect, knows original dst)
+#   → XRay VLESS+Reality outbound → server_b_public_ip:xray_port
+#   → XRay freedom on Server B → internet (original dst preserved)
+#
+# TPROXY iptables rules are injected by the wg_cascade role (firewall_keep.yml /
+# firewall_disable.yml).  This task only manages the XRay binary and config.
+
+- name: Assert xray_wg_uplink_uuid is set
+  ansible.builtin.assert:
+    that:
+      - xray_wg_uplink_uuid | length > 0
+    fail_msg: "xray_wg_uplink_uuid must be set (group_vars/all.yml)"
+
+# ============================================================================
+# Install XRay binary (reuse install logic from xray_server role)
+# ============================================================================
+
+- name: Install XRay binary
+  ansible.builtin.import_role:
+    name: xray_server
+    tasks_from: install
+
+# ============================================================================
+# Read Reality credentials from Server B
+# ============================================================================
+
+- name: Read Reality public key from Server B
+  ansible.builtin.slurp:
+    src: "{{ xray_keys_dir }}/reality.pub"
+  register: _relay_reality_pub_slurp
+  delegate_to: "{{ groups['xray_servers'][0] }}"
+  no_log: true
+
+- name: Read Reality shortId from Server B
+  ansible.builtin.slurp:
+    src: "{{ xray_keys_dir }}/shortid"
+  register: _relay_shortid_slurp
+  delegate_to: "{{ groups['xray_servers'][0] }}"
+
+- name: Set Reality credential facts
+  ansible.builtin.set_fact:
+    _xray_reality_pubkey: "{{ _relay_reality_pub_slurp.content | b64decode | trim }}"
+    _xray_shortid:        "{{ _relay_shortid_slurp.content | b64decode | trim }}"
+  no_log: true
+
+# ============================================================================
+# Write XRay config and service unit
+# ============================================================================
+
+- name: Ensure XRay config directory exists
+  ansible.builtin.file:
+    path: "{{ xray_config_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Template XRay uplink client config
+  ansible.builtin.template:
+    src: xray-uplink-client.json.j2
+    dest: "{{ xray_config_dir }}/config.json"
+    mode: '0600'
+    owner: root
+    group: root
+  notify: restart xray
+  no_log: true
+
+- name: Template XRay systemd service unit
+  ansible.builtin.template:
+    src: xray.service.j2
+    dest: /etc/systemd/system/xray.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - reload systemd
+    - restart xray
+
+- name: Enable and start XRay service
+  ansible.builtin.systemd:
+    name: xray
+    enabled: true
+    state: started
+    daemon_reload: true

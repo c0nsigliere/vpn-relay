@@ -29,6 +29,11 @@
   tags:
     - iptables
 
+- name: Import XRay uplink client tasks
+  ansible.builtin.import_tasks: xray_uplink.yml
+  tags:
+    - xray
+
 - name: Import persistence tasks
   ansible.builtin.import_tasks: persist.yml
   tags:

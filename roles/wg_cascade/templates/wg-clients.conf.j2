@@ -8,5 +8,12 @@ Address    = {{ wg_clients_addr_a }}
 ListenPort = {{ wg_clients_port }}
 PrivateKey = {{ _wg_clients_privkey.content | b64decode | trim }}
 
+# TPROXY routing: packets marked 0x1 are delivered locally to XRay
+PostUp  = sysctl -w net.ipv4.conf.wg-clients.rp_filter=0
+PostUp  = ip rule add fwmark 0x1/0x1 table {{ xray_tproxy_table }} priority 100 2>/dev/null || true
+PostUp  = ip route replace local 0.0.0.0/0 dev lo table {{ xray_tproxy_table }} 2>/dev/null || true
+PreDown = ip rule del fwmark 0x1/0x1 table {{ xray_tproxy_table }} priority 100 2>/dev/null || true
+PreDown = ip route del local 0.0.0.0/0 dev lo table {{ xray_tproxy_table }} 2>/dev/null || true
+
 # Client peers are appended below by add_wg_client.yml (blockinfile markers).
 # Each peer block is wrapped: # BEGIN CLIENT <name> ... # END CLIENT <name>

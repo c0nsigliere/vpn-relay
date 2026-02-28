@@ -1,15 +1,15 @@
 ---
-# Standalone verification playbook for WireGuard cascade
+# Standalone verification playbook for WireGuard cascade (Server A)
 #
 # Usage:
 #   ansible-playbook playbooks/verify_wg_cascade.yml
 #
 # Checks:
-#   - wg show (both servers)
-#   - ip rule (Server A)
-#   - ip route table 200 (Server A)
-#   - iptables NAT and FORWARD counters (both)
-#   - Service status assertions (both)
+#   - wg show wg-clients (Server A)
+#   - ip rule fwmark 0x1 for TPROXY (Server A)
+#   - ip route table 100 local default dev lo (Server A)
+#   - iptables mangle XRAY_WG_TPROXY chain (Server A)
+#   - wg-quick@wg-clients service status (Server A)
 
 - name: Verify WireGuard cascade status
   hosts: wg_cascade
