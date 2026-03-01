@@ -2,9 +2,6 @@
 # XRay L4 Relay Variables (relay_servers group: Server A only)
 # Copy to: inventory/group_vars/relay_servers.yml
 # TCP only — UDP/WireGuard is handled by the cascade role.
-
-# Entry port on Server A (what clients connect to)
-port_a_tcp: 443
-
-# Target port on Server B (where traffic is forwarded)
-port_b_tcp: 443
+#
+# Port variables (port_a_tcp, port_b_tcp, xray_port) are set in all.yml.
+# Override here only if this host needs different values.

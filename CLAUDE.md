@@ -16,7 +16,7 @@ WG cascade:  wg-clients :51888/udp      XRay only — no WireGuard on B
              ip rule fwmark 0x1          freedom outbound → Internet
              → table 100 → lo           (original dst preserved)
 
-TCP relay:   :443/tcp ─────────────────► :443/tcp (DNAT+MASQUERADE)
+TCP relay:   :443/tcp (`port_a_tcp`) ──► :8443/tcp (`xray_port`) (DNAT+MASQUERADE)
              pure L4, zero secrets       XRay VLESS+Reality (systemd)
                                          Reality keys in /etc/xray/keys/
                                          Clients in /etc/xray/clients.json
@@ -28,7 +28,8 @@ TCP relay:   :443/tcp ─────────────────► :44
 - Server B has NO WireGuard — only XRay. wg-uplink is gone from both servers.
 - TPROXY (fwmark 0x1 → table 100) isolates client traffic from SSH/default route on A
 - TCP relay is pure L4 byte forwarding — no protocol awareness, no decryption
-- `xray_tproxy_port` (default 12345) must match between wg_cascade role and relay role
+- `xray_tproxy_port` (12345) must match between wg_cascade role and relay role
+- All port numbers are defined **only** in `group_vars/all.yml` — role defaults are commented out
 
 ## Inventory Groups → Roles → Playbooks
 
@@ -73,7 +74,7 @@ Reusable from any playbook via `include_tasks`.
 
 **Terminology:** Always use `client` (not `user`): `client_name`, `client_uuid`, `clients.json`, `_xray_clients`.
 
-**DPI evasion defaults** (in role `defaults/main.yml` — wrong values break clients):
+**DPI evasion defaults** (in `group_vars/all.yml` — wrong values break clients):
 - `xray_port: 8443` — XRay listens on B (not 443)
 - `port_a_tcp: 443` / `port_b_tcp: 8443` — relay A→B forwarding
 - `xray_reality_dest: "www.googletagmanager.com:443"` — camouflage domain

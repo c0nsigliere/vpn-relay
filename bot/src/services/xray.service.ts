@@ -59,8 +59,9 @@ class XrayService {
         `${XRAY_BIN} api statsquery --server=127.0.0.1:${env.XRAY_API_PORT} '-pattern' '>>>traffic>>>'${resetFlag}`,
         { encoding: "utf8", timeout: 10000 }
       );
-      // Output is JSON array of {name, value} objects
-      const stats: Array<{ name: string; value: string }> = JSON.parse(out);
+      // Output is {"stat": [{name, value}, ...]} — xray API wraps the array
+      const parsed = JSON.parse(out);
+      const stats: Array<{ name: string; value?: number | string }> = parsed?.stat ?? [];
       for (const stat of stats) {
         const m = stat.name.match(/^user>>>(.+)@xray>>>traffic>>>(uplink|downlink)$/);
         if (!m) continue;

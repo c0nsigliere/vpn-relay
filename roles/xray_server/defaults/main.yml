@@ -4,8 +4,7 @@
 # XRay binary version — set in group_vars/all.yml (single source of truth)
 # xray_version: "26.2.6"   ← override here or with -e if needed
 
-# Listening port for VLESS+Reality inbound
-xray_port: 8443
+# xray_port: 8443  -- set in group_vars/all.yml
 
 # Reality camouflage destination and SNI
 xray_reality_dest: "www.googletagmanager.com:443"

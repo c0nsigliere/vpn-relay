@@ -1,12 +1,13 @@
 ---
 # XRay VLESS+Reality server vars (Server B)
 # Copy to: inventory/group_vars/xray_servers.yml
+#
+# Port (xray_port) and version (xray_version) are set in all.yml.
+# Override here only if this host needs different values.
 
-xray_port: 443
-xray_reality_dest: "www.microsoft.com:443"
+xray_reality_dest: "www.googletagmanager.com:443"
 xray_reality_server_names:
-  - "www.microsoft.com"
+  - "www.googletagmanager.com"
 xray_reality_fingerprint: "chrome"
-xray_version: "24.11.30"   # pinned, must exist as GitHub release tag
 
 xray_vless_flow: "xtls-rprx-vision"

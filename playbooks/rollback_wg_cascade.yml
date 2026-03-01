@@ -21,10 +21,8 @@
   vars:
     manage_ufw: "keep"
     wg_cascade_remove_keys: false
-    wg_clients_port: 51888
+    # wg_clients_port, xray_tproxy_port, xray_tproxy_table come from group_vars/all.yml
     wg_clients_net: "10.66.0.0/24"
-    xray_tproxy_port: 12345
-    xray_tproxy_table: 100
     wg_keys_dir: "/etc/wireguard/keys"
 
   tasks:

@@ -5,11 +5,8 @@
 # Set server_b_public_ip in group_vars/all.yml (shared with cascade role)
 server_b_public_ip: ""
 
-# Entry port on relay server (Server A) — TCP only
-port_a_tcp: 443
-
-# Target port on VPN server (Server B) — derived from xray_port
-port_b_tcp: "{{ xray_port }}"
+# port_a_tcp: 443  -- set in group_vars/all.yml
+# port_b_tcp: "{{ xray_port }}"  -- set in group_vars/all.yml
 
 # WAN interface - leave empty for auto-detection
 wan_if: ""
@@ -28,8 +25,7 @@ xray_bin:        "/usr/local/bin/xray"
 xray_config_dir: "/etc/xray"
 xray_keys_dir:   "/etc/xray/keys"
 
-# XRay server listening port on Server B (VLESS+Reality inbound)
-xray_port: 8443
+# xray_port: 8443  -- set in group_vars/all.yml
 
 # Reality camouflage settings (must match xray_server role values)
 xray_reality_server_names:
@@ -40,6 +36,4 @@ xray_reality_fingerprint: "chrome"
 # Used to authenticate Server A's XRay against Server B's XRay
 xray_wg_uplink_uuid: ""
 
-# TPROXY port on Server A — XRay listens here for TPROXY-redirected packets
-# iptables mangle: -i wg-clients -j TPROXY --on-port xray_tproxy_port
-xray_tproxy_port: 12345
+# xray_tproxy_port: 12345  -- set in group_vars/all.yml

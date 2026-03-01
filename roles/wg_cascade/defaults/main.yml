@@ -4,7 +4,7 @@
 # --- Client-facing WireGuard interface (Server A) ---
 wg_clients_net: "10.66.0.0/24"
 wg_clients_addr_a: "10.66.0.1/24"
-wg_clients_port: 51888
+# wg_clients_port: 51888  -- set in group_vars/all.yml
 
 # --- Server B WAN IP — REQUIRED, no default ---
 server_b_public_ip: ""
@@ -24,11 +24,5 @@ wg_keys_dir: "/etc/wireguard/keys"
 # --- Safety gate: only remove keys during rollback if explicitly set ---
 wg_cascade_remove_keys: false
 
-# --- XRay TPROXY port — XRay inbound listens here on Server A ---
-# iptables TPROXY redirects all wg-clients traffic to this port.
-xray_tproxy_port: 12345
-
-# --- Routing table for TPROXY fwmark delivery ---
-# ip rule: fwmark 0x1/0x1 → table xray_tproxy_table
-# ip route: local 0.0.0.0/0 dev lo (in that table)
-xray_tproxy_table: 100
+# xray_tproxy_port: 12345  -- set in group_vars/all.yml
+# xray_tproxy_table: 100  -- set in group_vars/all.yml
