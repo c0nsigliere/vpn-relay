@@ -1,6 +1,6 @@
 ---
-# Safe package update: apt update + apt upgrade (NOT dist-upgrade)
-# Never removes packages. Safe to run at any time without a maintenance window.
+# Package update: apt update + apt-get dist-upgrade
+# Installs all upgrades including those requiring new dependencies.
 # Tags: update, maintenance
 
 - name: Update apt package cache
@@ -11,9 +11,9 @@
     - update
     - maintenance
 
-- name: Run safe upgrade (apt-get upgrade - never removes packages)
+- name: Run dist upgrade (apt-get dist-upgrade)
   ansible.builtin.apt:
-    upgrade: safe
+    upgrade: dist
     autoremove: false
     autoclean: false
   register: apt_safe_upgrade_result
@@ -24,7 +24,7 @@
 - name: Display upgrade summary
   ansible.builtin.debug:
     msg: >-
-      Safe upgrade complete.
+      Dist upgrade complete.
       Changed: {{ apt_safe_upgrade_result.changed }}.
       {% if apt_safe_upgrade_result.changed %}
       Packages were upgraded. Check stdout for details.

@@ -43,7 +43,7 @@
 #   unattended    - unattended-upgrades management only
 
 - name: Full maintenance workflow
-  hosts: wg_cascade:relay_servers
+  hosts: wg_cascade:relay_servers:xray_servers
   become: true
 
   roles:

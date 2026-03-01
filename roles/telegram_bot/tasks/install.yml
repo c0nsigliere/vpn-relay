@@ -43,7 +43,7 @@
     state: present
   tags: [install, bot]
 
-- name: Create bot data and SSH directories
+- name: Create bot data, SSH, and Ansible temp directories
   file:
     path: "{{ item }}"
     state: directory
@@ -53,6 +53,7 @@
   loop:
     - "{{ bot_data_dir }}"
     - "{{ bot_data_dir }}/.ssh"
+    - "{{ bot_data_dir }}/.ansible/tmp"
   tags: [install, bot]
 
 - name: Generate SSH keypair for bot → Server A access
