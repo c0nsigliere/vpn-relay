@@ -28,6 +28,9 @@ artifacts/xray/*.vless.txt
 artifacts/xray/*.json
 artifacts/xray/*.qr.png
 
+# Server state backups (keys, configs, bot DB)
+artifacts/backup/
+
 # Telegram bot
 bot/node_modules/
 bot/dist/

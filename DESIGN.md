@@ -199,6 +199,22 @@ Client → Server A :443/tcp (TCP relay DNAT)
 
 ---
 
+### playbooks/backup.yml
+
+Бэкап критического состояния серверов в `artifacts/backup/<timestamp>/`:
+* WG ключи и конфиг с Server A
+* Reality ключи, clients.json и БД бота с Server B
+* Symlink `latest` → текущий бэкап
+
+### playbooks/restore.yml
+
+Восстановление из бэкапа:
+* По умолчанию `latest`, override через `-e "backup_name=..."`
+* Re-template config.json после восстановления ключей
+* После restore запустить `stack.yml` для полной рекенфигурации
+
+---
+
 ### playbooks/add_xray_client.yml
 
 Добавляет XRay клиента:
@@ -252,36 +268,35 @@ relay_servers:
 
 # ⚙️ Переменные
 
-## Shared (group_vars/all.yml)
+## Shared (group_vars/all.yml) — single source of truth for all ports
 
 * server_b_public_ip
+* xray_port (8443)
 * port_a_tcp (443)
-* port_b_tcp (443)
+* port_b_tcp (derives from xray_port)
+* wg_clients_port (51888)
+* xray_tproxy_port (12345)
+* xray_tproxy_table (100)
+* xray_version (26.2.6)
 * manage_ufw
 * wan_if
 * maintenance flags
 
-## Cascade
+## Cascade (wg_cascade.yml — non-port overrides only)
 
 * wg_clients_net
 * wg_clients_addr_a
-* wg_clients_port
-* xray_tproxy_port (default: 12345)
-* xray_tproxy_table (default: 100)
+* wg_client_dns
 
-## Relay
+## Relay (relay_servers.yml — non-port overrides only)
 
-* server_b_public_ip (из group_vars/all.yml — канонический адрес B)
-* port_a_tcp = 443
-* port_b_tcp = 443
+* (ports come from all.yml)
 
-## XRay
+## XRay (xray_servers.yml — non-port overrides only)
 
-* xray_port = 443
 * xray_reality_dest
-* xray_reality_server_name
+* xray_reality_server_names
 * xray_reality_fingerprint
-* xray_version
 * xray_vless_flow
 
 ---
@@ -392,6 +407,31 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 ansible-playbook playbooks/deploy_bot.yml \
   -e "bot_telegram_token=123:ABC bot_admin_id=987654321"
 ```
+
+---
+
+## 4️⃣ Backup & Restore
+
+```
+Controller (local)
+    │
+    ├── backup.yml ──fetch──► Server A: wg-clients.key, .pub, .conf
+    │                  └────► Server B: reality.key, .pub, shortid, clients.json, data.db
+    │
+    └── artifacts/backup/
+          2026-03-01T12-00-00/
+            server-a/   (WG keys + config)
+            server-b/   (Reality keys + clients + bot DB)
+          latest -> 2026-03-01T12-00-00/
+```
+
+**Backup:** `ansible-playbook playbooks/backup.yml` — timestamped snapshots, `latest` symlink.
+Bot service stopped during DB copy for SQLite consistency.
+
+**Restore:** `ansible-playbook playbooks/restore.yml` — defaults to `latest`, override with
+`-e "backup_name=<timestamp>"`. Re-templates `config.json` from restored keys.
+
+**Recovery flow:** `restore.yml` → `stack.yml` → all existing client configs continue working.
 
 ---
 

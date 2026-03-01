@@ -1,0 +1,195 @@
+---
+# Backup critical server state to local controller
+#
+# Usage:
+#   ansible-playbook playbooks/backup.yml
+#
+# Output:
+#   artifacts/backup/<timestamp>/
+#     server-a/   — WG keys + config
+#     server-b/   — Reality keys, clients.json, bot DB
+#   artifacts/backup/latest → <timestamp>  (symlink)
+#
+# What gets backed up:
+#   Server A: wg-clients.key, wg-clients.pub, wg-clients.conf
+#   Server B: reality.key, reality.pub, shortid, clients.json, vpn-bot data.db
+#
+# Security:
+#   - artifacts/backup/ is gitignored
+#   - Key fetch tasks use no_log: true
+
+# =========================================================================
+# Step 1: Prepare backup directory on controller
+# =========================================================================
+
+- name: Prepare backup directory
+  hosts: localhost
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Generate backup timestamp
+      ansible.builtin.set_fact:
+        backup_timestamp: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H-%M-%S') }}"
+
+    - name: Set backup directory path
+      ansible.builtin.set_fact:
+        backup_dir: "{{ playbook_dir }}/../artifacts/backup/{{ backup_timestamp }}"
+
+    - name: Create server-a backup directory
+      ansible.builtin.file:
+        path: "{{ backup_dir }}/server-a"
+        state: directory
+        mode: '0700'
+
+    - name: Create server-b backup directory
+      ansible.builtin.file:
+        path: "{{ backup_dir }}/server-b"
+        state: directory
+        mode: '0700'
+
+# =========================================================================
+# Step 2: Backup Server A (WireGuard keys + config)
+# =========================================================================
+
+- name: Backup Server A
+  hosts: wg_cascade
+  become: true
+  gather_facts: false
+
+  vars:
+    backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
+
+  tasks:
+    - name: Fetch wg-clients private key
+      ansible.builtin.fetch:
+        src: /etc/wireguard/keys/wg-clients.key
+        dest: "{{ backup_dir }}/server-a/wg-clients.key"
+        flat: true
+      no_log: true
+
+    - name: Fetch wg-clients public key
+      ansible.builtin.fetch:
+        src: /etc/wireguard/keys/wg-clients.pub
+        dest: "{{ backup_dir }}/server-a/wg-clients.pub"
+        flat: true
+
+    - name: Fetch wg-clients config
+      ansible.builtin.fetch:
+        src: /etc/wireguard/wg-clients.conf
+        dest: "{{ backup_dir }}/server-a/wg-clients.conf"
+        flat: true
+      no_log: true
+
+# =========================================================================
+# Step 3: Backup Server B (XRay keys + clients + bot DB)
+# =========================================================================
+
+- name: Backup Server B
+  hosts: xray_servers
+  become: true
+  gather_facts: false
+
+  vars:
+    backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
+
+  tasks:
+    - name: Fetch Reality private key
+      ansible.builtin.fetch:
+        src: /etc/xray/keys/reality.key
+        dest: "{{ backup_dir }}/server-b/reality.key"
+        flat: true
+      no_log: true
+
+    - name: Fetch Reality public key
+      ansible.builtin.fetch:
+        src: /etc/xray/keys/reality.pub
+        dest: "{{ backup_dir }}/server-b/reality.pub"
+        flat: true
+
+    - name: Fetch Reality shortId
+      ansible.builtin.fetch:
+        src: /etc/xray/keys/shortid
+        dest: "{{ backup_dir }}/server-b/shortid"
+        flat: true
+
+    - name: Fetch clients.json
+      ansible.builtin.fetch:
+        src: /etc/xray/clients.json
+        dest: "{{ backup_dir }}/server-b/clients.json"
+        flat: true
+
+    # Bot DB: stop service for consistent SQLite snapshot
+    - name: Check if vpn-bot service exists
+      ansible.builtin.systemd:
+        name: vpn-bot
+      register: _vpn_bot_service
+      failed_when: false
+
+    - name: Stop vpn-bot for consistent DB snapshot
+      ansible.builtin.systemd:
+        name: vpn-bot
+        state: stopped
+      when: _vpn_bot_service.status is defined and _vpn_bot_service.status.ActiveState == "active"
+
+    - name: Check if bot database exists
+      ansible.builtin.stat:
+        path: /var/lib/vpn-bot/data.db
+      register: _bot_db_stat
+
+    - name: Fetch bot database
+      ansible.builtin.fetch:
+        src: /var/lib/vpn-bot/data.db
+        dest: "{{ backup_dir }}/server-b/vpn-bot-data.db"
+        flat: true
+      when: _bot_db_stat.stat.exists
+
+    - name: Start vpn-bot after DB snapshot
+      ansible.builtin.systemd:
+        name: vpn-bot
+        state: started
+      when: _vpn_bot_service.status is defined and _vpn_bot_service.status.ActiveState == "active"
+
+# =========================================================================
+# Step 4: Create latest symlink + summary
+# =========================================================================
+
+- name: Finalize backup
+  hosts: localhost
+  gather_facts: false
+  become: false
+
+  vars:
+    backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
+    backup_timestamp: "{{ hostvars['localhost']['backup_timestamp'] }}"
+
+  tasks:
+    - name: Create latest symlink
+      ansible.builtin.file:
+        src: "{{ backup_timestamp }}"
+        dest: "{{ playbook_dir }}/../artifacts/backup/latest"
+        state: link
+        force: true
+
+    - name: List backup contents
+      ansible.builtin.find:
+        paths: "{{ backup_dir }}"
+        recurse: true
+        file_type: file
+      register: _backup_files
+
+    - name: Display backup summary
+      ansible.builtin.debug:
+        msg: |
+          Backup complete: {{ backup_timestamp }}
+          Location: artifacts/backup/{{ backup_timestamp }}/
+          Symlink: artifacts/backup/latest → {{ backup_timestamp }}
+
+          Files backed up:
+          {% for f in _backup_files.files | sort(attribute='path') %}
+            - {{ f.path | regex_replace('.*artifacts/backup/', '') }} ({{ f.size }} bytes)
+          {% endfor %}
+
+          Restore with:
+            ansible-playbook playbooks/restore.yml
+            ansible-playbook playbooks/restore.yml -e "backup_name={{ backup_timestamp }}"

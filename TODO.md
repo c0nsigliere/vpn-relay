@@ -98,6 +98,16 @@
 - [x] **Phase 0B/0C** — Ansible role `telegram_bot` (validate/install/deploy/service/verify), `playbooks/deploy_bot.yml`, `stack.yml` updated to step 7
 - [x] **Bot rollback** — `playbooks/remove_bot.yml`: stops service, removes unit, revokes ACLs, revokes SSH key from Server A, removes app dir, optionally removes data dir (SQLite DB), removes system user/group. Safety gate: `-e "bot_remove=true"`, data preserved by default unless `-e "bot_remove_data=true"`
 
+- [x] **Consolidate port variables** — all port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `xray_tproxy_port`, `xray_tproxy_table`) defined only in `group_vars/all.yml`; role defaults commented out, rollback playbook duplicates removed, `| default()` fallbacks stripped, example files updated
+
+- [x] **Backup & Restore playbooks** ✅ — `playbooks/backup.yml` and `playbooks/restore.yml`
+  - Backup: fetches WG keys+config from A, Reality keys+clients.json+bot DB from B
+  - Timestamped snapshots in `artifacts/backup/<ts>/` with `latest` symlink
+  - Bot service stopped during DB copy for SQLite consistency
+  - Restore: defaults to `latest`, override with `-e "backup_name=<ts>"`
+  - Re-templates config.json from restored keys; ACL re-applied for vpn-bot
+  - Recovery flow: `restore.yml` → `stack.yml` → existing clients keep working
+
 ## Debt / Future
 
 - [ ] **Remove plaintext `ansible_password` from inventory** — run `bootstrap_ssh.yml` to push SSH keys, verify key login, run `--tags harden`, then remove `ansible_password=` lines

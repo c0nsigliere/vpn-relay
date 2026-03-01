@@ -1,0 +1,322 @@
+---
+# Restore critical server state from a local backup
+#
+# Usage:
+#   # Restore from latest backup:
+#   ansible-playbook playbooks/restore.yml
+#
+#   # Restore from a specific snapshot:
+#   ansible-playbook playbooks/restore.yml -e "backup_name=2026-03-01T12-00-00"
+#
+# What gets restored:
+#   Server A: wg-clients.key, wg-clients.pub, wg-clients.conf
+#   Server B: reality.key, reality.pub, shortid, clients.json, vpn-bot data.db
+#
+# After restore, run stack.yml to re-template derived configs:
+#   ansible-playbook playbooks/stack.yml
+#
+# Security:
+#   - Key copy tasks use no_log: true
+
+- name: Validate backup
+  hosts: localhost
+  gather_facts: false
+  become: false
+
+  vars:
+    backup_name: "latest"
+
+  tasks:
+    - name: Resolve backup directory
+      ansible.builtin.set_fact:
+        backup_dir: "{{ playbook_dir }}/../artifacts/backup/{{ backup_name }}"
+
+    - name: Assert backup directory exists
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}"
+      register: _backup_dir_stat
+
+    - name: Fail if backup not found
+      ansible.builtin.assert:
+        that:
+          - _backup_dir_stat.stat.exists
+          - _backup_dir_stat.stat.isdir or _backup_dir_stat.stat.islnk
+        fail_msg: "Backup not found: artifacts/backup/{{ backup_name }}"
+
+    # Resolve symlink to get actual path
+    - name: Resolve real backup path
+      ansible.builtin.command:
+        cmd: "readlink -f {{ backup_dir }}"
+      register: _backup_real_path
+      changed_when: false
+
+    - name: Set resolved backup dir
+      ansible.builtin.set_fact:
+        backup_dir: "{{ _backup_real_path.stdout }}"
+
+    - name: Check required Server A files
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/server-a/{{ item }}"
+      register: _server_a_files
+      loop:
+        - wg-clients.key
+        - wg-clients.pub
+        - wg-clients.conf
+
+    - name: Assert Server A files present
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        fail_msg: "Missing: {{ item.item }} in backup"
+      loop: "{{ _server_a_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check required Server B files
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/server-b/{{ item }}"
+      register: _server_b_files
+      loop:
+        - reality.key
+        - reality.pub
+        - shortid
+        - clients.json
+
+    - name: Assert Server B files present
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        fail_msg: "Missing: {{ item.item }} in backup"
+      loop: "{{ _server_b_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check for bot database (optional)
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/server-b/vpn-bot-data.db"
+      register: _bot_db_backup
+
+    - name: Note bot DB status
+      ansible.builtin.debug:
+        msg: "{{ 'Bot database found in backup — will restore' if _bot_db_backup.stat.exists else 'No bot database in backup — skipping bot DB restore' }}"
+
+# =========================================================================
+# Restore Server A (WireGuard keys + config)
+# =========================================================================
+
+- name: Restore Server A
+  hosts: wg_cascade
+  become: true
+  gather_facts: false
+
+  vars:
+    backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
+
+  tasks:
+    - name: Ensure WireGuard keys directory exists
+      ansible.builtin.file:
+        path: /etc/wireguard/keys
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+
+    - name: Restore wg-clients private key
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-a/wg-clients.key"
+        dest: /etc/wireguard/keys/wg-clients.key
+        mode: '0600'
+        owner: root
+        group: root
+      no_log: true
+
+    - name: Restore wg-clients public key
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-a/wg-clients.pub"
+        dest: /etc/wireguard/keys/wg-clients.pub
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Restore wg-clients config
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-a/wg-clients.conf"
+        dest: /etc/wireguard/wg-clients.conf
+        mode: '0600'
+        owner: root
+        group: root
+      register: _wg_conf_restored
+
+    - name: Reload WireGuard config
+      ansible.builtin.shell:
+        cmd: "wg syncconf wg-clients <(wg-quick strip wg-clients)"
+        executable: /bin/bash
+      when: _wg_conf_restored.changed
+      failed_when: false
+
+# =========================================================================
+# Restore Server B (XRay keys + clients + bot DB)
+# =========================================================================
+
+- name: Restore Server B
+  hosts: xray_servers
+  become: true
+  gather_facts: false
+
+  vars:
+    backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
+    _bot_db_exists: "{{ hostvars['localhost']['_bot_db_backup']['stat']['exists'] }}"
+
+  tasks:
+    # --- XRay keys ---
+    - name: Ensure XRay keys directory exists
+      ansible.builtin.file:
+        path: /etc/xray/keys
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+
+    - name: Restore Reality private key
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-b/reality.key"
+        dest: /etc/xray/keys/reality.key
+        mode: '0600'
+        owner: root
+        group: root
+      no_log: true
+
+    - name: Restore Reality public key
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-b/reality.pub"
+        dest: /etc/xray/keys/reality.pub
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Restore Reality shortId
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-b/shortid"
+        dest: /etc/xray/keys/shortid
+        mode: '0600'
+        owner: root
+        group: root
+
+    # --- clients.json ---
+    - name: Restore clients.json
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-b/clients.json"
+        dest: /etc/xray/clients.json
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Set ACL for vpn-bot on clients.json
+      ansible.posix.acl:
+        path: /etc/xray/clients.json
+        entity: vpn-bot
+        etype: user
+        permissions: rw
+        state: present
+      failed_when: false
+
+    # --- Re-template config.json from restored keys ---
+    - name: Import key facts from xray_server role
+      ansible.builtin.import_role:
+        name: xray_server
+        tasks_from: keys
+
+    - name: Read restored clients.json
+      ansible.builtin.slurp:
+        src: /etc/xray/clients.json
+      register: _restored_clients_slurp
+
+    - name: Set clients fact for config template
+      ansible.builtin.set_fact:
+        _xray_clients: "{{ _restored_clients_slurp.content | b64decode | from_json }}"
+
+    - name: Re-template XRay config.json
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/xray_server/templates/config.json.j2"
+        dest: /etc/xray/config.json
+        mode: '0600'
+        owner: root
+        group: root
+      no_log: true
+
+    - name: Restart xray (async — SSH may tunnel through XRay)
+      ansible.builtin.shell: "sleep 2 && systemctl restart xray"
+      async: 30
+      poll: 0
+
+    # --- Bot database ---
+    - name: Check if vpn-bot service exists
+      ansible.builtin.systemd:
+        name: vpn-bot
+      register: _vpn_bot_service
+      failed_when: false
+      when: _bot_db_exists | bool
+
+    - name: Stop vpn-bot before DB restore
+      ansible.builtin.systemd:
+        name: vpn-bot
+        state: stopped
+      when:
+        - _bot_db_exists | bool
+        - _vpn_bot_service.status is defined
+        - _vpn_bot_service.status.ActiveState == "active"
+
+    - name: Restore bot database
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-b/vpn-bot-data.db"
+        dest: /var/lib/vpn-bot/data.db
+        mode: '0644'
+        owner: vpn-bot
+        group: vpn-bot
+      when: _bot_db_exists | bool
+
+    - name: Start vpn-bot after DB restore
+      ansible.builtin.systemd:
+        name: vpn-bot
+        state: started
+      when:
+        - _bot_db_exists | bool
+        - _vpn_bot_service.status is defined
+        - _vpn_bot_service.status.ActiveState is defined
+
+# =========================================================================
+# Summary
+# =========================================================================
+
+- name: Restore summary
+  hosts: localhost
+  gather_facts: false
+  become: false
+
+  vars:
+    backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
+
+  tasks:
+    - name: Display restore summary
+      ansible.builtin.debug:
+        msg: |
+          Restore complete from: {{ backup_dir | regex_replace('.*artifacts/backup/', 'artifacts/backup/') }}
+
+          Restored to Server A:
+            - /etc/wireguard/keys/wg-clients.key
+            - /etc/wireguard/keys/wg-clients.pub
+            - /etc/wireguard/wg-clients.conf
+
+          Restored to Server B:
+            - /etc/xray/keys/reality.key
+            - /etc/xray/keys/reality.pub
+            - /etc/xray/keys/shortid
+            - /etc/xray/clients.json
+            - /etc/xray/config.json (re-templated)
+            {{ '- /var/lib/vpn-bot/data.db' if hostvars['localhost']['_bot_db_backup']['stat']['exists'] else '- (bot DB not in backup — skipped)' }}
+
+          Next steps:
+            1. Run full stack to re-template all derived configs:
+               ansible-playbook playbooks/stack.yml
+            2. Verify:
+               ansible-playbook playbooks/verify_all.yml

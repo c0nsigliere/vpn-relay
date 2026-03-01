@@ -9,7 +9,7 @@ Production-ready Ansible repository for Ubuntu 22.04/24.04 supporting two VPN fo
 | **XRay VLESS+Reality** | `playbooks/xray.yml` | Native XRay server on B (VLESS+Reality :8443) |
 | **Full stack** | `playbooks/stack.yml` | Single entrypoint: maintenance → swap → cascade → xray → relay → verify → bot (optional) |
 
-All three can run simultaneously. The cascade replaces the broken UDP relay for WireGuard/AWG. The XRay relay on A forwards TCP to B where the native XRay server handles VLESS+Reality.
+All can run simultaneously. The XRay relay on A forwards TCP to B where the native XRay server handles VLESS+Reality.
 
 ---
 
@@ -195,6 +195,39 @@ ansible-playbook playbooks/remove_bot.yml -e "bot_remove=true bot_remove_data=tr
 
 The safety gate (`bot_remove=true`) is required to prevent accidental removal. The database at `/var/lib/vpn-bot/data.db` is preserved by default.
 
+### 9. Backup & Restore (recommended)
+
+Back up critical server state (keys, configs, client lists, bot DB) to the local controller:
+
+```bash
+# Create a timestamped backup:
+ansible-playbook playbooks/backup.yml
+# → artifacts/backup/2026-03-01T12-00-00/
+# → artifacts/backup/latest (symlink)
+```
+
+Restore from backup (e.g., after server reprovisioning):
+
+```bash
+# Restore from latest backup:
+ansible-playbook playbooks/restore.yml
+
+# Restore from a specific snapshot:
+ansible-playbook playbooks/restore.yml -e "backup_name=2026-03-01T12-00-00"
+
+# Then re-template all derived configs:
+ansible-playbook playbooks/stack.yml
+```
+
+**What gets backed up:**
+
+| Server | Files |
+|--------|-------|
+| A | WG private/public keys, `wg-clients.conf` |
+| B | Reality private/public keys, shortId, `clients.json`, bot SQLite DB |
+
+All existing client configs continue working after restore (same keys, same UUIDs).
+
 ---
 
 ## Alternative: Cascade Only
@@ -269,12 +302,21 @@ ansible-playbook playbooks/verify_all.yml
 
 ## Variable Reference
 
+All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `xray_tproxy_port`, `xray_tproxy_table`) are defined in `all.yml` as the single source of truth. Per-group files override only non-port settings.
+
 ### Shared (`all.yml`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `server_b_public_ip` | **required** | Server B's WAN IP (used by both roles) |
 | `xray_wg_uplink_uuid` | **required** | UUID for wg-uplink peer in Server B's XRay inbound |
+| `xray_port` | `8443` | XRay VLESS+Reality port on B |
+| `port_a_tcp` | `443` | TCP relay entry port on A |
+| `port_b_tcp` | `{{ xray_port }}` | TCP relay target port on B |
+| `wg_clients_port` | `51888` | UDP port clients connect to on A |
+| `xray_tproxy_port` | `12345` | XRay TPROXY inbound port on A |
+| `xray_tproxy_table` | `100` | Routing table for TPROXY fwmark 0x1 |
+| `xray_version` | `26.2.6` | XRay binary version (GitHub release tag) |
 | `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |
 | `wan_if` | auto-detect | WAN interface override |
 | `do_dist_upgrade` | `false` | Enable dist-upgrade in maintenance |
@@ -287,9 +329,6 @@ ansible-playbook playbooks/verify_all.yml
 |----------|---------|-------------|
 | `wg_clients_net` | `10.66.0.0/24` | Client subnet |
 | `wg_clients_addr_a` | `10.66.0.1/24` | Server A address on wg-clients |
-| `wg_clients_port` | `51888` | UDP port clients connect to on A |
-| `xray_tproxy_port` | `12345` | Port XRay TPROXY inbound listens on; iptables redirects here |
-| `xray_tproxy_table` | `100` | Routing table for fwmark 0x1 delivery to lo |
 | `wg_client_dns` | `1.1.1.1,1.0.0.1` | DNS in generated client configs |
 | `wg_keys_dir` | `/etc/wireguard/keys` | Key storage path on servers |
 | `wg_cascade_remove_keys` | `false` | Delete keys during rollback |
@@ -298,19 +337,12 @@ ansible-playbook playbooks/verify_all.yml
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `port_a_tcp` | `443` | TCP entry port on A (client-facing) |
-| `port_b_tcp` | `8443` | TCP target port on B (XRay VLESS+Reality) |
 | `xray_wg_uplink_uuid` | **required** | UUID authenticating Server A's XRay to Server B (set in `all.yml`) |
-| `xray_tproxy_port` | `12345` | XRay TPROXY inbound port on A (matches wg_cascade role) |
-| `xray_port` | `8443` | XRay VLESS+Reality port on B (must match `xray_servers.yml`) |
-| `xray_version` | `26.2.6` | XRay binary version on A — set in `all.yml`, single source of truth |
 
 ### XRay Server (`xray_servers.yml`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `xray_version` | `26.2.6` (from `all.yml`) | XRay release version (GitHub tag) |
-| `xray_port` | `8443` | VLESS+Reality listening port |
 | `xray_reality_dest` | `www.googletagmanager.com:443` | Reality camouflage destination |
 | `xray_reality_server_names` | `[www.googletagmanager.com]` | Reality SNI list |
 | `xray_reality_fingerprint` | `chrome` | TLS fingerprint |
@@ -414,6 +446,7 @@ vpn-relay/
 │       ├── server_a.yml                 # Per-host overrides for Server A
 │       └── server_b.yml                 # Per-host overrides for Server B
 ├── artifacts/
+│   ├── backup/                          # Server state backups (gitignored)
 │   ├── clients/                         # Generated client .conf files (gitignored)
 │   └── xray/                            # Generated XRay client configs (gitignored)
 ├── docs/
@@ -433,6 +466,8 @@ vpn-relay/
 │   ├── verify_xray.yml                  # Standalone XRay verification
 │   ├── rollback_xray.yml               # Teardown XRay server
 │   ├── rollback.yml                     # Remove XRay relay config
+│   ├── backup.yml                       # Backup server state to controller
+│   ├── restore.yml                      # Restore server state from backup
 │   ├── deploy_bot.yml                   # Deploy Telegram bot (B only)
 │   ├── remove_bot.yml                   # Remove Telegram bot (safety gate required)
 │   ├── bootstrap_ssh.yml                # First-time: push SSH key + harden sshd
