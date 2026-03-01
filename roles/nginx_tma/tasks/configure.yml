@@ -1,0 +1,41 @@
+---
+- name: Open port {{ tma_https_port }}/tcp in UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ tma_https_port }}"
+    proto: tcp
+    comment: "TMA Web App HTTPS"
+  when: manage_ufw == "keep"
+
+- name: Open port 80/tcp in UFW (certbot HTTP-01)
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    comment: "certbot HTTP-01 challenge"
+  when: manage_ufw == "keep"
+
+- name: Deploy nginx TMA site config
+  ansible.builtin.template:
+    src: tma-nginx.conf.j2
+    dest: /etc/nginx/sites-available/tma
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Enable nginx TMA site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/tma
+    dest: /etc/nginx/sites-enabled/tma
+    state: link
+  notify: reload nginx
+
+- name: Remove default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Flush handlers (nginx reload before certbot)
+  ansible.builtin.meta: flush_handlers

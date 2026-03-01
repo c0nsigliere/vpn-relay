@@ -1,0 +1,14 @@
+---
+# nginx_tma role defaults
+
+# Domain for the TMA — REQUIRED if TMA is enabled
+tma_domain: ""
+
+# HTTPS port nginx listens on (separate from XRay on 443)
+tma_https_port: 8444
+
+# Fastify backend port (localhost only)
+tma_backend_port: 3000
+
+# Email for certbot Let's Encrypt account
+tma_certbot_email: ""

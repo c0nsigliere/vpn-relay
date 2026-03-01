@@ -161,6 +161,8 @@ Client → Server A :443/tcp (TCP relay DNAT)
 4. xray_server (B)
 5. relay (A)
 6. verify_all
+7. bot (optional, if `bot_telegram_token` set)
+8. tma (optional, if `tma_domain` set)
 
 ---
 
@@ -378,9 +380,9 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
                                        wg set / wg syncconf / wg show dump
 ```
 
-**Stack:** TypeScript + Node.js 20, grammy, better-sqlite3, ssh2, @grpc/grpc-js
+**Stack:** TypeScript + Node.js 20 + pnpm workspace, grammy, better-sqlite3, ssh2, Fastify
 
-**Bot source:** `bot/src/` — deployed to `/opt/vpn-bot` on Server B via Ansible role `telegram_bot`
+**Bot source:** `bot/packages/server/src/` — deployed to `/opt/vpn-bot` on Server B via Ansible role `telegram_bot`
 
 **Services:**
 - `xray.service.ts` — gRPC AlterInbound (live add/remove) + atomic clients.json sync
@@ -410,7 +412,69 @@ ansible-playbook playbooks/deploy_bot.yml \
 
 ---
 
-## 4️⃣ Backup & Restore
+## 4️⃣ TMA (Telegram Mini App) Control Plane
+
+```
+Admin's Telegram
+    │  opens Web App (Menu Button)
+    ▼
+Browser inside Telegram
+    │  HTTPS → port 8444 (nginx, TLS)
+    ▼
+nginx (Server B :8444)
+    │  proxy_pass → 127.0.0.1:3000
+    ▼
+Fastify HTTP server (inside bot process)
+    │  TMA auth: HMAC-SHA256(initData, bot_token)
+    │  REST API: GET/POST/PATCH/DELETE /api/clients
+    │  POST /api/clients/:id/send-config
+    ▼
+ClientService (shared with bot menus)
+    ├── xray.service.ts — atomic config.json write + xray-restart.path
+    ├── wg.service.ts   — SSH to Server A
+    └── bot.api.*       — sendMessage/sendPhoto to admin chat
+```
+
+**Stack:** React 18 + Vite 5 + TMA SDK, Fastify 4, pnpm workspace monorepo
+
+**Monorepo structure** (`bot/`):
+```
+packages/
+  shared/   — @vpn-relay/shared TypeScript types (Client, TrafficSnapshot, API types)
+  server/   — Fastify API + grammy bot (current src/ moved here)
+  web/      — React SPA built to packages/web/dist/ (served by Fastify static)
+```
+
+**Killer feature flow:**
+1. Admin opens Web App from Menu Button in Telegram
+2. Fills form, taps "Create Client" (Telegram MainButton)
+3. MainButton shows progress spinner while keys are generated (1–2 s)
+4. `POST /api/clients` → backend creates client, calls `sendConfigToChat()`
+5. Bot sends `.conf` + QR codes to admin's Telegram chat
+6. On success resolve → `WebApp.close()` — Web App closes
+7. Admin sees config in chat — ready to share
+
+**Auth:** Every API request carries `Authorization: tma <initData>`.
+Server validates HMAC-SHA256 and checks `user.id === ADMIN_ID`.
+
+**nginx setup (Server B):**
+- Port `8444` (HTTPS) — does not conflict with XRay on `443`
+- `certbot --nginx` obtains Let's Encrypt cert automatically
+- UFW: `8444/tcp` + `80/tcp` (HTTP-01 challenge) opened
+
+**Ansible role:** `roles/nginx_tma/` — validate → install → configure → certbot → verify
+
+**Deploy:**
+```bash
+ansible-playbook playbooks/deploy_tma.yml \
+  -e "tma_domain=vpn.example.com tma_certbot_email=admin@example.com"
+```
+
+**stack.yml step 8:** TMA infra runs conditionally on `tma_domain | length > 0`.
+
+---
+
+## 5️⃣ Backup & Restore
 
 ```
 Controller (local)

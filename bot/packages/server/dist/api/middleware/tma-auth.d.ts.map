@@ -1,0 +1,1 @@
+{"version":3,"file":"tma-auth.d.ts","sourceRoot":"","sources":["../../../src/api/middleware/tma-auth.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,YAAY,EAAE,cAAc,EAAE,MAAM,SAAS,CAAC;AAGvD;;;GAGG;AACH,wBAAgB,gBAAgB,CAAC,QAAQ,EAAE,MAAM,GAAG;IAAE,MAAM,EAAE,MAAM,CAAA;CAAE,GAAG,IAAI,CAqC5E;AAED,wBAAsB,iBAAiB,CACrC,OAAO,EAAE,cAAc,EACvB,KAAK,EAAE,YAAY,GAClB,OAAO,CAAC,IAAI,CAAC,CAmBf"}

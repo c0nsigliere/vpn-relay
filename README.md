@@ -195,7 +195,44 @@ ansible-playbook playbooks/remove_bot.yml -e "bot_remove=true bot_remove_data=tr
 
 The safety gate (`bot_remove=true`) is required to prevent accidental removal. The database at `/var/lib/vpn-bot/data.db` is preserved by default.
 
-### 9. Backup & Restore (recommended)
+### 9. Deploy TMA Web App (optional)
+
+The TMA is a React SPA inside Telegram — admin manages clients via a full web UI instead of inline keyboards.
+
+**Prerequisites:**
+- A domain pointing to Server B's IP (e.g. `vpn.example.com`)
+- `tma_certbot_email` for Let's Encrypt registration
+
+```bash
+# Deploy nginx + certbot + rebuild bot with web SPA:
+ansible-playbook playbooks/deploy_tma.yml \
+  -e "tma_domain=vpn.example.com tma_certbot_email=admin@example.com"
+
+# Or include in full stack:
+ansible-playbook playbooks/stack.yml \
+  -e "bot_telegram_token=... bot_admin_id=... tma_domain=vpn.example.com tma_certbot_email=admin@example.com"
+```
+
+**Variables** (set in `inventory/group_vars/all.yml` or as `-e` overrides):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `tma_domain` | `""` | Domain for Web App (required to enable TMA) |
+| `tma_https_port` | `8444` | HTTPS port (nginx) — no conflict with XRay:443 |
+| `tma_backend_port` | `3000` | Fastify port (localhost only) |
+| `tma_certbot_email` | `""` | Let's Encrypt email (required) |
+
+**After deploy:** The bot auto-registers a Menu Button (☰) in Telegram pointing to `https://<tma_domain>:<tma_https_port>`.
+
+**TMA features:**
+- Client list with instant search + filters (Active/Suspended, WG/XRay/Both)
+- Create client via form — closes Web App → config `.conf` + QR codes arrive in chat
+- Suspend / Resume / Delete clients
+- Send config to chat on demand
+- Full Telegram theme support (light/dark auto-switch)
+- Works on all Telegram clients (iOS, Android, Desktop)
+
+### 10. Backup & Restore (recommended)
 
 Back up critical server state (keys, configs, client lists, bot DB) to the local controller:
 

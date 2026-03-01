@@ -1,7 +1,9 @@
 ---
-- name: Install acl package (required for setfacl)
+- name: Install acl and rsync packages
   apt:
-    name: acl
+    name:
+      - acl
+      - rsync
     state: present
     update_cache: false
   tags: [install, bot]
@@ -23,6 +25,13 @@
         name: nodejs
         state: present
         update_cache: true
+  tags: [install, bot]
+
+- name: Install pnpm globally via npm
+  npm:
+    name: pnpm
+    global: true
+    state: present
   tags: [install, bot]
 
 - name: Create vpn-bot system group

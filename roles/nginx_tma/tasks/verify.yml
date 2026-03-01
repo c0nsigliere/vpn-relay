@@ -1,0 +1,19 @@
+---
+- name: Verify nginx is running
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+  check_mode: true
+  register: nginx_status
+
+- name: Verify TMA endpoint responds
+  ansible.builtin.uri:
+    url: "https://{{ tma_domain }}:{{ tma_https_port }}/"
+    validate_certs: true
+    status_code: [200, 304]
+    timeout: 10
+  register: tma_check
+  retries: 3
+  delay: 5
+  until: tma_check.status in [200, 304]
+  tags: [verify, tma]

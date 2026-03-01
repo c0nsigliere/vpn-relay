@@ -108,9 +108,17 @@
   - Re-templates config.json from restored keys; ACL re-applied for vpn-bot
   - Recovery flow: `restore.yml` → `stack.yml` → existing clients keep working
 
+## TMA (Telegram Mini App) — MVP
+
+- [x] **Phase 1: pnpm monorepo** — `bot/` restructured into workspace with `packages/shared`, `packages/server`, `packages/web`. `@vpn-relay/shared` TypeScript types, path aliases, no pre-compilation needed.
+- [x] **Phase 2: Fastify REST API** — `GET/POST/PATCH/DELETE /api/clients`, `POST /api/clients/:id/send-config`. TMA initData HMAC-SHA256 auth middleware. `ClientService` extracted from bot menus (shared logic). Fastify starts in same process as bot on `127.0.0.1:3000`.
+- [x] **Phase 3: React SPA** — `packages/web/`: ClientList with search + filter chips, AddClient form with TTL, ClientDetail with suspend/resume/delete/send-config. TMA SDK integration: MainButton, BackButton, HapticFeedback, `WebApp.close()`. Killer feature: create client → Web App closes → config in chat. Tailwind + Telegram CSS variables.
+- [x] **Phase 4: nginx_tma role** — `roles/nginx_tma/`: nginx install, certbot Let's Encrypt, SSL on port 8444 (no conflict with XRay:443), UFW rules, SPA fallback.
+- [x] **Phase 5: Ansible deploy** — pnpm install in `telegram_bot/tasks/install.yml`, `pnpm -r build` in deploy.yml, updated service ExecStart path. `tma_domain`/`tma_https_port`/`tma_backend_port`/`tma_certbot_email` in `group_vars/all.yml`. `playbooks/deploy_tma.yml` + `stack.yml` step 8.
+
 ## Debt / Future
 
+- [ ] **TMA: dashboard + traffic graphs** — next iteration after MVP. SSE or polling for live stats.
+- [ ] **TMA: WG config re-send** — re-generation on demand or encrypted storage (currently only available at creation time).
 - [ ] **Remove plaintext `ansible_password` from inventory** — run `bootstrap_ssh.yml` to push SSH keys, verify key login, run `--tags harden`, then remove `ansible_password=` lines
 - [ ] **Bot: Ansible vault for credentials** — move `bot_telegram_token`/`bot_admin_id` to `inventory/host_vars/server-b/vault.yml` encrypted with `ansible-vault`
-- [ ] **Bot: client expiry UI** — add expiry date input in add-client flow (currently always null, TTL worker ready)
-- [ ] **Bot: WG config re-send** — private key is only available at creation; consider storing encrypted or re-generating on demand

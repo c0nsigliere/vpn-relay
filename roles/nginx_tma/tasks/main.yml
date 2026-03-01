@@ -1,0 +1,15 @@
+---
+- import_tasks: validate.yml
+  tags: [validate, tma]
+
+- import_tasks: install.yml
+  tags: [install, tma]
+
+- import_tasks: configure.yml
+  tags: [configure, tma]
+
+- import_tasks: certbot.yml
+  tags: [certbot, tma]
+
+- import_tasks: verify.yml
+  tags: [verify, tma]

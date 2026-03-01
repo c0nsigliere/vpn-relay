@@ -1,0 +1,26 @@
+---
+- name: Check if certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ tma_domain }}/fullchain.pem"
+  register: cert_stat
+
+- name: Obtain Let's Encrypt certificate via certbot
+  ansible.builtin.command: >
+    certbot certonly --nginx
+    -d {{ tma_domain }}
+    --email {{ tma_certbot_email }}
+    --agree-tos
+    --non-interactive
+  when: not cert_stat.stat.exists
+  notify: reload nginx
+
+- name: Deploy nginx TMA site config with SSL (post-cert)
+  ansible.builtin.template:
+    src: tma-nginx.conf.j2
+    dest: /etc/nginx/sites-available/tma
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    tma_ssl_ready: true
+  notify: reload nginx

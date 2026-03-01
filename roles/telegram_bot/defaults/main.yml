@@ -31,3 +31,8 @@ bot_admin_id: ""
 xray_sni: "www.googletagmanager.com"
 xray_fingerprint: "chrome"
 xray_flow: "xtls-rprx-vision"
+
+# TMA (Telegram Mini App) — leave empty to disable
+tma_domain: ""
+tma_https_port: 8444
+tma_backend_port: 3000

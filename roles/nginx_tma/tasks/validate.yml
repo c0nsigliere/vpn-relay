@@ -1,0 +1,12 @@
+---
+- name: Assert tma_domain is set
+  ansible.builtin.assert:
+    that:
+      - tma_domain | length > 0
+    fail_msg: "tma_domain must be set to deploy the TMA nginx role"
+
+- name: Assert tma_certbot_email is set
+  ansible.builtin.assert:
+    that:
+      - tma_certbot_email | length > 0
+    fail_msg: "tma_certbot_email must be set for Let's Encrypt registration"

@@ -32,16 +32,16 @@
     recurse: true
   tags: [deploy, bot]
 
-- name: Install npm dependencies (including devDeps for build)
-  command: npm ci
+- name: Install all dependencies (pnpm workspace)
+  command: pnpm install --frozen-lockfile
   args:
     chdir: "{{ bot_app_dir }}"
   become: true
   become_user: "{{ bot_user }}"
   tags: [deploy, bot]
 
-- name: Build TypeScript
-  command: npm run build
+- name: Build all packages (server + web)
+  command: pnpm -r build
   args:
     chdir: "{{ bot_app_dir }}"
   become: true
@@ -49,8 +49,8 @@
   notify: restart vpn-bot
   tags: [deploy, bot]
 
-- name: Prune devDependencies after build
-  command: npm prune --omit=dev
+- name: Prune dev dependencies after build
+  command: pnpm prune --prod
   args:
     chdir: "{{ bot_app_dir }}"
   become: true

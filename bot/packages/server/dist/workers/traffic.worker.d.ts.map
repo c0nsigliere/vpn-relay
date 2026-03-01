@@ -1,0 +1,1 @@
+{"version":3,"file":"traffic.worker.d.ts","sourceRoot":"","sources":["../../src/workers/traffic.worker.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,GAAG,EAAE,MAAM,QAAQ,CAAC;AAC7B,OAAO,EAAE,UAAU,EAAE,MAAM,gBAAgB,CAAC;AAO5C,wBAAgB,aAAa,CAAC,GAAG,EAAE,GAAG,CAAC,UAAU,CAAC,GAAG;IAAE,IAAI,EAAE,MAAM,IAAI,CAAA;CAAE,CA8CxE"}

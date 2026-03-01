@@ -1,0 +1,19 @@
+/* Telegram theme CSS variables — auto-switch light/dark */
+:root {
+  --tg-bg: var(--tg-theme-bg-color, #ffffff);
+  --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
+  --tg-text: var(--tg-theme-text-color, #000000);
+  --tg-hint: var(--tg-theme-hint-color, #707579);
+  --tg-link: var(--tg-theme-link-color, #2481cc);
+  --tg-button: var(--tg-theme-button-color, #2481cc);
+  --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
+  --tg-accent: var(--tg-theme-accent-text-color, #2481cc);
+  --tg-destructive: var(--tg-theme-destructive-text-color, #e53935);
+  --tg-section-bg: var(--tg-theme-section-bg-color, #ffffff);
+  --tg-section-separator: var(--tg-theme-section-separator-color, #e7e7e7);
+}
+
+body {
+  background-color: var(--tg-bg);
+  color: var(--tg-text);
+}

@@ -9,6 +9,7 @@
 #   5. relay         — TCP L4 relay (A)
 #   6. verify_all    — full verification across all subsystems + memory/swap
 #   7. bot           — Telegram bot (if bot_telegram_token is set)
+#   8. tma           — TMA nginx + HTTPS (if tma_domain is set)
 #
 # Usage:
 #   ansible-playbook playbooks/stack.yml
@@ -39,6 +40,10 @@
 - name: "Stack [6/7]: Full verification"
   ansible.builtin.import_playbook: verify_all.yml
 
-- name: "Stack [7/7]: Telegram bot (optional — requires bot_telegram_token + bot_admin_id)"
+- name: "Stack [7/8]: Telegram bot (optional — requires bot_telegram_token + bot_admin_id)"
   ansible.builtin.import_playbook: deploy_bot.yml
   when: bot_telegram_token | default('') | length > 0
+
+- name: "Stack [8/8]: TMA nginx + HTTPS (optional — requires tma_domain)"
+  ansible.builtin.import_playbook: deploy_tma.yml
+  when: tma_domain | default('') | length > 0
