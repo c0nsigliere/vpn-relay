@@ -24,3 +24,6 @@
   vars:
     tma_ssl_ready: true
   notify: reload nginx
+
+- name: Flush handlers (nginx reload with SSL config)
+  ansible.builtin.meta: flush_handlers

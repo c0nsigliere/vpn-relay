@@ -34,6 +34,7 @@ const envSchema = z.object({
   // TMA (Telegram Web App)
   TMA_PORT: z.string().transform(Number).pipe(z.number().int()).default("3000"),
   TMA_DOMAIN: z.string().optional(),
+  TMA_URL: z.string().url().optional(),
 });
 
 function loadEnv() {

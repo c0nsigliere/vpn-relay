@@ -13,6 +13,7 @@
     rsync -az --delete
     --exclude=node_modules
     --exclude=dist
+    --exclude='*.tsbuildinfo'
     --exclude=.env
     --exclude='*.db'
     {{ playbook_dir }}/../bot/
@@ -36,25 +37,27 @@
   command: pnpm install --frozen-lockfile
   args:
     chdir: "{{ bot_app_dir }}"
+  environment:
+    CI: "true"
   become: true
   become_user: "{{ bot_user }}"
   tags: [deploy, bot]
 
-- name: Build all packages (server + web)
-  command: pnpm -r build
+- name: Build shared package first
+  command: pnpm --filter @vpn-relay/shared build
+  args:
+    chdir: "{{ bot_app_dir }}"
+  become: true
+  become_user: "{{ bot_user }}"
+  tags: [deploy, bot]
+
+- name: Build server and web packages
+  command: pnpm --filter server --filter web build
   args:
     chdir: "{{ bot_app_dir }}"
   become: true
   become_user: "{{ bot_user }}"
   notify: restart vpn-bot
-  tags: [deploy, bot]
-
-- name: Prune dev dependencies after build
-  command: pnpm prune --prod
-  args:
-    chdir: "{{ bot_app_dir }}"
-  become: true
-  become_user: "{{ bot_user }}"
   tags: [deploy, bot]
 
 - name: Template .env configuration

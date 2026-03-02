@@ -34,5 +34,7 @@ artifacts/backup/
 # Telegram bot
 bot/node_modules/
 bot/dist/
+bot/packages/*/dist/
+bot/packages/*/*.tsbuildinfo
 bot/.env
 bot/*.db

@@ -114,14 +114,14 @@ const workers = [
   updatesWorker(bot),
 ];
 
-// Register BotFather menu button if TMA_DOMAIN is configured
-if (env.TMA_DOMAIN) {
+// Register BotFather menu button if TMA_URL is configured
+if (env.TMA_URL) {
   bot.api
     .setChatMenuButton({
       menu_button: {
         type: "web_app",
         text: "VPN Manager",
-        web_app: { url: `https://${env.TMA_DOMAIN}` },
+        web_app: { url: env.TMA_URL },
       },
     })
     .catch((err) => console.warn("[tma] Could not set menu button:", err.message));

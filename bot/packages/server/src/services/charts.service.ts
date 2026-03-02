@@ -4,11 +4,14 @@ import { TrafficSnapshot } from "../db/queries";
 const WIDTH = 800;
 const HEIGHT = 400;
 
-const canvas = new ChartJSNodeCanvas({
-  width: WIDTH,
-  height: HEIGHT,
-  backgroundColour: "#1e1e2e",
-});
+let _canvas: ChartJSNodeCanvas | null = null;
+
+function getCanvas(): ChartJSNodeCanvas {
+  if (!_canvas) {
+    _canvas = new ChartJSNodeCanvas({ width: WIDTH, height: HEIGHT, backgroundColour: "#1e1e2e" });
+  }
+  return _canvas;
+}
 
 function formatLabel(ts: string): string {
   const d = new Date(ts);
@@ -76,7 +79,7 @@ class ChartsService {
       },
     };
 
-    return canvas.renderToBuffer(config as any);
+    return getCanvas().renderToBuffer(config as any);
   }
 }
 

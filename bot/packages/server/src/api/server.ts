@@ -13,7 +13,7 @@ export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInsta
 
   await app.register(fastifyCors, {
     // Only allow same-origin or TMA domain in production
-    origin: env.TMA_DOMAIN ? `https://${env.TMA_DOMAIN}` : true,
+    origin: env.TMA_URL ?? true,
   });
 
   // Register API routes (pass bot for Telegram notifications)
