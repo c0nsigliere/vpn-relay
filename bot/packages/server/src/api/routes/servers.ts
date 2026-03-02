@@ -3,6 +3,7 @@ import { systemService } from "../../services/system.service";
 import { getPing } from "../../services/ping.store";
 import { queries } from "../../db/queries";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
+import { env } from "../../config/env";
 import type { ServerId, ServerTrafficResponse } from "@vpn-relay/shared";
 
 const PERIOD_LIMITS: Record<string, number> = {
@@ -38,19 +39,26 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
       ? { ...resultB.value, pingMs: ping?.ms, pingLossPercent: ping?.lossPercent }
       : { error: resultB.reason?.message ?? "unreachable" };
 
-    // Sparkline: last 144 aggregate points, downsampled to 24
-    const rawSnapshots = queries.getAggregateTraffic(144);
+    // Sparkline: last 144 server eth0 aggregate points, downsampled to 24
+    const rawSnapshots = queries.getAggregateServerTraffic(144);
     const sparklineRaw = downsample(rawSnapshots, 24);
     const trafficSparkline = sparklineRaw.map((s) => ({
       ts: s.ts,
-      rx: s.wg_rx + s.xray_rx,
-      tx: s.wg_tx + s.xray_tx,
+      rx: s.rx,
+      tx: s.tx,
     }));
 
-    const totals24h = queries.getAggregateTrafficTotals24h();
+    const totals24h = queries.getServerTrafficTotals24h();
     const trafficTotal24h = { rx: totals24h.totalRx, tx: totals24h.totalTx };
 
-    return reply.send({ serverA, serverB, trafficSparkline, trafficTotal24h });
+    return reply.send({
+      serverA,
+      serverB,
+      serverAIp: env.SERVER_A_HOST,
+      serverBIp: env.SERVER_B_HOST,
+      trafficSparkline,
+      trafficTotal24h,
+    });
   });
 
   // GET /api/servers/:id/traffic?period=24h|7d|30d
@@ -64,10 +72,23 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
 
       const period = req.query.period ?? "24h";
       const limit = PERIOD_LIMITS[period] ?? 144;
-      const snapshots = queries.getAggregateTraffic(limit);
+      const snapshots = queries.getServerTraffic(id, limit);
 
       const response: ServerTrafficResponse = { serverId: id, snapshots };
       return reply.send(response);
+    }
+  );
+
+  // GET /api/servers/:id/monthly
+  app.get<{ Params: { id: string } }>(
+    "/api/servers/:id/monthly",
+    async (req, reply) => {
+      const id = req.params.id as ServerId;
+      if (id !== "a" && id !== "b") {
+        return reply.status(404).send({ error: "Unknown server id" });
+      }
+      const history = queries.getServerMonthlyTraffic(id);
+      return reply.send({ serverId: id, history });
     }
   );
 }

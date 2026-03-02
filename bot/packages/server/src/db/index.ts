@@ -42,4 +42,29 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_traffic_ts ON traffic_snapshots(ts);
+
+  CREATE TABLE IF NOT EXISTS server_traffic_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL CHECK(server_id IN ('a', 'b')),
+    ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+    rx_bytes INTEGER DEFAULT 0,
+    tx_bytes INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_server_traffic_ts ON server_traffic_snapshots(ts);
+
+  CREATE TABLE IF NOT EXISTS client_traffic_monthly (
+    client_id TEXT NOT NULL,
+    month TEXT NOT NULL,
+    rx_total INTEGER DEFAULT 0,
+    tx_total INTEGER DEFAULT 0,
+    PRIMARY KEY (client_id, month)
+  );
+
+  CREATE TABLE IF NOT EXISTS server_traffic_monthly (
+    server_id TEXT NOT NULL CHECK(server_id IN ('a', 'b')),
+    month TEXT NOT NULL,
+    rx_total INTEGER DEFAULT 0,
+    tx_total INTEGER DEFAULT 0,
+    PRIMARY KEY (server_id, month)
+  );
 `);

@@ -1,7 +1,7 @@
 import { db } from "./index";
-import type { Client, TrafficSnapshot, TrafficTotals, AggregateTrafficSnapshot } from "@vpn-relay/shared";
+import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic } from "@vpn-relay/shared";
 
-export type { Client, TrafficSnapshot, TrafficTotals, AggregateTrafficSnapshot };
+export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic };
 
 export const queries = {
   getAllClients(): Client[] {
@@ -98,29 +98,143 @@ export const queries = {
     return map;
   },
 
-  getAggregateTraffic(limit: number): AggregateTrafficSnapshot[] {
+  // ── Server traffic snapshots ───────────────────────────────────────────────
+
+  insertServerTrafficSnapshot(serverId: "a" | "b", rxBytes: number, txBytes: number): void {
+    db.prepare(`
+      INSERT INTO server_traffic_snapshots (server_id, rx_bytes, tx_bytes)
+      VALUES (?, ?, ?)
+    `).run(serverId, rxBytes, txBytes);
+  },
+
+  getServerTraffic(serverId: "a" | "b", limit: number): ServerTrafficSnapshot[] {
     const rows = db.prepare(`
-      SELECT ts,
-             SUM(wg_rx)   AS wg_rx,
-             SUM(wg_tx)   AS wg_tx,
-             SUM(xray_rx) AS xray_rx,
-             SUM(xray_tx) AS xray_tx
-      FROM traffic_snapshots
-      GROUP BY ts
+      SELECT * FROM server_traffic_snapshots
+      WHERE server_id = ?
       ORDER BY ts DESC
       LIMIT ?
-    `).all(limit) as AggregateTrafficSnapshot[];
+    `).all(serverId, limit) as ServerTrafficSnapshot[];
     return rows.reverse();
   },
 
-  getAggregateTrafficTotals24h(): { totalRx: number; totalTx: number } {
+  getAggregateServerTraffic(limit: number): Array<{ ts: string; rx: number; tx: number }> {
+    const rows = db.prepare(`
+      SELECT ts,
+             SUM(rx_bytes) AS rx,
+             SUM(tx_bytes) AS tx
+      FROM server_traffic_snapshots
+      GROUP BY ts
+      ORDER BY ts DESC
+      LIMIT ?
+    `).all(limit) as Array<{ ts: string; rx: number; tx: number }>;
+    return rows.reverse();
+  },
+
+  getServerTrafficTotals24h(): { totalRx: number; totalTx: number } {
     const row = db.prepare(`
-      SELECT COALESCE(SUM(wg_rx + xray_rx), 0) AS totalRx,
-             COALESCE(SUM(wg_tx + xray_tx), 0) AS totalTx
-      FROM traffic_snapshots
+      SELECT COALESCE(SUM(rx_bytes), 0) AS totalRx,
+             COALESCE(SUM(tx_bytes), 0) AS totalTx
+      FROM server_traffic_snapshots
       WHERE ts >= datetime('now', '-1 day')
     `).get() as { totalRx: number; totalTx: number };
     return row;
+  },
+
+  getServerTrafficTotals24hById(serverId: "a" | "b"): { totalRx: number; totalTx: number } {
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(rx_bytes), 0) AS totalRx,
+             COALESCE(SUM(tx_bytes), 0) AS totalTx
+      FROM server_traffic_snapshots
+      WHERE server_id = ?
+        AND ts >= datetime('now', '-1 day')
+    `).get(serverId) as { totalRx: number; totalTx: number };
+    return row;
+  },
+
+  // ── Monthly rollup ─────────────────────────────────────────────────────────
+
+  rollupClientTraffic(): number {
+    const rollup = db.transaction(() => {
+      const rows = db.prepare(`
+        SELECT client_id,
+               strftime('%Y-%m', ts) AS month,
+               SUM(wg_rx + xray_rx)  AS rx_total,
+               SUM(wg_tx + xray_tx)  AS tx_total
+        FROM traffic_snapshots
+        WHERE ts < datetime('now', '-30 days')
+        GROUP BY client_id, month
+      `).all() as Array<{ client_id: string; month: string; rx_total: number; tx_total: number }>;
+
+      for (const row of rows) {
+        db.prepare(`
+          INSERT INTO client_traffic_monthly (client_id, month, rx_total, tx_total)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(client_id, month) DO UPDATE SET
+            rx_total = rx_total + excluded.rx_total,
+            tx_total = tx_total + excluded.tx_total
+        `).run(row.client_id, row.month, row.rx_total, row.tx_total);
+      }
+
+      const { count } = db.prepare(`
+        SELECT COUNT(*) AS count FROM traffic_snapshots
+        WHERE ts < datetime('now', '-30 days')
+      `).get() as { count: number };
+
+      db.prepare(`DELETE FROM traffic_snapshots WHERE ts < datetime('now', '-30 days')`).run();
+      return count;
+    });
+    return rollup() as number;
+  },
+
+  rollupServerTraffic(): number {
+    const rollup = db.transaction(() => {
+      const rows = db.prepare(`
+        SELECT server_id,
+               strftime('%Y-%m', ts) AS month,
+               SUM(rx_bytes) AS rx_total,
+               SUM(tx_bytes) AS tx_total
+        FROM server_traffic_snapshots
+        WHERE ts < datetime('now', '-30 days')
+        GROUP BY server_id, month
+      `).all() as Array<{ server_id: string; month: string; rx_total: number; tx_total: number }>;
+
+      for (const row of rows) {
+        db.prepare(`
+          INSERT INTO server_traffic_monthly (server_id, month, rx_total, tx_total)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(server_id, month) DO UPDATE SET
+            rx_total = rx_total + excluded.rx_total,
+            tx_total = tx_total + excluded.tx_total
+        `).run(row.server_id, row.month, row.rx_total, row.tx_total);
+      }
+
+      const { count } = db.prepare(`
+        SELECT COUNT(*) AS count FROM server_traffic_snapshots
+        WHERE ts < datetime('now', '-30 days')
+      `).get() as { count: number };
+
+      db.prepare(`DELETE FROM server_traffic_snapshots WHERE ts < datetime('now', '-30 days')`).run();
+      return count;
+    });
+    return rollup() as number;
+  },
+
+  getClientMonthlyTraffic(clientId: string): MonthlyTraffic[] {
+    return db.prepare(`
+      SELECT month, rx_total, tx_total
+      FROM client_traffic_monthly
+      WHERE client_id = ?
+      ORDER BY month DESC
+    `).all(clientId) as MonthlyTraffic[];
+  },
+
+  getServerMonthlyTraffic(serverId: "a" | "b"): MonthlyTraffic[] {
+    return db.prepare(`
+      SELECT month, rx_total, tx_total
+      FROM server_traffic_monthly
+      WHERE server_id = ?
+      ORDER BY month DESC
+    `).all(serverId) as MonthlyTraffic[];
   },
 
   searchClients(

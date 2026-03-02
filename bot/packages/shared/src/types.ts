@@ -72,6 +72,8 @@ export interface ServerStatus {
 export interface ServersStatusResponse {
   serverA: ServerStatus | { error: string };
   serverB: ServerStatus | { error: string };
+  serverAIp?: string;
+  serverBIp?: string;
   trafficSparkline?: Array<{ ts: string; rx: number; tx: number }>;
   trafficTotal24h?: { rx: number; tx: number };
 }
@@ -86,9 +88,23 @@ export interface AggregateTrafficSnapshot {
   xray_tx: number;
 }
 
+export interface ServerTrafficSnapshot {
+  id: number;
+  server_id: "a" | "b";
+  ts: string;
+  rx_bytes: number;
+  tx_bytes: number;
+}
+
+export interface MonthlyTraffic {
+  month: string;   // "YYYY-MM"
+  rx_total: number;
+  tx_total: number;
+}
+
 export interface ServerTrafficResponse {
   serverId: ServerId;
-  snapshots: AggregateTrafficSnapshot[];
+  snapshots: ServerTrafficSnapshot[];
 }
 
 // ─── Traffic ─────────────────────────────────────────────────────────────────

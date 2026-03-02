@@ -17,4 +17,13 @@ export async function trafficRoutes(app: FastifyInstance): Promise<void> {
     const snapshots = queries.getTrafficHistory(req.params.id, limit).reverse();
     return reply.send({ clientName: client.name, snapshots });
   });
+
+  // GET /api/clients/:id/monthly
+  app.get<{ Params: { id: string } }>("/api/clients/:id/monthly", async (req, reply) => {
+    const client = queries.getClientById(req.params.id);
+    if (!client) return reply.code(404).send({ error: "Client not found" });
+
+    const history = queries.getClientMonthlyTraffic(req.params.id);
+    return reply.send({ clientName: client.name, history });
+  });
 }

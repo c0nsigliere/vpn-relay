@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { TrafficChart } from "../components/TrafficChart";
 import { useTelegram } from "../hooks/useTelegram";
-import { fetchClient, patchClient, deleteClient, sendConfig, fetchTrafficHistory } from "../api/client";
+import { fetchClient, patchClient, deleteClient, sendConfig, fetchTrafficHistory, fetchClientMonthly } from "../api/client";
+import { formatBytesLong, formatMonth } from "../utils/format";
 
 type Period = "24h" | "7d" | "14d";
 
@@ -13,13 +14,6 @@ const PERIOD_LIMITS: Record<Period, number> = {
   "7d": 1008,
   "14d": 2016,
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
-  return `${(bytes / 1073741824).toFixed(2)} GB`;
-}
 
 export function ClientDetail() {
   const { id } = useParams<{ id: string }>();
@@ -37,6 +31,12 @@ export function ClientDetail() {
   const { data: trafficData } = useQuery({
     queryKey: ["traffic", id, period],
     queryFn: () => fetchTrafficHistory(id!, PERIOD_LIMITS[period]),
+    enabled: !!id,
+  });
+
+  const { data: monthlyData } = useQuery({
+    queryKey: ["client-monthly", id],
+    queryFn: () => fetchClientMonthly(id!),
     enabled: !!id,
   });
 
@@ -140,14 +140,14 @@ export function ClientDetail() {
           {/* Traffic totals */}
           {(client.type === "wg" || client.type === "both") && (
             <>
-              <div className="text-tg-hint">WG Traffic</div>
-              <div className="text-tg text-xs">↓{formatBytes(totals.wgRx)} ↑{formatBytes(totals.wgTx)}</div>
+              <div className="text-tg-hint">WG Traffic ({period})</div>
+              <div className="text-tg text-xs">↓{formatBytesLong(totals.wgRx)} ↑{formatBytesLong(totals.wgTx)}</div>
             </>
           )}
           {(client.type === "xray" || client.type === "both") && (
             <>
-              <div className="text-tg-hint">XRay Traffic</div>
-              <div className="text-tg text-xs">↓{formatBytes(totals.xrayRx)} ↑{formatBytes(totals.xrayTx)}</div>
+              <div className="text-tg-hint">XRay Traffic ({period})</div>
+              <div className="text-tg text-xs">↓{formatBytesLong(totals.xrayRx)} ↑{formatBytesLong(totals.xrayTx)}</div>
             </>
           )}
         </div>
@@ -174,6 +174,25 @@ export function ClientDetail() {
           </div>
         </div>
         <TrafficChart snapshots={snapshots} clientType={client.type} />
+      </div>
+
+      {/* Monthly Traffic */}
+      <div className="bg-tg-secondary rounded-xl p-4 mb-4">
+        <span className="text-sm font-medium text-tg block mb-3">Monthly Traffic</span>
+        {!monthlyData || monthlyData.history.length === 0 ? (
+          <div className="text-tg-hint text-sm text-center py-4">No monthly data yet.</div>
+        ) : (
+          <div className="space-y-3">
+            {monthlyData.history.map((m) => (
+              <div key={m.month}>
+                <div className="text-xs text-tg-hint mb-1">{formatMonth(m.month)}</div>
+                <div className="text-sm text-tg">
+                  ↓ {formatBytesLong(m.rx_total)}&nbsp;&nbsp;|&nbsp;&nbsp;↑ {formatBytesLong(m.tx_total)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Actions */}

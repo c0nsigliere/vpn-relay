@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { Layout } from "../components/Layout";
 import { ServerTrafficChart } from "../components/ServerTrafficChart";
-import { fetchServersStatus, fetchServerTraffic } from "../api/client";
+import { fetchServersStatus, fetchServerTraffic, fetchServerMonthly } from "../api/client";
+import { formatBytesLong, formatMonth } from "../utils/format";
 import type { ServerId, ServerStatus } from "@vpn-relay/shared";
 
 type Period = "24h" | "7d" | "30d";
@@ -58,6 +68,13 @@ export function ServerDetail() {
   const { data: trafficData, isLoading: trafficLoading } = useQuery({
     queryKey: ["server-traffic", serverId, period],
     queryFn: () => fetchServerTraffic(serverId, period),
+    enabled: !!serverId,
+    retry: false,
+  });
+
+  const { data: monthlyData } = useQuery({
+    queryKey: ["server-monthly", serverId],
+    queryFn: () => fetchServerMonthly(serverId),
     enabled: !!serverId,
     retry: false,
   });
@@ -211,6 +228,56 @@ export function ServerDetail() {
           <div className="text-tg-hint text-sm text-center py-8">Loading…</div>
         ) : (
           <ServerTrafficChart snapshots={snapshots} period={period} />
+        )}
+      </div>
+
+      {/* Monthly Traffic */}
+      <div className="bg-tg-secondary rounded-xl p-4 mt-4">
+        <span className="text-sm font-medium text-tg block mb-3">Monthly Traffic</span>
+        {!monthlyData || monthlyData.history.length === 0 ? (
+          <div className="text-tg-hint text-sm text-center py-4">No monthly data yet.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart
+              data={[...monthlyData.history].reverse().map((m) => ({
+                name: formatMonth(m.month).slice(0, 3),
+                rx: m.rx_total,
+                tx: m.tx_total,
+              }))}
+              margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+            >
+              <XAxis
+                dataKey="name"
+                tick={{ fontSize: 10, fill: "var(--tg-hint)" }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                tickFormatter={formatBytesLong}
+                tick={{ fontSize: 10, fill: "var(--tg-hint)" }}
+                tickLine={false}
+                axisLine={false}
+                width={52}
+              />
+              <Tooltip
+                formatter={(v: number) => formatBytesLong(v)}
+                contentStyle={{
+                  backgroundColor: "var(--tg-secondary-bg)",
+                  border: "1px solid var(--tg-section-separator)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+                labelStyle={{ color: "var(--tg-hint)", marginBottom: 4 }}
+                itemStyle={{ color: "var(--tg-text)" }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                formatter={(value) => <span style={{ color: "var(--tg-hint)" }}>{value}</span>}
+              />
+              <Bar dataKey="rx" name="↓ Download" fill="#89b4fa" stackId="a" isAnimationActive={false} />
+              <Bar dataKey="tx" name="↑ Upload" fill="#a6e3a1" stackId="a" isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
         )}
       </div>
     </Layout>

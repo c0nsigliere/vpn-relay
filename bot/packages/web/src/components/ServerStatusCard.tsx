@@ -11,6 +11,7 @@ interface SparklinePoint {
 interface ServerStatusCardProps {
   title: string;
   serverId: ServerId;
+  ip?: string;
   status: ServerStatus | { error: string } | undefined;
   sparklineData?: SparklinePoint[];
   trafficTotal24h?: { rx: number; tx: number };
@@ -43,6 +44,7 @@ function pingColor(ms: number, loss: number): string {
 
 export function ServerStatusCard({
   title,
+  ip,
   status,
   sparklineData,
   trafficTotal24h,
@@ -56,7 +58,10 @@ export function ServerStatusCard({
       onClick={onClick}
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="font-medium text-sm text-tg">{title}</span>
+        <div>
+          <span className="font-medium text-sm text-tg">{title}</span>
+          {ip && <span className="block text-xs text-tg-hint font-mono">{ip}</span>}
+        </div>
         <div className="flex items-center gap-2">
           {status === undefined && (
             <span className="text-xs text-tg-hint">Loading…</span>

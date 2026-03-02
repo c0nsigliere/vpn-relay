@@ -7,18 +7,16 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import type { AggregateTrafficSnapshot } from "@vpn-relay/shared";
+import type { ServerTrafficSnapshot } from "@vpn-relay/shared";
 import { formatBytes, formatTs, formatTsDate } from "../utils/format";
 
 const COLORS = {
-  wgRx: "#89b4fa",   // blue
-  wgTx: "#74c7ec",   // sky
-  xrayRx: "#a6e3a1", // green
-  xrayTx: "#94e2d5", // teal
+  rx: "#89b4fa",  // blue — Download
+  tx: "#a6e3a1",  // green — Upload
 };
 
 interface ServerTrafficChartProps {
-  snapshots: AggregateTrafficSnapshot[];
+  snapshots: ServerTrafficSnapshot[];
   period: string;
 }
 
@@ -37,10 +35,8 @@ export function ServerTrafficChart({ snapshots, period }: ServerTrafficChartProp
     .filter((_, i) => i % step === 0)
     .map((s) => ({
       ts: labelFn(s.ts),
-      wgRx: s.wg_rx,
-      wgTx: s.wg_tx,
-      xrayRx: s.xray_rx,
-      xrayTx: s.xray_tx,
+      rx: s.rx_bytes,
+      tx: s.tx_bytes,
     }));
 
   return (
@@ -75,10 +71,8 @@ export function ServerTrafficChart({ snapshots, period }: ServerTrafficChartProp
           wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
           formatter={(value) => <span style={{ color: "var(--tg-hint)" }}>{value}</span>}
         />
-        <Area type="monotone" dataKey="wgRx" name="WG ↓" stroke={COLORS.wgRx} fill={COLORS.wgRx} fillOpacity={0.15} dot={false} strokeWidth={1.5} isAnimationActive={false} />
-        <Area type="monotone" dataKey="wgTx" name="WG ↑" stroke={COLORS.wgTx} fill={COLORS.wgTx} fillOpacity={0.15} dot={false} strokeWidth={1.5} isAnimationActive={false} />
-        <Area type="monotone" dataKey="xrayRx" name="XRay ↓" stroke={COLORS.xrayRx} fill={COLORS.xrayRx} fillOpacity={0.15} dot={false} strokeWidth={1.5} isAnimationActive={false} />
-        <Area type="monotone" dataKey="xrayTx" name="XRay ↑" stroke={COLORS.xrayTx} fill={COLORS.xrayTx} fillOpacity={0.15} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+        <Area type="monotone" dataKey="rx" name="↓ Download" stroke={COLORS.rx} fill={COLORS.rx} fillOpacity={0.15} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+        <Area type="monotone" dataKey="tx" name="↑ Upload" stroke={COLORS.tx} fill={COLORS.tx} fillOpacity={0.15} dot={false} strokeWidth={1.5} isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   );

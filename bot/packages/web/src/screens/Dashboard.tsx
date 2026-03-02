@@ -41,6 +41,7 @@ export function Dashboard() {
         <ServerStatusCard
           title="Server A (entry)"
           serverId="a"
+          ip={data?.serverAIp}
           status={isLoading ? undefined : data?.serverA}
           sparklineData={data?.trafficSparkline}
           trafficTotal24h={data?.trafficTotal24h}
@@ -49,6 +50,7 @@ export function Dashboard() {
         <ServerStatusCard
           title="Server B (exit)"
           serverId="b"
+          ip={data?.serverBIp}
           status={isLoading ? undefined : data?.serverB}
           sparklineData={data?.trafficSparkline}
           trafficTotal24h={data?.trafficTotal24h}
