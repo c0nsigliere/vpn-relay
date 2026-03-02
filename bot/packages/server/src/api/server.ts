@@ -6,6 +6,9 @@ import { Bot } from "grammy";
 import { env } from "../config/env";
 import { clientsRoutes } from "./routes/clients";
 import { sendConfigRoutes } from "./routes/send-config";
+import { serversRoutes } from "./routes/servers";
+import { trafficRoutes } from "./routes/traffic";
+import { settingsRoutes } from "./routes/settings";
 import type { BotContext } from "../bot/context";
 
 export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInstance> {
@@ -19,6 +22,9 @@ export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInsta
   // Register API routes (pass bot for Telegram notifications)
   await app.register(clientsRoutes, { bot });
   await app.register(sendConfigRoutes, { bot });
+  await app.register(serversRoutes);
+  await app.register(trafficRoutes);
+  await app.register(settingsRoutes);
 
   // Serve static React SPA from packages/web/dist
   const webDist = path.resolve(__dirname, "../../../web/dist");

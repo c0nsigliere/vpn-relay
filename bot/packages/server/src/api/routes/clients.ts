@@ -10,7 +10,7 @@ import {
 } from "../../services/client.service";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 import { env } from "../../config/env";
-import type { ClientType } from "@vpn-relay/shared";
+import type { ClientType, ClientWithTraffic } from "@vpn-relay/shared";
 import type { BotContext } from "../../bot/context";
 
 export async function clientsRoutes(
@@ -34,6 +34,17 @@ export async function clientsRoutes(
     const pageSize = 20;
 
     const { clients, total } = queries.searchClients(search, filter, type, page, pageSize);
+
+    if (q.withTraffic === "1") {
+      const ids = clients.map((c) => c.id);
+      const totalsMap = queries.getTrafficTotalsForClients(ids);
+      const enriched: ClientWithTraffic[] = clients.map((c) => ({
+        ...c,
+        traffic: totalsMap.get(c.id),
+      }));
+      return reply.send({ clients: enriched, total, page, pageSize });
+    }
+
     return reply.send({ clients, total, page, pageSize });
   });
 

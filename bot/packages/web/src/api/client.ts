@@ -3,7 +3,15 @@
  * initData comes from Telegram.WebApp.initData (injected by telegram-web-app.js).
  */
 
-import type { Client, ClientsResponse, CreateClientRequest, PatchClientRequest } from "@vpn-relay/shared";
+import type {
+  Client,
+  ClientsResponse,
+  ClientsWithTrafficResponse,
+  CreateClientRequest,
+  PatchClientRequest,
+  ServersStatusResponse,
+  TrafficHistoryResponse,
+} from "@vpn-relay/shared";
 
 function getInitData(): string {
   return (window as typeof window & { Telegram?: { WebApp?: { initData: string } } })
@@ -30,6 +38,21 @@ async function apiFetch<T>(
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+async function apiFetchBlob(path: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(path, {
+    headers: { Authorization: `tma ${getInitData()}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((body as { error?: string }).error ?? res.statusText);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : "backup.db";
+  return { blob, filename };
 }
 
 // ─── Clients ─────────────────────────────────────────────────────────────────
@@ -74,4 +97,39 @@ export function sendConfig(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/api/clients/${id}/send-config`, {
     method: "POST",
   });
+}
+
+export function fetchClientsWithTraffic(params: {
+  search?: string;
+  filter?: "all" | "active" | "suspended";
+  type?: "all" | "wg" | "xray" | "both";
+  page?: number;
+}): Promise<ClientsWithTrafficResponse> {
+  const q = new URLSearchParams();
+  if (params.search) q.set("search", params.search);
+  if (params.filter) q.set("filter", params.filter);
+  if (params.type) q.set("type", params.type);
+  if (params.page !== undefined) q.set("page", String(params.page));
+  q.set("withTraffic", "1");
+  return apiFetch<ClientsWithTrafficResponse>(`/api/clients?${q}`);
+}
+
+export function fetchTrafficHistory(clientId: string, limit = 144): Promise<TrafficHistoryResponse> {
+  return apiFetch<TrafficHistoryResponse>(`/api/clients/${clientId}/traffic?limit=${limit}`);
+}
+
+export function fetchServersStatus(): Promise<ServersStatusResponse> {
+  return apiFetch<ServersStatusResponse>("/api/servers/status");
+}
+
+export async function downloadBackup(): Promise<void> {
+  const { blob, filename } = await apiFetchBlob("/api/settings/backup");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

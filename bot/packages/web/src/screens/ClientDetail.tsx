@@ -1,19 +1,42 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
+import { TrafficChart } from "../components/TrafficChart";
 import { useTelegram } from "../hooks/useTelegram";
-import { fetchClient, patchClient, deleteClient, sendConfig } from "../api/client";
+import { fetchClient, patchClient, deleteClient, sendConfig, fetchTrafficHistory } from "../api/client";
 
+type Period = "24h" | "7d" | "14d";
+
+const PERIOD_LIMITS: Record<Period, number> = {
+  "24h": 144,
+  "7d": 1008,
+  "14d": 2016,
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
+  return `${(bytes / 1073741824).toFixed(2)} GB`;
+}
 
 export function ClientDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { haptic } = useTelegram();
   const queryClient = useQueryClient();
+  const [period, setPeriod] = useState<Period>("24h");
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ["client", id],
     queryFn: () => fetchClient(id!),
+    enabled: !!id,
+  });
+
+  const { data: trafficData } = useQuery({
+    queryKey: ["traffic", id, period],
+    queryFn: () => fetchTrafficHistory(id!, PERIOD_LIMITS[period]),
     enabled: !!id,
   });
 
@@ -35,7 +58,7 @@ export function ClientDetail() {
     onSuccess: () => {
       haptic.notification("success");
       void queryClient.invalidateQueries({ queryKey: ["clients"] });
-      navigate("/");
+      navigate("/clients");
     },
     onError: (err: Error) => {
       haptic.notification("error");
@@ -56,15 +79,27 @@ export function ClientDetail() {
   });
 
   if (isLoading) {
-    return <Layout backTo="/" title="Client"><div className="text-tg-hint py-8 text-center">Loading…</div></Layout>;
+    return <Layout backTo="/clients" title="Client"><div className="text-tg-hint py-8 text-center">Loading…</div></Layout>;
   }
 
   if (error || !client) {
-    return <Layout backTo="/" title="Client"><div className="text-tg-destructive py-8 text-center">Client not found.</div></Layout>;
+    return <Layout backTo="/clients" title="Client"><div className="text-tg-destructive py-8 text-center">Client not found.</div></Layout>;
   }
 
   const typeLabel = client.type === "both" ? "WireGuard + XRay" : client.type.toUpperCase();
   const isActive = client.is_active === 1;
+
+  // Compute totals from snapshots
+  const snapshots = trafficData?.snapshots ?? [];
+  const totals = snapshots.reduce(
+    (acc, s) => ({
+      wgRx: acc.wgRx + s.wg_rx,
+      wgTx: acc.wgTx + s.wg_tx,
+      xrayRx: acc.xrayRx + s.xray_rx,
+      xrayTx: acc.xrayTx + s.xray_tx,
+    }),
+    { wgRx: 0, wgTx: 0, xrayRx: 0, xrayTx: 0 }
+  );
 
   const handleDelete = () => {
     if (window.confirm(`Delete ${client.name}? This cannot be undone.`)) {
@@ -73,7 +108,7 @@ export function ClientDetail() {
   };
 
   return (
-    <Layout backTo="/" title={client.name}>
+    <Layout backTo="/clients" title={client.name}>
       {/* Info card */}
       <div className="bg-tg-secondary rounded-xl p-4 mb-4">
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -101,12 +136,48 @@ export function ClientDetail() {
 
           <div className="text-tg-hint">Created</div>
           <div className="text-tg">{new Date(client.created_at).toLocaleDateString()}</div>
+
+          {/* Traffic totals */}
+          {(client.type === "wg" || client.type === "both") && (
+            <>
+              <div className="text-tg-hint">WG Traffic</div>
+              <div className="text-tg text-xs">↓{formatBytes(totals.wgRx)} ↑{formatBytes(totals.wgTx)}</div>
+            </>
+          )}
+          {(client.type === "xray" || client.type === "both") && (
+            <>
+              <div className="text-tg-hint">XRay Traffic</div>
+              <div className="text-tg text-xs">↓{formatBytes(totals.xrayRx)} ↑{formatBytes(totals.xrayTx)}</div>
+            </>
+          )}
         </div>
+      </div>
+
+      {/* Traffic chart */}
+      <div className="bg-tg-secondary rounded-xl p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-tg">Traffic</span>
+          <div className="flex gap-1">
+            {(["24h", "7d", "14d"] as Period[]).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-2 py-0.5 rounded text-xs border ${
+                  period === p
+                    ? "bg-tg-button text-tg-button border-transparent"
+                    : "bg-tg text-tg-hint border-tg"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+        <TrafficChart snapshots={snapshots} clientType={client.type} />
       </div>
 
       {/* Actions */}
       <div className="space-y-2">
-        {/* Send Config */}
         <button
           onClick={() => configMutation.mutate()}
           disabled={configMutation.isPending}
@@ -115,7 +186,6 @@ export function ClientDetail() {
           {configMutation.isPending ? "Sending…" : "📩 Send Config to Chat"}
         </button>
 
-        {/* Suspend / Resume */}
         {isActive ? (
           <button
             onClick={() => patchMutation.mutate("suspend")}
@@ -134,7 +204,6 @@ export function ClientDetail() {
           </button>
         )}
 
-        {/* Delete */}
         <button
           onClick={handleDelete}
           disabled={deleteMutation.isPending}

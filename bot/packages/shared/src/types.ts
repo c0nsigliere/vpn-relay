@@ -46,3 +46,44 @@ export interface ClientsResponse {
 export interface ApiError {
   error: string;
 }
+
+// ─── Server status ───────────────────────────────────────────────────────────
+
+export interface ServerStatus {
+  cpuPercent: number;
+  ramUsedMb: number;
+  ramTotalMb: number;
+  uptime: string;
+  updatesAvailable: number;
+  rebootRequired: boolean;
+}
+
+export interface ServersStatusResponse {
+  serverA: ServerStatus | { error: string };
+  serverB: ServerStatus | { error: string };
+}
+
+// ─── Traffic ─────────────────────────────────────────────────────────────────
+
+export interface TrafficTotals {
+  wgRx: number;
+  wgTx: number;
+  xrayRx: number;
+  xrayTx: number;
+}
+
+export interface ClientWithTraffic extends Client {
+  traffic?: TrafficTotals;
+}
+
+export interface ClientsWithTrafficResponse {
+  clients: ClientWithTraffic[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface TrafficHistoryResponse {
+  clientName: string;
+  snapshots: TrafficSnapshot[];
+}

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { ClientRow } from "../components/ClientRow";
 import { useTelegram } from "../hooks/useTelegram";
-import { fetchClients } from "../api/client";
+import { fetchClientsWithTraffic } from "../api/client";
 
 type FilterStatus = "all" | "active" | "suspended";
 type FilterType = "all" | "wg" | "xray" | "both";
@@ -32,7 +32,7 @@ export function ClientList() {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["clients", debouncedSearch, filterStatus, filterType, page],
-    queryFn: () => fetchClients({ search: debouncedSearch, filter: filterStatus, type: filterType, page }),
+    queryFn: () => fetchClientsWithTraffic({ search: debouncedSearch, filter: filterStatus, type: filterType, page }),
   });
 
   // MainButton → Add Client
@@ -55,7 +55,7 @@ export function ClientList() {
   const totalPages = data ? Math.ceil(data.total / data.pageSize) : 0;
 
   return (
-    <Layout title="VPN Clients">
+    <Layout backTo="/" title="VPN Clients">
       {/* Search */}
       <div className="mb-3">
         <input
@@ -115,7 +115,12 @@ export function ClientList() {
       {data && data.clients.length > 0 && (
         <div className="bg-tg-secondary rounded-xl divide-y divide-tg px-3">
           {data.clients.map((c) => (
-            <ClientRow key={c.id} client={c} />
+            <ClientRow
+              key={c.id}
+              client={c}
+              totalRx={(c.traffic?.wgRx ?? 0) + (c.traffic?.xrayRx ?? 0)}
+              totalTx={(c.traffic?.wgTx ?? 0) + (c.traffic?.xrayTx ?? 0)}
+            />
           ))}
         </div>
       )}

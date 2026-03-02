@@ -1,7 +1,7 @@
 import { db } from "./index";
-import type { Client, TrafficSnapshot } from "@vpn-relay/shared";
+import type { Client, TrafficSnapshot, TrafficTotals } from "@vpn-relay/shared";
 
-export type { Client, TrafficSnapshot };
+export type { Client, TrafficSnapshot, TrafficTotals };
 
 export const queries = {
   getAllClients(): Client[] {
@@ -76,6 +76,26 @@ export const queries = {
     ).all(pageSize, offset) as Client[];
     const { total } = db.prepare("SELECT COUNT(*) as total FROM clients").get() as { total: number };
     return { clients, total };
+  },
+
+  getTrafficTotalsForClients(clientIds: string[]): Map<string, TrafficTotals> {
+    if (clientIds.length === 0) return new Map();
+    const placeholders = clientIds.map(() => "?").join(",");
+    const rows = db.prepare(`
+      SELECT client_id,
+             SUM(wg_rx) AS wgRx,
+             SUM(wg_tx) AS wgTx,
+             SUM(xray_rx) AS xrayRx,
+             SUM(xray_tx) AS xrayTx
+      FROM traffic_snapshots
+      WHERE client_id IN (${placeholders})
+      GROUP BY client_id
+    `).all(...clientIds) as Array<{ client_id: string; wgRx: number; wgTx: number; xrayRx: number; xrayTx: number }>;
+    const map = new Map<string, TrafficTotals>();
+    for (const row of rows) {
+      map.set(row.client_id, { wgRx: row.wgRx, wgTx: row.wgTx, xrayRx: row.xrayRx, xrayTx: row.xrayTx });
+    }
+    return map;
   },
 
   searchClients(
