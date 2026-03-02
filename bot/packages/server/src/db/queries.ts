@@ -1,7 +1,7 @@
 import { db } from "./index";
-import type { Client, TrafficSnapshot, TrafficTotals } from "@vpn-relay/shared";
+import type { Client, TrafficSnapshot, TrafficTotals, AggregateTrafficSnapshot } from "@vpn-relay/shared";
 
-export type { Client, TrafficSnapshot, TrafficTotals };
+export type { Client, TrafficSnapshot, TrafficTotals, AggregateTrafficSnapshot };
 
 export const queries = {
   getAllClients(): Client[] {
@@ -96,6 +96,31 @@ export const queries = {
       map.set(row.client_id, { wgRx: row.wgRx, wgTx: row.wgTx, xrayRx: row.xrayRx, xrayTx: row.xrayTx });
     }
     return map;
+  },
+
+  getAggregateTraffic(limit: number): AggregateTrafficSnapshot[] {
+    const rows = db.prepare(`
+      SELECT ts,
+             SUM(wg_rx)   AS wg_rx,
+             SUM(wg_tx)   AS wg_tx,
+             SUM(xray_rx) AS xray_rx,
+             SUM(xray_tx) AS xray_tx
+      FROM traffic_snapshots
+      GROUP BY ts
+      ORDER BY ts DESC
+      LIMIT ?
+    `).all(limit) as AggregateTrafficSnapshot[];
+    return rows.reverse();
+  },
+
+  getAggregateTrafficTotals24h(): { totalRx: number; totalTx: number } {
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(wg_rx + xray_rx), 0) AS totalRx,
+             COALESCE(SUM(wg_tx + xray_tx), 0) AS totalTx
+      FROM traffic_snapshots
+      WHERE ts >= datetime('now', '-1 day')
+    `).get() as { totalRx: number; totalTx: number };
+    return row;
   },
 
   searchClients(

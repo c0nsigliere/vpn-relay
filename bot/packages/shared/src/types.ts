@@ -56,11 +56,39 @@ export interface ServerStatus {
   uptime: string;
   updatesAvailable: number;
   rebootRequired: boolean;
+  diskUsedGb?: number;
+  diskTotalGb?: number;
+  swapUsedMb?: number;
+  swapTotalMb?: number;
+  loadAvg1?: number;
+  loadAvg5?: number;
+  loadAvg15?: number;
+  throughputRxMbps?: number;
+  throughputTxMbps?: number;
+  pingMs?: number;
+  pingLossPercent?: number;
 }
 
 export interface ServersStatusResponse {
   serverA: ServerStatus | { error: string };
   serverB: ServerStatus | { error: string };
+  trafficSparkline?: Array<{ ts: string; rx: number; tx: number }>;
+  trafficTotal24h?: { rx: number; tx: number };
+}
+
+export type ServerId = "a" | "b";
+
+export interface AggregateTrafficSnapshot {
+  ts: string;
+  wg_rx: number;
+  wg_tx: number;
+  xray_rx: number;
+  xray_tx: number;
+}
+
+export interface ServerTrafficResponse {
+  serverId: ServerId;
+  snapshots: AggregateTrafficSnapshot[];
 }
 
 // ─── Traffic ─────────────────────────────────────────────────────────────────

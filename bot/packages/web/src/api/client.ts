@@ -10,6 +10,7 @@ import type {
   CreateClientRequest,
   PatchClientRequest,
   ServersStatusResponse,
+  ServerTrafficResponse,
   TrafficHistoryResponse,
 } from "@vpn-relay/shared";
 
@@ -125,6 +126,10 @@ export function fetchTrafficHistory(clientId: string, limit = 144): Promise<Traf
 
 export function fetchServersStatus(): Promise<ServersStatusResponse> {
   return apiFetch<ServersStatusResponse>("/api/servers/status");
+}
+
+export function fetchServerTraffic(serverId: string, period: string): Promise<ServerTrafficResponse> {
+  return apiFetch<ServerTrafficResponse>(`/api/servers/${serverId}/traffic?period=${period}`);
 }
 
 export async function downloadBackup(): Promise<void> {

@@ -40,4 +40,6 @@ db.exec(`
     xray_tx INTEGER DEFAULT 0,
     FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
   );
+
+  CREATE INDEX IF NOT EXISTS idx_traffic_ts ON traffic_snapshots(ts);
 `);

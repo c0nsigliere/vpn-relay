@@ -1,8 +1,20 @@
-import type { ServerStatus } from "@vpn-relay/shared";
+import type { ServerStatus, ServerId } from "@vpn-relay/shared";
+import { Sparkline } from "./Sparkline";
+import { formatBytesLong } from "../utils/format";
+
+interface SparklinePoint {
+  ts: string;
+  rx: number;
+  tx: number;
+}
 
 interface ServerStatusCardProps {
   title: string;
+  serverId: ServerId;
   status: ServerStatus | { error: string } | undefined;
+  sparklineData?: SparklinePoint[];
+  trafficTotal24h?: { rx: number; tx: number };
+  onClick?: () => void;
 }
 
 function ProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
@@ -23,20 +35,42 @@ function cpuColor(pct: number): string {
   return "#a6e3a1"; // green
 }
 
-export function ServerStatusCard({ title, status }: ServerStatusCardProps) {
+function pingColor(ms: number, loss: number): string {
+  if (loss > 0 || ms > 300) return "#f38ba8"; // red
+  if (ms > 150) return "#fab387"; // yellow
+  return "#a6e3a1"; // green
+}
+
+export function ServerStatusCard({
+  title,
+  status,
+  sparklineData,
+  trafficTotal24h,
+  onClick,
+}: ServerStatusCardProps) {
+  const isClickable = !!onClick;
+
   return (
-    <div className="bg-tg-secondary rounded-xl p-4">
+    <div
+      className={`bg-tg-secondary rounded-xl p-4 ${isClickable ? "cursor-pointer active:opacity-80" : ""}`}
+      onClick={onClick}
+    >
       <div className="flex items-center justify-between mb-3">
         <span className="font-medium text-sm text-tg">{title}</span>
-        {status === undefined && (
-          <span className="text-xs text-tg-hint">Loading…</span>
-        )}
-        {status && "error" in status && (
-          <span className="text-xs text-tg-destructive">Unreachable</span>
-        )}
-        {status && !("error" in status) && (
-          <span className="text-xs text-tg-hint">↑ {status.uptime}</span>
-        )}
+        <div className="flex items-center gap-2">
+          {status === undefined && (
+            <span className="text-xs text-tg-hint">Loading…</span>
+          )}
+          {status && "error" in status && (
+            <span className="text-xs text-tg-destructive">Unreachable</span>
+          )}
+          {status && !("error" in status) && (
+            <span className="text-xs text-tg-hint">↑ {status.uptime}</span>
+          )}
+          {isClickable && (
+            <span className="text-tg-hint text-xs">›</span>
+          )}
+        </div>
       </div>
 
       {status && "error" in status && (
@@ -65,8 +99,37 @@ export function ServerStatusCard({ title, status }: ServerStatusCardProps) {
             <ProgressBar value={status.ramUsedMb} max={status.ramTotalMb} color="#89b4fa" />
           </div>
 
+          {/* Disk */}
+          {status.diskTotalGb !== undefined && status.diskUsedGb !== undefined && (
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-tg-hint">Disk</span>
+                <span className="text-tg">
+                  {status.diskUsedGb} / {status.diskTotalGb} GB
+                </span>
+              </div>
+              <ProgressBar value={status.diskUsedGb} max={status.diskTotalGb} color="#cba6f7" />
+            </div>
+          )}
+
+          {/* Ping */}
+          {status.pingMs !== undefined && status.pingLossPercent !== undefined && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: pingColor(status.pingMs, status.pingLossPercent) }}
+              />
+              <span className="text-tg-hint">A ↔ B Link:</span>
+              <span className="text-tg">
+                {status.pingLossPercent === 100
+                  ? "unreachable"
+                  : `${status.pingMs.toFixed(0)}ms`}
+              </span>
+            </div>
+          )}
+
           {/* Badges */}
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-wrap gap-2 pt-1">
             {status.rebootRequired && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400">
                 Reboot required
@@ -83,6 +146,18 @@ export function ServerStatusCard({ title, status }: ServerStatusCardProps) {
               </span>
             )}
           </div>
+
+          {/* Sparkline */}
+          {sparklineData && sparklineData.length > 0 && (
+            <div className="pt-1">
+              <Sparkline data={sparklineData} />
+              {trafficTotal24h && (
+                <div className="text-xs text-tg-hint mt-1">
+                  24h: ↓{formatBytesLong(trafficTotal24h.rx)} / ↑{formatBytesLong(trafficTotal24h.tx)}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
