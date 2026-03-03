@@ -11,6 +11,9 @@ const INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 /** Last raw eth0 counter readings per server (for delta computation) */
 const lastEth0: Map<"a" | "b", { rx: number; tx: number }> = new Map();
 
+/** Last cumulative WG counter readings per peer pubkey (for delta computation) */
+const lastWg: Map<string, { rx: number; tx: number }> = new Map();
+
 /** Detect first non-loopback interface on Server B (local) */
 function detectLocalInterface(): string {
   try {
@@ -79,17 +82,36 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
           const xray = xrayStats.get(client.name);
           const wg = client.wg_pubkey ? wgByPubkey.get(client.wg_pubkey) : undefined;
 
-          const lastSnap = queries.getLastTrafficSnapshot(client.id);
-          const wgRxDelta = wg ? Math.max(0, wg.rxBytes - (lastSnap?.wg_rx ?? 0)) : 0;
-          const wgTxDelta = wg ? Math.max(0, wg.txBytes - (lastSnap?.wg_tx ?? 0)) : 0;
+          let wgRxDelta = 0, wgTxDelta = 0;
+          if (wg) {
+            const prev = lastWg.get(wg.pubkey);
+            if (prev !== undefined && wg.rxBytes >= prev.rx && wg.txBytes >= prev.tx) {
+              wgRxDelta = wg.rxBytes - prev.rx;
+              wgTxDelta = wg.txBytes - prev.tx;
+            }
+            lastWg.set(wg.pubkey, { rx: wg.rxBytes, tx: wg.txBytes });
+          }
+
+          const xrayRx = Number(xray?.downlinkBytes ?? 0);
+          const xrayTx = Number(xray?.uplinkBytes ?? 0);
 
           queries.insertTrafficSnapshot({
             client_id: client.id,
             wg_rx: wgRxDelta,
             wg_tx: wgTxDelta,
-            xray_rx: Number(xray?.downlinkBytes ?? 0),
-            xray_tx: Number(xray?.uplinkBytes ?? 0),
+            xray_rx: xrayRx,
+            xray_tx: xrayTx,
           });
+
+          // Update last_seen_at if there's any traffic or recent WG handshake
+          if (wgRxDelta > 0 || wgTxDelta > 0 || xrayRx > 0 || xrayTx > 0) {
+            queries.updateLastSeen(client.id);
+          } else if (wg && wg.latestHandshake > 0) {
+            const handshakeAge = Date.now() / 1000 - wg.latestHandshake;
+            if (handshakeAge < 900) { // 15 minutes
+              queries.updateLastSeen(client.id);
+            }
+          }
         }
       }
 

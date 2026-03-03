@@ -12,6 +12,7 @@ export interface Client {
   created_at: string;
   expires_at: string | null;
   is_active: number; // 1 = active, 0 = suspended
+  last_seen_at: string | null;
 }
 
 export interface TrafficSnapshot {
@@ -98,6 +99,12 @@ export interface ServerTrafficSnapshot {
 
 export interface MonthlyTraffic {
   month: string;   // "YYYY-MM"
+  rx_total: number;
+  tx_total: number;
+}
+
+export interface DailyTraffic {
+  day: string;      // "YYYY-MM-DD"
   rx_total: number;
   tx_total: number;
 }

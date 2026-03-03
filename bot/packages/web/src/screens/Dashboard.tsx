@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
@@ -8,7 +7,7 @@ import { fetchServersStatus } from "../api/client";
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const { mainButton, haptic } = useTelegram();
+  const { haptic } = useTelegram();
 
   const { data, isLoading } = useQuery({
     queryKey: ["servers-status"],
@@ -16,23 +15,6 @@ export function Dashboard() {
     refetchInterval: 30_000,
     retry: false,
   });
-
-  // MainButton → Add Client
-  useEffect(() => {
-    if (!mainButton) return;
-    mainButton.setText("+ Add Client");
-    mainButton.show();
-    mainButton.enable();
-    const handler = () => {
-      haptic.impact("light");
-      navigate("/add");
-    };
-    mainButton.onClick(handler);
-    return () => {
-      mainButton.offClick(handler);
-      mainButton.hide();
-    };
-  }, [mainButton, navigate, haptic]);
 
   return (
     <Layout title="Dashboard">

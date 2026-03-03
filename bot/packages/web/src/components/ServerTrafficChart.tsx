@@ -8,7 +8,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { ServerTrafficSnapshot } from "@vpn-relay/shared";
-import { formatBytes, formatTs, formatTsDate } from "../utils/format";
+import { formatTs, formatTsDate, toMbps, formatMbps } from "../utils/format";
 
 const COLORS = {
   rx: "#89b4fa",  // blue — Download
@@ -35,8 +35,8 @@ export function ServerTrafficChart({ snapshots, period }: ServerTrafficChartProp
     .filter((_, i) => i % step === 0)
     .map((s) => ({
       ts: labelFn(s.ts),
-      rx: s.rx_bytes,
-      tx: s.tx_bytes,
+      rx: toMbps(s.rx_bytes),
+      tx: toMbps(s.tx_bytes),
     }));
 
   return (
@@ -50,14 +50,14 @@ export function ServerTrafficChart({ snapshots, period }: ServerTrafficChartProp
           axisLine={false}
         />
         <YAxis
-          tickFormatter={formatBytes}
+          tickFormatter={(v: number) => formatMbps(v)}
           tick={{ fontSize: 10, fill: "var(--tg-hint)" }}
           tickLine={false}
           axisLine={false}
-          width={48}
+          width={56}
         />
         <Tooltip
-          formatter={(v: number) => formatBytes(v)}
+          formatter={(v: number) => formatMbps(v)}
           contentStyle={{
             backgroundColor: "var(--tg-secondary-bg)",
             border: "1px solid var(--tg-section-separator)",

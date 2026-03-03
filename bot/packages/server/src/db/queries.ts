@@ -1,7 +1,14 @@
 import { db } from "./index";
-import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic } from "@vpn-relay/shared";
+import { env } from "../config/env";
+import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic } from "@vpn-relay/shared";
 
-export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic };
+export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic };
+
+/** Convert "+3:00" → "+3 hours", "-5:00" → "-5 hours" for SQLite datetime modifier */
+function tzModifier(): string {
+  const match = env.TZ_OFFSET.match(/^([+-]\d+):/);
+  return match ? `${match[1]} hours` : "+0 hours";
+}
 
 export const queries = {
   getAllClients(): Client[] {
@@ -16,7 +23,7 @@ export const queries = {
     return db.prepare("SELECT * FROM clients WHERE name = ?").get(name) as Client | undefined;
   },
 
-  insertClient(client: Omit<Client, "created_at">): void {
+  insertClient(client: Omit<Client, "created_at" | "last_seen_at">): void {
     db.prepare(`
       INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, expires_at, is_active)
       VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @expires_at, @is_active)
@@ -217,6 +224,36 @@ export const queries = {
       return count;
     });
     return rollup() as number;
+  },
+
+  updateLastSeen(clientId: string): void {
+    db.prepare("UPDATE clients SET last_seen_at = datetime('now') WHERE id = ?").run(clientId);
+  },
+
+  getServerDailyTraffic(serverId: "a" | "b"): DailyTraffic[] {
+    const mod = tzModifier();
+    return db.prepare(`
+      SELECT date(ts, '${mod}') AS day,
+             SUM(rx_bytes) AS rx_total,
+             SUM(tx_bytes) AS tx_total
+      FROM server_traffic_snapshots
+      WHERE server_id = ? AND ts >= datetime('now', '-30 days')
+      GROUP BY date(ts, '${mod}')
+      ORDER BY day
+    `).all(serverId) as DailyTraffic[];
+  },
+
+  getClientDailyTraffic(clientId: string): DailyTraffic[] {
+    const mod = tzModifier();
+    return db.prepare(`
+      SELECT date(ts, '${mod}') AS day,
+             SUM(wg_rx + xray_rx) AS rx_total,
+             SUM(wg_tx + xray_tx) AS tx_total
+      FROM traffic_snapshots
+      WHERE client_id = ? AND ts >= datetime('now', '-30 days')
+      GROUP BY date(ts, '${mod}')
+      ORDER BY day
+    `).all(clientId) as DailyTraffic[];
   },
 
   getClientMonthlyTraffic(clientId: string): MonthlyTraffic[] {

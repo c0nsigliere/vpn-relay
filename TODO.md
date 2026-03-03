@@ -116,9 +116,22 @@
 - [x] **Phase 4: nginx_tma role** — `roles/nginx_tma/`: nginx install, certbot Let's Encrypt, SSL on port 8444 (no conflict with XRay:443), UFW rules, SPA fallback.
 - [x] **Phase 5: Ansible deploy** — pnpm install in `telegram_bot/tasks/install.yml`, `pnpm -r build` in deploy.yml, updated service ExecStart path. `tma_domain`/`tma_https_port`/`tma_backend_port`/`tma_certbot_email` in `group_vars/all.yml`. `playbooks/deploy_tma.yml` + `stack.yml` step 8.
 
+## TMA Dashboard Improvements (2026-03-03)
+
+- [x] **Timezone fix** — `parseUtc()` helper in `format.ts` appends `Z` so JS treats SQLite UTC strings correctly; `TZ_OFFSET` env var (+3:00 default) applied in daily SQL grouping
+- [x] **WG traffic oscillation bug** — replaced last-delta subtraction with in-memory `lastWg` Map tracking cumulative counters per pubkey; guards against reboot (counter decrease → skip)
+- [x] **Charts: Network Speed (Mbps)** — `ServerTrafficChart` and `TrafficChart` convert bytes→Mbps via `toMbps()` helper; Y-axis/tooltip show `formatMbps()` values
+- [x] **Charts: Traffic Volume with Daily/Monthly toggle** — new `GET /api/servers/:id/daily` and `GET /api/clients/:id/daily` endpoints; `ServerDetail` and `ClientDetail` show BarChart with toggleable daily/monthly data
+- [x] **Client last_seen / online status** — `last_seen_at` column (ALTER TABLE migration), updated by traffic worker on any traffic or recent WG handshake (<15min); `ClientRow` and `ClientDetail` show contextual dot + label (Online / Nmin ago / Offline / Suspended)
+- [x] **Remove MainButton from Dashboard** — Dashboard tile already has "Add Client" button; floating MainButton was redundant
+
 ## Debt / Future
 
 - [ ] **TMA: dashboard + traffic graphs** — next iteration after MVP. SSE or polling for live stats.
 - [ ] **TMA: WG config re-send** — re-generation on demand or encrypted storage (currently only available at creation time).
 - [ ] **Remove plaintext `ansible_password` from inventory** — run `bootstrap_ssh.yml` to push SSH keys, verify key login, run `--tags harden`, then remove `ansible_password=` lines
 - [ ] **Bot: Ansible vault for credentials** — move `bot_telegram_token`/`bot_admin_id` to `inventory/host_vars/server-b/vault.yml` encrypted with `ansible-vault`
+
+
+---
+

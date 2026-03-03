@@ -1,13 +1,26 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { Layout } from "../components/Layout";
 import { TrafficChart } from "../components/TrafficChart";
 import { useTelegram } from "../hooks/useTelegram";
-import { fetchClient, patchClient, deleteClient, sendConfig, fetchTrafficHistory, fetchClientMonthly } from "../api/client";
-import { formatBytesLong, formatMonth } from "../utils/format";
+import {
+  fetchClient, patchClient, deleteClient, sendConfig,
+  fetchTrafficHistory, fetchClientMonthly, fetchClientDaily,
+} from "../api/client";
+import { formatBytesLong, formatMonth, formatDay, formatRelativeTime } from "../utils/format";
 
 type Period = "24h" | "7d" | "14d";
+type VolumeTab = "daily" | "monthly";
 
 const PERIOD_LIMITS: Record<Period, number> = {
   "24h": 144,
@@ -15,12 +28,23 @@ const PERIOD_LIMITS: Record<Period, number> = {
   "14d": 2016,
 };
 
+function clientStatus(isActive: boolean, lastSeenAt: string | null) {
+  if (!isActive) return { dot: "#f38ba8", label: "Suspended" };
+  if (!lastSeenAt) return { dot: "#6c7086", label: "Offline" };
+  const diffMs = Date.now() - new Date(lastSeenAt.endsWith("Z") ? lastSeenAt : lastSeenAt + "Z").getTime();
+  const diffMin = diffMs / 60_000;
+  if (diffMin <= 15) return { dot: "#a6e3a1", label: "Online" };
+  if (diffMin <= 1440) return { dot: "#f9e2af", label: formatRelativeTime(lastSeenAt) };
+  return { dot: "#6c7086", label: formatRelativeTime(lastSeenAt) };
+}
+
 export function ClientDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { haptic } = useTelegram();
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState<Period>("24h");
+  const [volumeTab, setVolumeTab] = useState<VolumeTab>("daily");
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ["client", id],
@@ -38,6 +62,13 @@ export function ClientDetail() {
     queryKey: ["client-monthly", id],
     queryFn: () => fetchClientMonthly(id!),
     enabled: !!id,
+  });
+
+  const { data: dailyData } = useQuery({
+    queryKey: ["client-daily", id],
+    queryFn: () => fetchClientDaily(id!),
+    enabled: !!id && volumeTab === "daily",
+    retry: false,
   });
 
   const patchMutation = useMutation({
@@ -88,6 +119,7 @@ export function ClientDetail() {
 
   const typeLabel = client.type === "both" ? "WireGuard + XRay" : client.type.toUpperCase();
   const isActive = client.is_active === 1;
+  const status = clientStatus(isActive, client.last_seen_at);
 
   // Compute totals from snapshots
   const snapshots = trafficData?.snapshots ?? [];
@@ -107,14 +139,19 @@ export function ClientDetail() {
     }
   };
 
+  const volumeBarData = volumeTab === "daily"
+    ? (dailyData?.history ?? []).map((d) => ({ name: formatDay(d.day), rx: d.rx_total, tx: d.tx_total }))
+    : [...(monthlyData?.history ?? [])].reverse().map((m) => ({ name: formatMonth(m.month).slice(0, 3), rx: m.rx_total, tx: m.tx_total }));
+
   return (
     <Layout backTo="/clients" title={client.name}>
       {/* Info card */}
       <div className="bg-tg-secondary rounded-xl p-4 mb-4">
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="text-tg-hint">Status</div>
-          <div className={isActive ? "text-green-500 font-medium" : "text-red-500 font-medium"}>
-            {isActive ? "Active" : "Suspended"}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs" style={{ color: status.dot }}>●</span>
+            <span className="font-medium text-tg">{status.label}</span>
           </div>
 
           <div className="text-tg-hint">Type</div>
@@ -153,10 +190,10 @@ export function ClientDetail() {
         </div>
       </div>
 
-      {/* Traffic chart */}
+      {/* Network Speed chart */}
       <div className="bg-tg-secondary rounded-xl p-4 mb-4">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium text-tg">Traffic</span>
+          <span className="text-sm font-medium text-tg">Network Speed</span>
           <div className="flex gap-1">
             {(["24h", "7d", "14d"] as Period[]).map((p) => (
               <button
@@ -176,22 +213,66 @@ export function ClientDetail() {
         <TrafficChart snapshots={snapshots} clientType={client.type} />
       </div>
 
-      {/* Monthly Traffic */}
+      {/* Traffic Volume */}
       <div className="bg-tg-secondary rounded-xl p-4 mb-4">
-        <span className="text-sm font-medium text-tg block mb-3">Monthly Traffic</span>
-        {!monthlyData || monthlyData.history.length === 0 ? (
-          <div className="text-tg-hint text-sm text-center py-4">No monthly data yet.</div>
-        ) : (
-          <div className="space-y-3">
-            {monthlyData.history.map((m) => (
-              <div key={m.month}>
-                <div className="text-xs text-tg-hint mb-1">{formatMonth(m.month)}</div>
-                <div className="text-sm text-tg">
-                  ↓ {formatBytesLong(m.rx_total)}&nbsp;&nbsp;|&nbsp;&nbsp;↑ {formatBytesLong(m.tx_total)}
-                </div>
-              </div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-tg">Traffic Volume</span>
+          <div className="flex gap-1">
+            {(["daily", "monthly"] as VolumeTab[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setVolumeTab(tab)}
+                className={`px-2 py-0.5 rounded text-xs border ${
+                  volumeTab === tab
+                    ? "bg-tg-button text-tg-button border-transparent"
+                    : "bg-tg text-tg-hint border-tg"
+                }`}
+              >
+                {tab === "daily" ? "Daily" : "Monthly"}
+              </button>
             ))}
           </div>
+        </div>
+        {volumeBarData.length === 0 ? (
+          <div className="text-tg-hint text-sm text-center py-4">No data yet.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart
+              data={volumeBarData}
+              margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+            >
+              <XAxis
+                dataKey="name"
+                tick={{ fontSize: 10, fill: "var(--tg-hint)" }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                tickFormatter={formatBytesLong}
+                tick={{ fontSize: 10, fill: "var(--tg-hint)" }}
+                tickLine={false}
+                axisLine={false}
+                width={52}
+              />
+              <Tooltip
+                formatter={(v: number) => formatBytesLong(v)}
+                contentStyle={{
+                  backgroundColor: "var(--tg-secondary-bg)",
+                  border: "1px solid var(--tg-section-separator)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+                labelStyle={{ color: "var(--tg-hint)", marginBottom: 4 }}
+                itemStyle={{ color: "var(--tg-text)" }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                formatter={(value) => <span style={{ color: "var(--tg-hint)" }}>{value}</span>}
+              />
+              <Bar dataKey="rx" name="↓ Download" fill="#89b4fa" stackId="a" isAnimationActive={false} />
+              <Bar dataKey="tx" name="↑ Upload" fill="#a6e3a1" stackId="a" isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
         )}
       </div>
 

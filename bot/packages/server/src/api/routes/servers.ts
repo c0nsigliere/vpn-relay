@@ -91,4 +91,17 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ serverId: id, history });
     }
   );
+
+  // GET /api/servers/:id/daily — daily aggregated traffic (last 30 days)
+  app.get<{ Params: { id: string } }>(
+    "/api/servers/:id/daily",
+    async (req, reply) => {
+      const id = req.params.id as ServerId;
+      if (id !== "a" && id !== "b") {
+        return reply.status(404).send({ error: "Unknown server id" });
+      }
+      const history = queries.getServerDailyTraffic(id);
+      return reply.send({ serverId: id, history });
+    }
+  );
 }

@@ -68,3 +68,6 @@ db.exec(`
     PRIMARY KEY (server_id, month)
   );
 `);
+
+// Migrations (idempotent — ALTER TABLE ADD COLUMN fails silently if column exists)
+try { db.exec("ALTER TABLE clients ADD COLUMN last_seen_at TEXT"); } catch { /* already exists */ }

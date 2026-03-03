@@ -12,11 +12,11 @@ Server A (Russia, entry point)          Server B (abroad, exit point)
 ─────────────────────────────           ─────────────────────────────
 WG cascade:  wg-clients :51888/udp      XRay only — no WireGuard on B
              10.66.0.0/24
-             iptables TPROXY :12345  ──► XRay VLESS+Reality :8443
+             iptables TPROXY :12345  ──► XRay VLESS+Reality :443
              ip rule fwmark 0x1          freedom outbound → Internet
              → table 100 → lo           (original dst preserved)
 
-TCP relay:   :443/tcp (`port_a_tcp`) ──► :8443/tcp (`xray_port`) (DNAT+MASQUERADE)
+TCP relay:   :443/tcp (`port_a_tcp`) ──► :443/tcp (`xray_port`) (DNAT+MASQUERADE)
              pure L4, zero secrets       XRay VLESS+Reality (systemd)
                                          Reality keys in /etc/xray/keys/
                                          Clients in /etc/xray/clients.json
@@ -75,8 +75,8 @@ Reusable from any playbook via `include_tasks`.
 **Terminology:** Always use `client` (not `user`): `client_name`, `client_uuid`, `clients.json`, `_xray_clients`.
 
 **DPI evasion defaults** (in `group_vars/all.yml` — wrong values break clients):
-- `xray_port: 8443` — XRay listens on B (not 443)
-- `port_a_tcp: 443` / `port_b_tcp: 8443` — relay A→B forwarding
+- `xray_port: 443` — XRay listens on B
+- `port_a_tcp: 443` / `port_b_tcp: 443` — relay A→B forwarding
 - `xray_reality_dest: "www.googletagmanager.com:443"` — camouflage domain
 - `xray_vless_flow: "xtls-rprx-vision"`, `xray_reality_fingerprint: "chrome"`
 
@@ -114,6 +114,8 @@ Client provisioning playbooks write locally to `artifacts/` (relative to repo ro
 
 You can connect to servers directly via SSH (the keys are already registered) to conduct diagnostics. You can install tools on the local computer and remote servers.
 Servers have names "server-a" and "server-b" in inventory or you can connect as root@* by ssh.
+
+If you need to run ansible-playbook (especially long running playbooks) better ask user run it himself in order to see all the details and have better control.
 
 ## After Each Change
 

@@ -8,6 +8,7 @@ import type {
   ClientsResponse,
   ClientsWithTrafficResponse,
   CreateClientRequest,
+  DailyTraffic,
   MonthlyTraffic,
   PatchClientRequest,
   ServersStatusResponse,
@@ -140,6 +141,14 @@ export function fetchServerMonthly(serverId: ServerId): Promise<{ serverId: Serv
 
 export function fetchClientMonthly(clientId: string): Promise<{ clientName: string; history: MonthlyTraffic[] }> {
   return apiFetch(`/api/clients/${clientId}/monthly`);
+}
+
+export function fetchServerDaily(serverId: ServerId): Promise<{ serverId: ServerId; history: DailyTraffic[] }> {
+  return apiFetch(`/api/servers/${serverId}/daily`);
+}
+
+export function fetchClientDaily(clientId: string): Promise<{ clientId: string; history: DailyTraffic[] }> {
+  return apiFetch(`/api/clients/${clientId}/daily`);
 }
 
 export async function downloadBackup(): Promise<void> {

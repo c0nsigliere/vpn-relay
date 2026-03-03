@@ -8,7 +8,7 @@ import {
   Legend,
 } from "recharts";
 import type { TrafficSnapshot, ClientType } from "@vpn-relay/shared";
-import { formatBytes, formatTs } from "../utils/format";
+import { formatTs, toMbps, formatMbps } from "../utils/format";
 
 // Catppuccin-inspired palette matching the bot
 const COLORS = {
@@ -36,10 +36,10 @@ export function TrafficChart({ snapshots, clientType }: TrafficChartProps) {
     .filter((_, i) => i % step === 0)
     .map((s) => ({
       ts: formatTs(s.ts),
-      wgRx: s.wg_rx,
-      wgTx: s.wg_tx,
-      xrayRx: s.xray_rx,
-      xrayTx: s.xray_tx,
+      wgRx: toMbps(s.wg_rx),
+      wgTx: toMbps(s.wg_tx),
+      xrayRx: toMbps(s.xray_rx),
+      xrayTx: toMbps(s.xray_tx),
     }));
 
   const showWg = clientType === "wg" || clientType === "both";
@@ -56,14 +56,14 @@ export function TrafficChart({ snapshots, clientType }: TrafficChartProps) {
           axisLine={false}
         />
         <YAxis
-          tickFormatter={formatBytes}
+          tickFormatter={(v: number) => formatMbps(v)}
           tick={{ fontSize: 10, fill: "var(--tg-hint)" }}
           tickLine={false}
           axisLine={false}
-          width={48}
+          width={56}
         />
         <Tooltip
-          formatter={(v: number) => formatBytes(v)}
+          formatter={(v: number) => formatMbps(v)}
           contentStyle={{
             backgroundColor: "var(--tg-secondary-bg)",
             border: "1px solid var(--tg-section-separator)",
@@ -79,14 +79,14 @@ export function TrafficChart({ snapshots, clientType }: TrafficChartProps) {
         />
         {showWg && (
           <>
-            <Line type="monotone" dataKey="wgRx" name="WG ↓" stroke={COLORS.wgRx} dot={false} strokeWidth={1.5} />
-            <Line type="monotone" dataKey="wgTx" name="WG ↑" stroke={COLORS.wgTx} dot={false} strokeWidth={1.5} />
+            <Line type="monotone" dataKey="wgRx" name="WG ↓" stroke={COLORS.wgRx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+            <Line type="monotone" dataKey="wgTx" name="WG ↑" stroke={COLORS.wgTx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
           </>
         )}
         {showXray && (
           <>
-            <Line type="monotone" dataKey="xrayRx" name="XRay ↓" stroke={COLORS.xrayRx} dot={false} strokeWidth={1.5} />
-            <Line type="monotone" dataKey="xrayTx" name="XRay ↑" stroke={COLORS.xrayTx} dot={false} strokeWidth={1.5} />
+            <Line type="monotone" dataKey="xrayRx" name="XRay ↓" stroke={COLORS.xrayRx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+            <Line type="monotone" dataKey="xrayTx" name="XRay ↑" stroke={COLORS.xrayTx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
           </>
         )}
       </LineChart>

@@ -12,11 +12,12 @@ import {
 } from "recharts";
 import { Layout } from "../components/Layout";
 import { ServerTrafficChart } from "../components/ServerTrafficChart";
-import { fetchServersStatus, fetchServerTraffic, fetchServerMonthly } from "../api/client";
-import { formatBytesLong, formatMonth } from "../utils/format";
+import { fetchServersStatus, fetchServerTraffic, fetchServerMonthly, fetchServerDaily } from "../api/client";
+import { formatBytesLong, formatMonth, formatDay } from "../utils/format";
 import type { ServerId, ServerStatus } from "@vpn-relay/shared";
 
 type Period = "24h" | "7d" | "30d";
+type VolumeTab = "daily" | "monthly";
 
 const PERIODS: Period[] = ["24h", "7d", "30d"];
 
@@ -57,6 +58,7 @@ export function ServerDetail() {
   const { id } = useParams<{ id: string }>();
   const serverId = id as ServerId;
   const [period, setPeriod] = useState<Period>("24h");
+  const [volumeTab, setVolumeTab] = useState<VolumeTab>("daily");
 
   const { data: statusData, isLoading: statusLoading } = useQuery({
     queryKey: ["servers-status"],
@@ -79,6 +81,13 @@ export function ServerDetail() {
     retry: false,
   });
 
+  const { data: dailyData } = useQuery({
+    queryKey: ["server-daily", serverId],
+    queryFn: () => fetchServerDaily(serverId),
+    enabled: !!serverId && volumeTab === "daily",
+    retry: false,
+  });
+
   const isA = serverId === "a";
   const serverLabel = isA ? "Server A (entry)" : "Server B (exit)";
   const rawStatus = isA ? statusData?.serverA : statusData?.serverB;
@@ -96,6 +105,10 @@ export function ServerDetail() {
       </Layout>
     );
   }
+
+  const volumeBarData = volumeTab === "daily"
+    ? (dailyData?.history ?? []).map((d) => ({ name: formatDay(d.day), rx: d.rx_total, tx: d.tx_total }))
+    : [...(monthlyData?.history ?? [])].reverse().map((m) => ({ name: formatMonth(m.month).slice(0, 3), rx: m.rx_total, tx: m.tx_total }));
 
   return (
     <Layout backTo="/" title={serverLabel}>
@@ -204,10 +217,10 @@ export function ServerDetail() {
         </div>
       ) : null}
 
-      {/* Traffic chart */}
+      {/* Network Speed chart */}
       <div className="bg-tg-secondary rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium text-tg">Traffic</span>
+          <span className="text-sm font-medium text-tg">Network Speed</span>
           <div className="flex gap-1">
             {PERIODS.map((p) => (
               <button
@@ -231,19 +244,32 @@ export function ServerDetail() {
         )}
       </div>
 
-      {/* Monthly Traffic */}
+      {/* Traffic Volume */}
       <div className="bg-tg-secondary rounded-xl p-4 mt-4">
-        <span className="text-sm font-medium text-tg block mb-3">Monthly Traffic</span>
-        {!monthlyData || monthlyData.history.length === 0 ? (
-          <div className="text-tg-hint text-sm text-center py-4">No monthly data yet.</div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-tg">Traffic Volume</span>
+          <div className="flex gap-1">
+            {(["daily", "monthly"] as VolumeTab[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setVolumeTab(tab)}
+                className={`px-2 py-0.5 rounded text-xs border capitalize ${
+                  volumeTab === tab
+                    ? "bg-tg-button text-tg-button border-transparent"
+                    : "bg-tg text-tg-hint border-tg"
+                }`}
+              >
+                {tab === "daily" ? "Daily" : "Monthly"}
+              </button>
+            ))}
+          </div>
+        </div>
+        {volumeBarData.length === 0 ? (
+          <div className="text-tg-hint text-sm text-center py-4">No data yet.</div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
-              data={[...monthlyData.history].reverse().map((m) => ({
-                name: formatMonth(m.month).slice(0, 3),
-                rx: m.rx_total,
-                tx: m.tx_total,
-              }))}
+              data={volumeBarData}
               margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
             >
               <XAxis
