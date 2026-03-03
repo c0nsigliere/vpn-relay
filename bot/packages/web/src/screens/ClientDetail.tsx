@@ -8,7 +8,6 @@ import {
   YAxis,
   Tooltip,
   Legend,
-  ResponsiveContainer,
 } from "recharts";
 import { Layout } from "../components/Layout";
 import { TrafficChart } from "../components/TrafficChart";
@@ -236,8 +235,10 @@ export function ClientDetail() {
         {volumeBarData.length === 0 ? (
           <div className="text-tg-hint text-sm text-center py-4">No data yet.</div>
         ) : (
-          <ResponsiveContainer width="100%" height={200}>
+          <div style={{ overflowX: "auto" }}>
             <BarChart
+              width={Math.max(volumeBarData.length * 28 + 60, 280)}
+              height={200}
               data={volumeBarData}
               margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
             >
@@ -272,7 +273,7 @@ export function ClientDetail() {
               <Bar dataKey="rx" name="↓ Download" fill="#89b4fa" stackId="a" isAnimationActive={false} />
               <Bar dataKey="tx" name="↑ Upload" fill="#a6e3a1" stackId="a" isAnimationActive={false} />
             </BarChart>
-          </ResponsiveContainer>
+          </div>
         )}
       </div>
 
