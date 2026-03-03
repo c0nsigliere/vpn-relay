@@ -50,6 +50,7 @@ export function ServerTrafficChart({ snapshots, period }: ServerTrafficChartProp
           axisLine={false}
         />
         <YAxis
+          domain={[0, (dataMax: number) => Math.max(dataMax * 1.1, 0.1)]}
           tickFormatter={(v: number) => formatMbps(v)}
           tick={{ fontSize: 10, fill: "var(--tg-hint)" }}
           tickLine={false}
