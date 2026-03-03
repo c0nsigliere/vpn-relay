@@ -35,3 +35,10 @@
   tags:
     - update
     - maintenance
+
+- name: Clean apt package cache
+  ansible.builtin.apt:
+    clean: true
+  tags:
+    - update
+    - maintenance
