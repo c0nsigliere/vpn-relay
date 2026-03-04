@@ -16,6 +16,7 @@ import { healthWorker } from "./workers/health.worker";
 import { updatesWorker } from "./workers/updates.worker";
 import { rollupWorker } from "./workers/rollup.worker";
 import { quotaWorker } from "./workers/quota.worker";
+import { alertWorker } from "./workers/alert.worker";
 import { sshPool } from "./services/ssh";
 import { xrayService } from "./services/xray.service";
 import { startApiServer } from "./api/server";
@@ -116,6 +117,7 @@ const workers = [
   updatesWorker(bot),
   rollupWorker(),
   quotaWorker(bot),
+  alertWorker(bot),
 ];
 
 // Register BotFather menu button if TMA_URL is configured

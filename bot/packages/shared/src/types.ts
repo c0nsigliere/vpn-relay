@@ -15,7 +15,7 @@ export interface Client {
   last_seen_at: string | null;
   daily_quota_gb: number | null;
   monthly_quota_gb: number | null;
-  suspend_reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | null;
+  suspend_reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" | null;
 }
 
 export interface ClientQuotaUsage {
@@ -155,4 +155,39 @@ export interface ClientsWithTrafficResponse {
 export interface TrafficHistoryResponse {
   clientName: string;
   snapshots: TrafficSnapshot[];
+}
+
+// ─── Alert settings ──────────────────────────────────────────────────────────
+
+export type AlertKey =
+  | "cascade_down"
+  | "cascade_degradation"
+  | "service_dead_xray"
+  | "service_dead_wg"
+  | "disk_full"
+  | "network_saturation"
+  | "cpu_overload"
+  | "abnormal_traffic"
+  | "quota_warning"
+  | "cert_expiry"
+  | "reboot_detected"
+  | "channel_capacity";
+
+export interface AlertSetting {
+  alert_key: string;
+  enabled: number; // 1 = on, 0 = off
+  threshold: number | null;
+  threshold2: number | null;
+  cooldown_min: number;
+}
+
+export interface AlertSettingsResponse {
+  alerts: AlertSetting[];
+}
+
+export interface PatchAlertSettingRequest {
+  enabled?: number;
+  threshold?: number | null;
+  threshold2?: number | null;
+  cooldown_min?: number;
 }

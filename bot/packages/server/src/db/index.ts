@@ -74,3 +74,42 @@ try { db.exec("ALTER TABLE clients ADD COLUMN last_seen_at TEXT"); } catch { /* 
 try { db.exec("ALTER TABLE clients ADD COLUMN daily_quota_gb REAL DEFAULT NULL"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE clients ADD COLUMN monthly_quota_gb REAL DEFAULT NULL"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE clients ADD COLUMN suspend_reason TEXT DEFAULT NULL"); } catch { /* already exists */ }
+
+// Alert tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS alert_settings (
+    alert_key    TEXT PRIMARY KEY,
+    enabled      INTEGER DEFAULT 1,
+    threshold    REAL,
+    threshold2   REAL,
+    cooldown_min INTEGER DEFAULT 30
+  );
+
+  CREATE TABLE IF NOT EXISTS alert_state (
+    alert_key  TEXT PRIMARY KEY,
+    status     TEXT NOT NULL DEFAULT 'clear',
+    fired_at   TEXT,
+    cleared_at TEXT,
+    context    TEXT
+  );
+`);
+
+// Seed default alert settings (INSERT OR IGNORE — never overrides user changes)
+const _alertDefaults = [
+  { alert_key: "cascade_down",       enabled: 1, threshold: 100, threshold2: 2,    cooldown_min: 30 },
+  { alert_key: "cascade_degradation",enabled: 1, threshold: 30,  threshold2: 5,    cooldown_min: 15 },
+  { alert_key: "service_dead_xray",  enabled: 1, threshold: null, threshold2: null, cooldown_min: 30 },
+  { alert_key: "service_dead_wg",    enabled: 1, threshold: null, threshold2: null, cooldown_min: 30 },
+  { alert_key: "disk_full",          enabled: 1, threshold: 90,  threshold2: null, cooldown_min: 60 },
+  { alert_key: "network_saturation", enabled: 1, threshold: 80,  threshold2: 15,   cooldown_min: 30 },
+  { alert_key: "cpu_overload",       enabled: 1, threshold: 95,  threshold2: 10,   cooldown_min: 30 },
+  { alert_key: "abnormal_traffic",   enabled: 1, threshold: 50,  threshold2: null, cooldown_min: 60 },
+  { alert_key: "quota_warning",      enabled: 1, threshold: 90,  threshold2: null, cooldown_min: 720 },
+  { alert_key: "cert_expiry",        enabled: 1, threshold: 7,   threshold2: null, cooldown_min: 1440 },
+  { alert_key: "reboot_detected",    enabled: 1, threshold: null, threshold2: null, cooldown_min: 60 },
+  { alert_key: "channel_capacity",   enabled: 1, threshold: 100, threshold2: null, cooldown_min: 0 },
+];
+const _seedStmt = db.prepare(
+  "INSERT OR IGNORE INTO alert_settings (alert_key, enabled, threshold, threshold2, cooldown_min) VALUES (@alert_key, @enabled, @threshold, @threshold2, @cooldown_min)"
+);
+for (const row of _alertDefaults) _seedStmt.run(row);

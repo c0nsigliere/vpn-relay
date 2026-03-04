@@ -9,6 +9,7 @@ import { sendConfigRoutes } from "./routes/send-config";
 import { serversRoutes } from "./routes/servers";
 import { trafficRoutes } from "./routes/traffic";
 import { settingsRoutes } from "./routes/settings";
+import { alertsRoutes } from "./routes/alerts";
 import type { BotContext } from "../bot/context";
 
 export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInstance> {
@@ -25,6 +26,7 @@ export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInsta
   await app.register(serversRoutes);
   await app.register(trafficRoutes);
   await app.register(settingsRoutes);
+  await app.register(alertsRoutes);
 
   // Serve static React SPA from packages/web/dist
   const webDist = path.resolve(__dirname, "../../../web/dist");

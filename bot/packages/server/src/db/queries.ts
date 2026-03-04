@@ -1,8 +1,16 @@
 import { db } from "./index";
 import { env } from "../config/env";
-import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic } from "@vpn-relay/shared";
+import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting } from "@vpn-relay/shared";
 
-export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic };
+export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting };
+
+export interface AlertState {
+  alert_key: string;
+  status: "fired" | "clear";
+  fired_at: string | null;
+  cleared_at: string | null;
+  context: string | null;
+}
 
 /** Convert "+3:00" → "+3 hours", "-5:00" → "-5 hours" for SQLite datetime modifier */
 function tzModifier(): string {
@@ -355,6 +363,56 @@ export const queries = {
       map.set(row.client_id, { daily_used_bytes: row.daily_used_bytes, monthly_used_bytes: row.monthly_used_bytes });
     }
     return map;
+  },
+
+  // ── Alert queries ──────────────────────────────────────────────────────────
+
+  getAllAlertSettings(): AlertSetting[] {
+    return db.prepare("SELECT * FROM alert_settings ORDER BY alert_key").all() as AlertSetting[];
+  },
+
+  getAlertSetting(key: string): AlertSetting | undefined {
+    return db.prepare("SELECT * FROM alert_settings WHERE alert_key = ?").get(key) as AlertSetting | undefined;
+  },
+
+  updateAlertSetting(key: string, updates: Partial<Pick<AlertSetting, "enabled" | "threshold" | "threshold2" | "cooldown_min">>): void {
+    const entries = Object.entries(updates).filter(([, v]) => v !== undefined);
+    if (entries.length === 0) return;
+    const setClauses = entries.map(([k]) => `${k} = ?`).join(", ");
+    const values = entries.map(([, v]) => v);
+    db.prepare(`UPDATE alert_settings SET ${setClauses} WHERE alert_key = ?`).run(...values, key);
+  },
+
+  getAlertState(key: string): AlertState | undefined {
+    return db.prepare("SELECT * FROM alert_state WHERE alert_key = ?").get(key) as AlertState | undefined;
+  },
+
+  upsertAlertState(key: string, status: "fired" | "clear", context?: string): void {
+    if (status === "fired") {
+      db.prepare(`
+        INSERT INTO alert_state (alert_key, status, fired_at, context)
+        VALUES (?, 'fired', datetime('now'), ?)
+        ON CONFLICT(alert_key) DO UPDATE SET
+          status = 'fired', fired_at = excluded.fired_at, context = excluded.context
+      `).run(key, context ?? null);
+    } else {
+      db.prepare(`
+        INSERT INTO alert_state (alert_key, status, cleared_at)
+        VALUES (?, 'clear', datetime('now'))
+        ON CONFLICT(alert_key) DO UPDATE SET
+          status = 'clear', cleared_at = excluded.cleared_at
+      `).run(key);
+    }
+  },
+
+  getClientTrafficLastHour(clientId: string): number {
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx), 0) AS used_bytes
+      FROM traffic_snapshots
+      WHERE client_id = ?
+        AND ts >= datetime('now', '-1 hour')
+    `).get(clientId) as { used_bytes: number };
+    return row.used_bytes;
   },
 
   searchClients(

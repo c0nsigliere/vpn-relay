@@ -390,13 +390,17 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 - `ssh.ts` — auto-reconnecting ssh2 connection pool
 - `charts.service.ts` — chartjs-node-canvas traffic PNG
 - `qr.service.ts` — QR code PNG for VLESS URIs
-- `system.service.ts` — CPU/RAM/uptime via /proc + SSH
+- `system.service.ts` — CPU/RAM/disk/uptime via /proc + SSH
+- `metrics.cache.ts` — 20s TTL cache for system.service calls (prevents throughput delta double-read)
 
 **Workers (background):**
 - `traffic.worker.ts` — 10min: XRay gRPC stats (reset delta) + WG SSH stats → traffic_snapshots
 - `ttl.worker.ts` — 1h: auto-suspend expired clients
-- `health.worker.ts` — 1min: SSH ping Server A, alert after 3 failures
+- `health.worker.ts` — 1min: SSH ping Server A → ping.store (used by alert worker)
 - `updates.worker.ts` — 12h: apt-check on A+B, alert if security updates > 0
+- `quota.worker.ts` — 1min: enforce daily/monthly quotas, daily/monthly reset
+- `rollup.worker.ts` — nightly: move old snapshots → *_traffic_monthly tables
+- `alert.worker.ts` — 30s (90s delayed start): evaluate all alert conditions (see § Alert System)
 
 **Security:**
 - `vpn-bot` system user, no shell, data in `/var/lib/vpn-bot/`
@@ -496,6 +500,47 @@ Bot service stopped during DB copy for SQLite consistency.
 `-e "backup_name=<timestamp>"`. Re-templates `config.json` from restored keys.
 
 **Recovery flow:** `restore.yml` → `stack.yml` → all existing client configs continue working.
+
+---
+
+---
+
+## 6️⃣ Alert System
+
+```
+alert.worker.ts (30s interval, 90s delayed start)
+    │
+    ├── ping.store      → cascade_down, cascade_degradation
+    ├── systemctl       → service_dead_xray, service_dead_wg (via SSH)
+    ├── metricsCache    → disk_full, network_saturation, cpu_overload, reboot_detected
+    ├── DB queries      → abnormal_traffic, quota_warning
+    └── openssl         → cert_expiry
+```
+
+**alert_settings table** — configurable per-alert: `enabled`, `threshold`, `threshold2` (duration), `cooldown_min`.
+Seeded with defaults on first boot (`INSERT OR IGNORE` — never overwrites user changes on restart).
+
+**alert_state table** — persists fire/clear timestamps across restarts for cooldown dedup.
+Composite keys (`disk_full:a`, `quota_warning:{client_id}`) give independent cooldowns per target.
+
+| Alert key | Severity | Default threshold | Source |
+|-----------|----------|-------------------|--------|
+| `cascade_down` | critical | 100% loss, 2 min | ping.store |
+| `service_dead_xray` | critical | — | systemctl is-active xray |
+| `service_dead_wg` | critical | — | SSH: systemctl is-active wg-quick@wg-clients |
+| `disk_full` | critical | 90%, per server | metricsCache |
+| `cascade_degradation` | warning | 30% loss, 5 min | ping.store |
+| `network_saturation` | warning | 80% of channel, 15 min | metricsCache + channel_capacity |
+| `cpu_overload` | warning | 95%, 10 min | metricsCache |
+| `cert_expiry` | warning | 7 days | openssl x509 |
+| `reboot_detected` | warning | uptime < 10 min | os.uptime() / SSH /proc/uptime |
+| `abnormal_traffic` | info | 50 GB/hr, auto-suspend | DB: traffic_snapshots |
+| `quota_warning` | info | 90% of monthly quota | DB: getQuotaUsageBatch |
+| `channel_capacity` | config | 100 Mbps | read by network_saturation |
+
+**API:** `GET /api/settings/alerts`, `PATCH /api/settings/alerts/:key`
+
+**TMA Settings page:** grouped cards (Critical / Warning / Info) with toggle + expandable threshold fields. Saved on blur via React Query mutation.
 
 ---
 

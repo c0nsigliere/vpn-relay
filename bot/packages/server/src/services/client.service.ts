@@ -67,7 +67,7 @@ export async function createClient(
   return { client, wgConf, xrayUris };
 }
 
-export async function suspendClient(client: Client, reason: "manual" | "daily_quota" | "monthly_quota" | "expired" = "manual"): Promise<void> {
+export async function suspendClient(client: Client, reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" = "manual"): Promise<void> {
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
     await wgService.suspendClient(client.wg_pubkey);
   }

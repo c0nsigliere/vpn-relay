@@ -15,6 +15,9 @@ import type {
   ServerTrafficResponse,
   ServerId,
   TrafficHistoryResponse,
+  AlertSetting,
+  AlertSettingsResponse,
+  PatchAlertSettingRequest,
 } from "@vpn-relay/shared";
 
 function getInitData(): string {
@@ -163,6 +166,19 @@ export function fetchServerDaily(serverId: ServerId): Promise<{ serverId: Server
 
 export function fetchClientDaily(clientId: string): Promise<{ clientId: string; history: DailyTraffic[] }> {
   return apiFetch(`/api/clients/${clientId}/daily`);
+}
+
+// ─── Alert settings ───────────────────────────────────────────────────────────
+
+export function fetchAlertSettings(): Promise<AlertSettingsResponse> {
+  return apiFetch<AlertSettingsResponse>("/api/settings/alerts");
+}
+
+export function patchAlertSetting(key: string, body: PatchAlertSettingRequest): Promise<AlertSetting> {
+  return apiFetch<AlertSetting>(`/api/settings/alerts/${key}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function downloadBackup(): Promise<void> {

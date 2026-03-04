@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { systemService } from "../../services/system.service";
+import { metricsCache } from "../../services/metrics.cache";
 import { getPing } from "../../services/ping.store";
 import { queries } from "../../db/queries";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
@@ -25,8 +25,8 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/servers/status
   app.get("/api/servers/status", async (_req, reply) => {
     const [resultA, resultB] = await Promise.allSettled([
-      systemService.getStatusA(),
-      systemService.getStatusB(),
+      metricsCache.getStatusA(),
+      metricsCache.getStatusB(),
     ]);
 
     const ping = getPing();
