@@ -98,6 +98,13 @@ export function patchClient(id: string, body: PatchClientRequest): Promise<Clien
   });
 }
 
+export function renameClient(id: string, newName: string): Promise<Client> {
+  return apiFetch<Client>(`/api/clients/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "rename", newName }),
+  });
+}
+
 export function deleteClient(id: string): Promise<void> {
   return apiFetch<void>(`/api/clients/${id}`, { method: "DELETE" });
 }

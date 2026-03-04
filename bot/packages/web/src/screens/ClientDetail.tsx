@@ -13,7 +13,7 @@ import { Layout } from "../components/Layout";
 import { TrafficChart } from "../components/TrafficChart";
 import { useTelegram } from "../hooks/useTelegram";
 import {
-  fetchClient, patchClient, deleteClient, sendConfig,
+  fetchClient, patchClient, deleteClient, sendConfig, renameClient,
   fetchTrafficHistory, fetchClientMonthly, fetchClientDaily,
 } from "../api/client";
 import { formatBytesLong, formatMonth, formatDay, formatRelativeTime } from "../utils/format";
@@ -44,6 +44,8 @@ export function ClientDetail() {
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState<Period>("24h");
   const [volumeTab, setVolumeTab] = useState<VolumeTab>("daily");
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ["client", id],
@@ -96,6 +98,20 @@ export function ClientDetail() {
     },
   });
 
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => renameClient(id!, name),
+    onSuccess: () => {
+      haptic.notification("success");
+      setRenaming(false);
+      void queryClient.invalidateQueries({ queryKey: ["client", id] });
+      void queryClient.invalidateQueries({ queryKey: ["clients"] });
+    },
+    onError: (err: Error) => {
+      haptic.notification("error");
+      alert(err.message);
+    },
+  });
+
   const configMutation = useMutation({
     mutationFn: () => sendConfig(id!),
     onSuccess: () => {
@@ -132,6 +148,18 @@ export function ClientDetail() {
     { wgRx: 0, wgTx: 0, xrayRx: 0, xrayTx: 0 }
   );
 
+  const nameValid = /^[a-zA-Z0-9_]{1,32}$/.test(newName);
+
+  const handleRenameStart = () => {
+    setNewName(client.name);
+    setRenaming(true);
+  };
+
+  const handleRenameSubmit = () => {
+    if (!nameValid || newName === client.name) return;
+    renameMutation.mutate(newName);
+  };
+
   const handleDelete = () => {
     if (window.confirm(`Delete ${client.name}? This cannot be undone.`)) {
       deleteMutation.mutate();
@@ -144,6 +172,39 @@ export function ClientDetail() {
 
   return (
     <Layout backTo="/clients" title={client.name}>
+      {/* Rename inline */}
+      {renaming && (
+        <div className="bg-tg-secondary rounded-xl p-3 mb-4 flex gap-2 items-start">
+          <div className="flex-1">
+            <input
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleRenameSubmit(); if (e.key === "Escape") setRenaming(false); }}
+              maxLength={32}
+              className="w-full bg-tg rounded-lg px-3 py-2 text-sm text-tg outline-none border border-tg focus:border-tg-button"
+              placeholder="New name"
+            />
+            {newName && !nameValid && (
+              <div className="text-tg-destructive text-xs mt-1">Letters, digits, underscores only (max 32)</div>
+            )}
+          </div>
+          <button
+            onClick={handleRenameSubmit}
+            disabled={!nameValid || newName === client.name || renameMutation.isPending}
+            className="px-3 py-2 rounded-lg bg-tg-button text-tg-button text-sm font-medium disabled:opacity-40"
+          >
+            {renameMutation.isPending ? "..." : "Save"}
+          </button>
+          <button
+            onClick={() => setRenaming(false)}
+            className="px-3 py-2 rounded-lg bg-tg text-tg-hint text-sm border border-tg"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       {/* Info card */}
       <div className="bg-tg-secondary rounded-xl p-4 mb-4">
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -279,6 +340,14 @@ export function ClientDetail() {
 
       {/* Actions */}
       <div className="space-y-2">
+        <button
+          onClick={handleRenameStart}
+          disabled={renaming}
+          className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+        >
+          Rename
+        </button>
+
         <button
           onClick={() => configMutation.mutate()}
           disabled={configMutation.isPending}

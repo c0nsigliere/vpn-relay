@@ -44,6 +44,23 @@ class XrayService {
     await this.restartXray();
   }
 
+  // Rename a VLESS client: update clients.json name + resync config.json email + restart
+  async renameClient(oldName: string, newName: string): Promise<void> {
+    const file = env.XRAY_CLIENTS_FILE;
+    let clients: Array<{ name: string; uuid: string }> = [];
+    if (fs.existsSync(file)) {
+      try { clients = JSON.parse(fs.readFileSync(file, "utf8")); } catch { clients = []; }
+    }
+    const entry = clients.find((c) => c.name === oldName);
+    if (entry) entry.name = newName;
+    const tmp = `${file}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(clients, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+
+    this.syncConfigJson();
+    await this.restartXray();
+  }
+
   // Query traffic stats for a client via `xray api statsquery` CLI
   async getStats(name: string, reset = false): Promise<ClientStats> {
     return this.queryStatsCli(`user>>>${name}@xray`, reset);

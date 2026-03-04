@@ -112,6 +112,14 @@ class WgService {
     );
   }
 
+  async renameClient(oldName: string, newName: string): Promise<void> {
+    // Update comment markers in wg-clients.conf: BEGIN/END and inline comment
+    // No live WG change needed — pubkey and IP stay the same
+    await sshPool.exec(
+      `bash -c 'sed -i "s/^# BEGIN CLIENT ${oldName}$/# BEGIN CLIENT ${newName}/;s/^# ${oldName}$/# ${newName}/;s/^# END CLIENT ${oldName}$/# END CLIENT ${newName}/" ${WG_CONF}'`
+    );
+  }
+
   async suspendClient(pubkey: string): Promise<void> {
     // Remove from live WG (config block stays for resume)
     await sshPool.exec(`wg set ${WG_IFACE} peer ${pubkey} remove`);

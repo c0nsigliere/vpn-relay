@@ -5,6 +5,7 @@ import {
   createClient,
   suspendClient,
   resumeClient,
+  renameClient,
   deleteClient,
   sendConfigToChat,
 } from "../../services/client.service";
@@ -88,14 +89,26 @@ export async function clientsRoutes(
     const client = queries.getClientById(req.params.id);
     if (!client) return reply.code(404).send({ error: "Client not found" });
 
-    const body = req.body as { action?: string };
+    const body = req.body as { action?: string; newName?: string };
     try {
       if (body.action === "suspend") {
         await suspendClient(client);
       } else if (body.action === "resume") {
         await resumeClient(client);
+      } else if (body.action === "rename") {
+        const { newName } = body;
+        if (!newName || !/^[a-zA-Z0-9_]{1,32}$/.test(newName)) {
+          return reply.code(400).send({ error: "Invalid name. Use letters, digits, underscores (max 32)." });
+        }
+        if (newName === client.name) {
+          return reply.send(client);
+        }
+        if (queries.getClientByName(newName)) {
+          return reply.code(409).send({ error: "A client with that name already exists." });
+        }
+        await renameClient(client, newName);
       } else {
-        return reply.code(400).send({ error: "action must be suspend or resume" });
+        return reply.code(400).send({ error: "action must be suspend, resume, or rename" });
       }
       const updated = queries.getClientById(req.params.id)!;
       return reply.send(updated);

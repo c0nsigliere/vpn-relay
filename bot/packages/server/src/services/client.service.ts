@@ -82,6 +82,16 @@ export async function resumeClient(client: Client): Promise<void> {
   queries.setClientActive(client.id, true);
 }
 
+export async function renameClient(client: Client, newName: string): Promise<void> {
+  if (client.type === "wg" || client.type === "both") {
+    await wgService.renameClient(client.name, newName);
+  }
+  if (client.type === "xray" || client.type === "both") {
+    await xrayService.renameClient(client.name, newName);
+  }
+  queries.updateClientName(client.id, newName);
+}
+
 export async function deleteClient(client: Client): Promise<void> {
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
     await wgService.removeClient(client.name, client.wg_pubkey);

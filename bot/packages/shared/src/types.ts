@@ -34,7 +34,8 @@ export interface CreateClientRequest {
 }
 
 export interface PatchClientRequest {
-  action: "suspend" | "resume";
+  action: "suspend" | "resume" | "rename";
+  newName?: string;  // required when action === "rename"
 }
 
 export interface ClientsResponse {
