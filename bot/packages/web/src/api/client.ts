@@ -68,7 +68,7 @@ async function apiFetchBlob(path: string): Promise<{ blob: Blob; filename: strin
 
 export function fetchClients(params: {
   search?: string;
-  filter?: "all" | "active" | "suspended";
+  filter?: "all" | "active" | "suspended" | "quota_exceeded";
   type?: "all" | "wg" | "xray" | "both";
   page?: number;
 }): Promise<ClientsResponse> {
@@ -80,8 +80,8 @@ export function fetchClients(params: {
   return apiFetch<ClientsResponse>(`/api/clients?${q}`);
 }
 
-export function fetchClient(id: string): Promise<Client> {
-  return apiFetch<Client>(`/api/clients/${id}`);
+export function fetchClient(id: string): Promise<Client & { quota?: import("@vpn-relay/shared").ClientQuotaUsage }> {
+  return apiFetch(`/api/clients/${id}`);
 }
 
 export function createClient(body: CreateClientRequest): Promise<{ client: Client }> {
@@ -109,6 +109,13 @@ export function deleteClient(id: string): Promise<void> {
   return apiFetch<void>(`/api/clients/${id}`, { method: "DELETE" });
 }
 
+export function updateQuota(id: string, dailyQuotaGb: number | null, monthlyQuotaGb: number | null): Promise<Client> {
+  return apiFetch<Client>(`/api/clients/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "update-quota", dailyQuotaGb, monthlyQuotaGb }),
+  });
+}
+
 export function sendConfig(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/api/clients/${id}/send-config`, {
     method: "POST",
@@ -117,7 +124,7 @@ export function sendConfig(id: string): Promise<{ ok: boolean }> {
 
 export function fetchClientsWithTraffic(params: {
   search?: string;
-  filter?: "all" | "active" | "suspended";
+  filter?: "all" | "active" | "suspended" | "quota_exceeded";
   type?: "all" | "wg" | "xray" | "both";
   page?: number;
 }): Promise<ClientsWithTrafficResponse> {

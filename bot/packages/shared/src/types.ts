@@ -13,6 +13,16 @@ export interface Client {
   expires_at: string | null;
   is_active: number; // 1 = active, 0 = suspended
   last_seen_at: string | null;
+  daily_quota_gb: number | null;
+  monthly_quota_gb: number | null;
+  suspend_reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | null;
+}
+
+export interface ClientQuotaUsage {
+  daily_used_bytes: number;
+  daily_quota_bytes: number | null;
+  monthly_used_bytes: number;
+  monthly_quota_bytes: number | null;
 }
 
 export interface TrafficSnapshot {
@@ -31,11 +41,15 @@ export interface CreateClientRequest {
   name: string;
   type: ClientType;
   ttlDays?: number;
+  dailyQuotaGb?: number;
+  monthlyQuotaGb?: number;
 }
 
 export interface PatchClientRequest {
-  action: "suspend" | "resume" | "rename";
-  newName?: string;  // required when action === "rename"
+  action: "suspend" | "resume" | "rename" | "update-quota";
+  newName?: string;        // required when action === "rename"
+  dailyQuotaGb?: number | null;
+  monthlyQuotaGb?: number | null;
 }
 
 export interface ClientsResponse {
@@ -128,6 +142,7 @@ export interface TrafficTotals {
 
 export interface ClientWithTraffic extends Client {
   traffic?: TrafficTotals;
+  quota?: ClientQuotaUsage;
 }
 
 export interface ClientsWithTrafficResponse {

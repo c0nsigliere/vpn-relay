@@ -14,8 +14,9 @@ import { TrafficChart } from "../components/TrafficChart";
 import { useTelegram } from "../hooks/useTelegram";
 import {
   fetchClient, patchClient, deleteClient, sendConfig, renameClient,
-  fetchTrafficHistory, fetchClientMonthly, fetchClientDaily,
+  fetchTrafficHistory, fetchClientMonthly, fetchClientDaily, updateQuota,
 } from "../api/client";
+import { QuotaProgressBar } from "../components/QuotaProgressBar";
 import { formatBytesLong, formatMonth, formatDay, formatRelativeTime } from "../utils/format";
 
 type Period = "24h" | "7d" | "14d";
@@ -27,8 +28,15 @@ const PERIOD_LIMITS: Record<Period, number> = {
   "14d": 2016,
 };
 
-function clientStatus(isActive: boolean, lastSeenAt: string | null) {
-  if (!isActive) return { dot: "#f38ba8", label: "Suspended" };
+const SUSPEND_REASON_LABEL: Record<string, string> = {
+  manual: "Suspended (manual)",
+  daily_quota: "Suspended (daily quota)",
+  monthly_quota: "Suspended (monthly quota)",
+  expired: "Suspended (expired)",
+};
+
+function clientStatus(isActive: boolean, lastSeenAt: string | null, suspendReason?: string | null) {
+  if (!isActive) return { dot: "#f38ba8", label: SUSPEND_REASON_LABEL[suspendReason ?? ""] ?? "Suspended" };
   if (!lastSeenAt) return { dot: "#6c7086", label: "Offline" };
   const diffMs = Date.now() - new Date(lastSeenAt.endsWith("Z") ? lastSeenAt : lastSeenAt + "Z").getTime();
   const diffMin = diffMs / 60_000;
@@ -46,6 +54,9 @@ export function ClientDetail() {
   const [volumeTab, setVolumeTab] = useState<VolumeTab>("daily");
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
+  const [editingQuota, setEditingQuota] = useState(false);
+  const [quotaDaily, setQuotaDaily] = useState<string>("");
+  const [quotaMonthly, setQuotaMonthly] = useState<string>("");
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ["client", id],
@@ -112,6 +123,21 @@ export function ClientDetail() {
     },
   });
 
+  const quotaMutation = useMutation({
+    mutationFn: ({ daily, monthly }: { daily: number | null; monthly: number | null }) =>
+      updateQuota(id!, daily, monthly),
+    onSuccess: () => {
+      haptic.notification("success");
+      setEditingQuota(false);
+      void queryClient.invalidateQueries({ queryKey: ["client", id] });
+      void queryClient.invalidateQueries({ queryKey: ["clients"] });
+    },
+    onError: (err: Error) => {
+      haptic.notification("error");
+      alert(err.message);
+    },
+  });
+
   const configMutation = useMutation({
     mutationFn: () => sendConfig(id!),
     onSuccess: () => {
@@ -134,7 +160,7 @@ export function ClientDetail() {
 
   const typeLabel = client.type === "both" ? "WireGuard + XRay" : client.type.toUpperCase();
   const isActive = client.is_active === 1;
-  const status = clientStatus(isActive, client.last_seen_at);
+  const status = clientStatus(isActive, client.last_seen_at, client.suspend_reason);
 
   // Compute totals from snapshots
   const snapshots = trafficData?.snapshots ?? [];
@@ -158,6 +184,18 @@ export function ClientDetail() {
   const handleRenameSubmit = () => {
     if (!nameValid || newName === client.name) return;
     renameMutation.mutate(newName);
+  };
+
+  const handleEditQuotaStart = () => {
+    setQuotaDaily(client.daily_quota_gb !== null ? String(client.daily_quota_gb) : "");
+    setQuotaMonthly(client.monthly_quota_gb !== null ? String(client.monthly_quota_gb) : "");
+    setEditingQuota(true);
+  };
+
+  const handleQuotaSave = () => {
+    const daily = quotaDaily ? parseFloat(quotaDaily) : null;
+    const monthly = quotaMonthly ? parseFloat(quotaMonthly) : null;
+    quotaMutation.mutate({ daily, monthly });
   };
 
   const handleDelete = () => {
@@ -249,6 +287,83 @@ export function ClientDetail() {
           )}
         </div>
       </div>
+
+      {/* Quota section */}
+      {(client.quota || client.daily_quota_gb !== null || client.monthly_quota_gb !== null) && (
+        <div className="bg-tg-secondary rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-tg">Traffic Quota</span>
+            <button
+              onClick={handleEditQuotaStart}
+              className="text-xs text-tg-hint border border-tg px-2 py-0.5 rounded"
+            >
+              Edit Quota
+            </button>
+          </div>
+          <div className="space-y-3">
+            {client.quota?.daily_quota_bytes != null && (
+              <QuotaProgressBar
+                label="Daily"
+                usedBytes={client.quota.daily_used_bytes}
+                quotaBytes={client.quota.daily_quota_bytes}
+              />
+            )}
+            {client.quota?.monthly_quota_bytes != null && (
+              <QuotaProgressBar
+                label="Monthly"
+                usedBytes={client.quota.monthly_used_bytes}
+                quotaBytes={client.quota.monthly_quota_bytes}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Quota inline form */}
+      {editingQuota && (
+        <div className="bg-tg-secondary rounded-xl p-4 mb-4 space-y-3">
+          <div className="text-sm font-medium text-tg mb-1">Edit Quota</div>
+          <div>
+            <label className="text-xs text-tg-hint block mb-1">Daily Quota (GB)</label>
+            <input
+              type="number"
+              value={quotaDaily}
+              onChange={(e) => setQuotaDaily(e.target.value)}
+              placeholder="No limit"
+              min="0.001"
+              step="0.1"
+              className="w-full bg-tg rounded-lg px-3 py-2 text-sm text-tg outline-none border border-tg focus:border-tg-button"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-tg-hint block mb-1">Monthly Quota (GB)</label>
+            <input
+              type="number"
+              value={quotaMonthly}
+              onChange={(e) => setQuotaMonthly(e.target.value)}
+              placeholder="No limit"
+              min="0.001"
+              step="1"
+              className="w-full bg-tg rounded-lg px-3 py-2 text-sm text-tg outline-none border border-tg focus:border-tg-button"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleQuotaSave}
+              disabled={quotaMutation.isPending}
+              className="flex-1 px-3 py-2 rounded-lg bg-tg-button text-tg-button text-sm font-medium disabled:opacity-40"
+            >
+              {quotaMutation.isPending ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditingQuota(false)}
+              className="px-3 py-2 rounded-lg bg-tg text-tg-hint text-sm border border-tg"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Network Speed chart */}
       <div className="bg-tg-secondary rounded-xl p-4 mb-4">
@@ -346,6 +461,14 @@ export function ClientDetail() {
           className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
         >
           Rename
+        </button>
+
+        <button
+          onClick={handleEditQuotaStart}
+          disabled={editingQuota}
+          className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+        >
+          Edit Quota
         </button>
 
         <button

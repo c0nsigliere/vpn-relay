@@ -8,10 +8,11 @@ import {
   renameClient,
   deleteClient,
   sendConfigToChat,
+  updateQuota,
 } from "../../services/client.service";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 import { env } from "../../config/env";
-import type { ClientType, ClientWithTraffic } from "@vpn-relay/shared";
+import type { ClientType, ClientWithTraffic, ClientQuotaUsage } from "@vpn-relay/shared";
 import type { BotContext } from "../../bot/context";
 
 export async function clientsRoutes(
@@ -23,12 +24,23 @@ export async function clientsRoutes(
   // All routes require TMA auth
   app.addHook("preHandler", tmaAuthMiddleware);
 
-  // GET /api/clients?search=&filter=active|suspended|all&type=wg|xray|both|all&page=0
+  const GB = 1_073_741_824;
+
+  function buildQuotaUsage(client: { daily_quota_gb: number | null; monthly_quota_gb: number | null }, dailyUsed: number, monthlyUsed: number): ClientQuotaUsage {
+    return {
+      daily_used_bytes: dailyUsed,
+      daily_quota_bytes: client.daily_quota_gb !== null ? client.daily_quota_gb * GB : null,
+      monthly_used_bytes: monthlyUsed,
+      monthly_quota_bytes: client.monthly_quota_gb !== null ? client.monthly_quota_gb * GB : null,
+    };
+  }
+
+  // GET /api/clients?search=&filter=active|suspended|quota_exceeded|all&type=wg|xray|both|all&page=0
   app.get("/api/clients", async (req, reply) => {
     const q = req.query as Record<string, string>;
     const search = (q.search ?? "").trim();
-    const filter = (["all", "active", "suspended"].includes(q.filter) ? q.filter : "all") as
-      "all" | "active" | "suspended";
+    const filter = (["all", "active", "suspended", "quota_exceeded"].includes(q.filter) ? q.filter : "all") as
+      "all" | "active" | "suspended" | "quota_exceeded";
     const type = (["all", "wg", "xray", "both"].includes(q.type) ? q.type : "all") as
       "all" | "wg" | "xray" | "both";
     const page = Math.max(0, parseInt(q.page ?? "0", 10));
@@ -39,10 +51,17 @@ export async function clientsRoutes(
     if (q.withTraffic === "1") {
       const ids = clients.map((c) => c.id);
       const totalsMap = queries.getTrafficTotalsForClients(ids);
-      const enriched: ClientWithTraffic[] = clients.map((c) => ({
-        ...c,
-        traffic: totalsMap.get(c.id),
-      }));
+      const quotaUsageMap = queries.getQuotaUsageBatch(ids);
+      const enriched: ClientWithTraffic[] = clients.map((c) => {
+        const usage = quotaUsageMap.get(c.id) ?? { daily_used_bytes: 0, monthly_used_bytes: 0 };
+        return {
+          ...c,
+          traffic: totalsMap.get(c.id),
+          quota: (c.daily_quota_gb !== null || c.monthly_quota_gb !== null)
+            ? buildQuotaUsage(c, usage.daily_used_bytes, usage.monthly_used_bytes)
+            : undefined,
+        };
+      });
       return reply.send({ clients: enriched, total, page, pageSize });
     }
 
@@ -53,6 +72,14 @@ export async function clientsRoutes(
   app.get<{ Params: { id: string } }>("/api/clients/:id", async (req, reply) => {
     const client = queries.getClientById(req.params.id);
     if (!client) return reply.code(404).send({ error: "Client not found" });
+
+    if (client.daily_quota_gb !== null || client.monthly_quota_gb !== null) {
+      const dailyUsed = queries.getClientDailyUsageBytes(client.id);
+      const monthlyUsed = queries.getClientMonthlyUsageBytes(client.id);
+      const quota = buildQuotaUsage(client, dailyUsed, monthlyUsed);
+      return reply.send({ ...client, quota });
+    }
+
     return reply.send(client);
   });
 
@@ -71,8 +98,9 @@ export async function clientsRoutes(
       return reply.code(409).send({ error: "A client with that name already exists." });
     }
 
+    const bodyTyped = body as { name?: string; type?: string; ttlDays?: number; dailyQuotaGb?: number; monthlyQuotaGb?: number };
     try {
-      const result = await createClient(name, type as ClientType, ttlDays);
+      const result = await createClient(name, type as ClientType, ttlDays, bodyTyped.dailyQuotaGb, bodyTyped.monthlyQuotaGb);
       // Killer feature: send config + QR to admin Telegram chat, then Web App can close
       await sendConfigToChat(bot, env.ADMIN_ID, result.client, result.wgConf);
       return reply.code(201).send({
@@ -89,10 +117,10 @@ export async function clientsRoutes(
     const client = queries.getClientById(req.params.id);
     if (!client) return reply.code(404).send({ error: "Client not found" });
 
-    const body = req.body as { action?: string; newName?: string };
+    const body = req.body as { action?: string; newName?: string; dailyQuotaGb?: number | null; monthlyQuotaGb?: number | null };
     try {
       if (body.action === "suspend") {
-        await suspendClient(client);
+        await suspendClient(client, "manual");
       } else if (body.action === "resume") {
         await resumeClient(client);
       } else if (body.action === "rename") {
@@ -107,8 +135,12 @@ export async function clientsRoutes(
           return reply.code(409).send({ error: "A client with that name already exists." });
         }
         await renameClient(client, newName);
+      } else if (body.action === "update-quota") {
+        const dailyQuotaGb = body.dailyQuotaGb !== undefined ? body.dailyQuotaGb : client.daily_quota_gb;
+        const monthlyQuotaGb = body.monthlyQuotaGb !== undefined ? body.monthlyQuotaGb : client.monthly_quota_gb;
+        await updateQuota(client.id, dailyQuotaGb, monthlyQuotaGb);
       } else {
-        return reply.code(400).send({ error: "action must be suspend, resume, or rename" });
+        return reply.code(400).send({ error: "action must be suspend, resume, rename, or update-quota" });
       }
       const updated = queries.getClientById(req.params.id)!;
       return reply.send(updated);

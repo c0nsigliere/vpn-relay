@@ -6,7 +6,7 @@ import { ClientRow } from "../components/ClientRow";
 import { useTelegram } from "../hooks/useTelegram";
 import { fetchClientsWithTraffic } from "../api/client";
 
-type FilterStatus = "all" | "active" | "suspended";
+type FilterStatus = "all" | "active" | "suspended" | "quota_exceeded";
 
 export function ClientList() {
   const navigate = useNavigate();
@@ -66,8 +66,13 @@ export function ClientList() {
       </div>
 
       {/* Status filters */}
-      <div className="flex gap-2 mb-4">
-        {(["all", "active", "suspended"] as FilterStatus[]).map((f) => (
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {([
+          ["all", "All"],
+          ["active", "Active"],
+          ["suspended", "Suspended"],
+          ["quota_exceeded", "Over Quota"],
+        ] as [FilterStatus, string][]).map(([f, label]) => (
           <button
             key={f}
             onClick={() => { setFilterStatus(f); setPage(0); }}
@@ -77,7 +82,7 @@ export function ClientList() {
                 : "bg-tg-secondary text-tg-hint border-tg"
             }`}
           >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
+            {label}
           </button>
         ))}
       </div>
@@ -104,6 +109,7 @@ export function ClientList() {
               client={c}
               totalRx={(c.traffic?.wgRx ?? 0) + (c.traffic?.xrayRx ?? 0)}
               totalTx={(c.traffic?.wgTx ?? 0) + (c.traffic?.xrayTx ?? 0)}
+              quota={c.quota}
             />
           ))}
         </div>

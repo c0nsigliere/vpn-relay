@@ -71,3 +71,6 @@ db.exec(`
 
 // Migrations (idempotent — ALTER TABLE ADD COLUMN fails silently if column exists)
 try { db.exec("ALTER TABLE clients ADD COLUMN last_seen_at TEXT"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE clients ADD COLUMN daily_quota_gb REAL DEFAULT NULL"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE clients ADD COLUMN monthly_quota_gb REAL DEFAULT NULL"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE clients ADD COLUMN suspend_reason TEXT DEFAULT NULL"); } catch { /* already exists */ }

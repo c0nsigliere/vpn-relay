@@ -72,6 +72,9 @@ export const textInputHandler: MiddlewareFn<BotContext> = async (ctx, next) => {
         xray_uuid: xrayUuid,
         expires_at: null,
         is_active: 1,
+        daily_quota_gb: null,
+        monthly_quota_gb: null,
+        suspend_reason: null,
       });
 
       await ctx.api.editMessageText(

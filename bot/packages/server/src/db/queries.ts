@@ -25,8 +25,8 @@ export const queries = {
 
   insertClient(client: Omit<Client, "created_at" | "last_seen_at">): void {
     db.prepare(`
-      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, expires_at, is_active)
-      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @expires_at, @is_active)
+      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, expires_at, is_active, daily_quota_gb, monthly_quota_gb)
+      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb)
     `).run(client);
   },
 
@@ -34,8 +34,16 @@ export const queries = {
     db.prepare("DELETE FROM clients WHERE id = ?").run(id);
   },
 
-  setClientActive(id: string, active: boolean): void {
-    db.prepare("UPDATE clients SET is_active = ? WHERE id = ?").run(active ? 1 : 0, id);
+  setClientActive(id: string, active: boolean, suspendReason?: string | null): void {
+    if (active) {
+      db.prepare("UPDATE clients SET is_active = 1, suspend_reason = NULL WHERE id = ?").run(id);
+    } else {
+      db.prepare("UPDATE clients SET is_active = 0, suspend_reason = ? WHERE id = ?").run(suspendReason ?? null, id);
+    }
+  },
+
+  updateClientQuota(id: string, dailyQuotaGb: number | null, monthlyQuotaGb: number | null): void {
+    db.prepare("UPDATE clients SET daily_quota_gb = ?, monthly_quota_gb = ? WHERE id = ?").run(dailyQuotaGb, monthlyQuotaGb, id);
   },
 
   updateClientName(id: string, newName: string): void {
@@ -289,9 +297,69 @@ export const queries = {
     `).all(serverId) as MonthlyTraffic[];
   },
 
+  // ── Quota queries ──────────────────────────────────────────────────────────
+
+  getClientsWithQuotas(): Client[] {
+    return db.prepare(`
+      SELECT * FROM clients
+      WHERE is_active = 1
+        AND (daily_quota_gb IS NOT NULL OR monthly_quota_gb IS NOT NULL)
+    `).all() as Client[];
+  },
+
+  getQuotaSuspendedClients(reason: string): Client[] {
+    return db.prepare(`
+      SELECT * FROM clients WHERE is_active = 0 AND suspend_reason = ?
+    `).all(reason) as Client[];
+  },
+
+  getClientDailyUsageBytes(clientId: string): number {
+    const mod = tzModifier();
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx), 0) AS used_bytes
+      FROM traffic_snapshots
+      WHERE client_id = ?
+        AND date(ts, '${mod}') = date('now', '${mod}')
+    `).get(clientId) as { used_bytes: number };
+    return row.used_bytes;
+  },
+
+  getClientMonthlyUsageBytes(clientId: string): number {
+    const mod = tzModifier();
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx), 0) AS used_bytes
+      FROM traffic_snapshots
+      WHERE client_id = ?
+        AND strftime('%Y-%m', ts, '${mod}') = strftime('%Y-%m', 'now', '${mod}')
+    `).get(clientId) as { used_bytes: number };
+    return row.used_bytes;
+  },
+
+  getQuotaUsageBatch(clientIds: string[]): Map<string, { daily_used_bytes: number; monthly_used_bytes: number }> {
+    if (clientIds.length === 0) return new Map();
+    const mod = tzModifier();
+    const placeholders = clientIds.map(() => "?").join(",");
+    const rows = db.prepare(`
+      SELECT client_id,
+             COALESCE(SUM(CASE WHEN date(ts, '${mod}') = date('now', '${mod}')
+               THEN wg_rx + wg_tx + xray_rx + xray_tx ELSE 0 END), 0) AS daily_used_bytes,
+             COALESCE(SUM(CASE WHEN strftime('%Y-%m', ts, '${mod}') = strftime('%Y-%m', 'now', '${mod}')
+               THEN wg_rx + wg_tx + xray_rx + xray_tx ELSE 0 END), 0) AS monthly_used_bytes
+      FROM traffic_snapshots
+      WHERE client_id IN (${placeholders})
+        AND strftime('%Y-%m', ts, '${mod}') = strftime('%Y-%m', 'now', '${mod}')
+      GROUP BY client_id
+    `).all(...clientIds) as Array<{ client_id: string; daily_used_bytes: number; monthly_used_bytes: number }>;
+    const map = new Map<string, { daily_used_bytes: number; monthly_used_bytes: number }>();
+    for (const row of rows) {
+      map.set(row.client_id, { daily_used_bytes: row.daily_used_bytes, monthly_used_bytes: row.monthly_used_bytes });
+    }
+    return map;
+  },
+
   searchClients(
     search: string,
-    filter: "all" | "active" | "suspended",
+    filter: "all" | "active" | "suspended" | "quota_exceeded",
     type: "all" | "wg" | "xray" | "both",
     page: number,
     pageSize = 20
@@ -307,6 +375,8 @@ export const queries = {
       conditions.push("is_active = 1");
     } else if (filter === "suspended") {
       conditions.push("is_active = 0");
+    } else if (filter === "quota_exceeded") {
+      conditions.push("is_active = 0 AND suspend_reason IN ('daily_quota', 'monthly_quota')");
     }
     if (type !== "all") {
       conditions.push("type = ?");

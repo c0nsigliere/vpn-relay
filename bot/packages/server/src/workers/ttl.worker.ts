@@ -19,7 +19,7 @@ export function ttlWorker(bot: Bot<BotContext>): { stop: () => void } {
           if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
             await xrayService.removeClient(client.name, client.xray_uuid);
           }
-          queries.setClientActive(client.id, false);
+          queries.setClientActive(client.id, false, "expired");
 
           await bot.api.sendMessage(
             env.ADMIN_ID,

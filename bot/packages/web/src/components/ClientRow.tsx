@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import type { Client } from "@vpn-relay/shared";
+import type { Client, ClientQuotaUsage } from "@vpn-relay/shared";
 import { formatRelativeTime } from "../utils/format";
 
 function formatBytes(bytes: number): string {
@@ -9,8 +9,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1073741824).toFixed(2)} GB`;
 }
 
+const SUSPEND_REASON_SHORT: Record<string, string> = {
+  manual: "Suspended",
+  daily_quota: "Daily limit",
+  monthly_quota: "Monthly limit",
+  expired: "Expired",
+};
+
 function getStatusInfo(client: Client): { dot: string; label: string } {
-  if (!client.is_active) return { dot: "#f38ba8", label: "Suspended" };
+  if (!client.is_active) return { dot: "#f38ba8", label: SUSPEND_REASON_SHORT[client.suspend_reason ?? ""] ?? "Suspended" };
   if (!client.last_seen_at) return { dot: "#6c7086", label: "Offline" };
   const diffMs = Date.now() - new Date(
     client.last_seen_at.endsWith("Z") ? client.last_seen_at : client.last_seen_at + "Z"
@@ -25,11 +32,15 @@ interface ClientRowProps {
   client: Client;
   totalRx?: number;
   totalTx?: number;
+  quota?: ClientQuotaUsage;
 }
 
-export function ClientRow({ client, totalRx = 0, totalTx = 0 }: ClientRowProps) {
+export function ClientRow({ client, totalRx = 0, totalTx = 0, quota }: ClientRowProps) {
   const navigate = useNavigate();
   const { dot, label } = getStatusInfo(client);
+
+  const dailyPct = quota?.daily_quota_bytes ? quota.daily_used_bytes / quota.daily_quota_bytes * 100 : 0;
+  const monthlyPct = quota?.monthly_quota_bytes ? quota.monthly_used_bytes / quota.monthly_quota_bytes * 100 : 0;
 
   const typeLabel =
     client.type === "both" ? "WG+XRay" : client.type.toUpperCase();
@@ -60,6 +71,30 @@ export function ClientRow({ client, totalRx = 0, totalTx = 0 }: ClientRowProps) 
         {client.expires_at && (
           <div className="text-xs text-tg-hint mt-0.5 ml-4">
             Expires {new Date(client.expires_at).toLocaleDateString()}
+          </div>
+        )}
+        {(dailyPct >= 90 || monthlyPct >= 90) && (
+          <div className="flex gap-1 mt-0.5 ml-4">
+            {dailyPct >= 100 && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#f38ba820", color: "#f38ba8" }}>
+                Daily limit
+              </span>
+            )}
+            {dailyPct >= 90 && dailyPct < 100 && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#f9e2af20", color: "#f9e2af" }}>
+                90% daily
+              </span>
+            )}
+            {monthlyPct >= 100 && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#f38ba820", color: "#f38ba8" }}>
+                Monthly limit
+              </span>
+            )}
+            {monthlyPct >= 90 && monthlyPct < 100 && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#f9e2af20", color: "#f9e2af" }}>
+                90% monthly
+              </span>
+            )}
           </div>
         )}
       </div>

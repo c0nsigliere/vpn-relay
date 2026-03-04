@@ -22,7 +22,9 @@ export interface CreateClientResult {
 export async function createClient(
   name: string,
   type: ClientType,
-  ttlDays?: number
+  ttlDays?: number,
+  dailyQuotaGb?: number,
+  monthlyQuotaGb?: number
 ): Promise<CreateClientResult> {
   const id = uuidv4();
   let wgIp: string | null = null;
@@ -56,20 +58,23 @@ export async function createClient(
     xray_uuid: xrayUuid,
     expires_at: expiresAt,
     is_active: 1,
+    daily_quota_gb: dailyQuotaGb ?? null,
+    monthly_quota_gb: monthlyQuotaGb ?? null,
+    suspend_reason: null,
   });
 
   const client = queries.getClientById(id)!;
   return { client, wgConf, xrayUris };
 }
 
-export async function suspendClient(client: Client): Promise<void> {
+export async function suspendClient(client: Client, reason: "manual" | "daily_quota" | "monthly_quota" | "expired" = "manual"): Promise<void> {
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
     await wgService.suspendClient(client.wg_pubkey);
   }
   if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
     await xrayService.removeClient(client.name, client.xray_uuid);
   }
-  queries.setClientActive(client.id, false);
+  queries.setClientActive(client.id, false, reason);
 }
 
 export async function resumeClient(client: Client): Promise<void> {
@@ -80,6 +85,27 @@ export async function resumeClient(client: Client): Promise<void> {
     await xrayService.addClient(client.name, client.xray_uuid);
   }
   queries.setClientActive(client.id, true);
+}
+
+export async function updateQuota(
+  clientId: string,
+  dailyQuotaGb: number | null,
+  monthlyQuotaGb: number | null
+): Promise<void> {
+  const client = queries.getClientById(clientId);
+  if (!client) return;
+
+  queries.updateClientQuota(clientId, dailyQuotaGb, monthlyQuotaGb);
+
+  // Auto-resume if suspended by quota that was removed
+  if (client.is_active === 0) {
+    const suspendedByDaily = client.suspend_reason === "daily_quota";
+    const suspendedByMonthly = client.suspend_reason === "monthly_quota";
+    if ((suspendedByDaily && dailyQuotaGb === null) || (suspendedByMonthly && monthlyQuotaGb === null)) {
+      const freshClient = queries.getClientById(clientId)!;
+      await resumeClient(freshClient);
+    }
+  }
 }
 
 export async function renameClient(client: Client, newName: string): Promise<void> {

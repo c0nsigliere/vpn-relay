@@ -19,6 +19,8 @@ export function AddClient() {
   const [name, setName] = useState("");
   const [type, setType] = useState<ClientType>("xray");
   const [ttlDays, setTtlDays] = useState<string>("");
+  const [dailyQuotaGb, setDailyQuotaGb] = useState<string>("");
+  const [monthlyQuotaGb, setMonthlyQuotaGb] = useState<string>("");
   const [nameError, setNameError] = useState("");
   const [toast, setToast] = useState("");
 
@@ -30,6 +32,8 @@ export function AddClient() {
         name,
         type,
         ttlDays: ttlDays ? parseInt(ttlDays, 10) : undefined,
+        dailyQuotaGb: dailyQuotaGb ? parseFloat(dailyQuotaGb) : undefined,
+        monthlyQuotaGb: monthlyQuotaGb ? parseFloat(monthlyQuotaGb) : undefined,
       }),
     onSuccess: () => {
       haptic.notification("success");
@@ -157,6 +161,37 @@ export function AddClient() {
           placeholder="No expiry"
           min="1"
           max="3650"
+          className="w-full px-3 py-2 rounded-lg bg-tg-secondary text-tg placeholder-tg-hint text-sm border border-tg focus:outline-none"
+        />
+      </div>
+
+      {/* Quotas (optional) */}
+      <div className="mb-5">
+        <label className="block text-sm font-medium text-tg mb-1">
+          Daily Quota (GB) — optional
+        </label>
+        <input
+          type="number"
+          value={dailyQuotaGb}
+          onChange={(e) => setDailyQuotaGb(e.target.value)}
+          placeholder="No daily limit"
+          min="0.001"
+          step="0.1"
+          className="w-full px-3 py-2 rounded-lg bg-tg-secondary text-tg placeholder-tg-hint text-sm border border-tg focus:outline-none"
+        />
+      </div>
+
+      <div className="mb-5">
+        <label className="block text-sm font-medium text-tg mb-1">
+          Monthly Quota (GB) — optional
+        </label>
+        <input
+          type="number"
+          value={monthlyQuotaGb}
+          onChange={(e) => setMonthlyQuotaGb(e.target.value)}
+          placeholder="No monthly limit"
+          min="0.001"
+          step="1"
           className="w-full px-3 py-2 rounded-lg bg-tg-secondary text-tg placeholder-tg-hint text-sm border border-tg focus:outline-none"
         />
       </div>
