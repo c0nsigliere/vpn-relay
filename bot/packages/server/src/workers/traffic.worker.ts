@@ -95,10 +95,13 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
           const xrayRx = Number(xray?.downlinkBytes ?? 0);
           const xrayTx = Number(xray?.uplinkBytes ?? 0);
 
+          // Convention: rx = client download, tx = client upload.
+          // WireGuard server counters are inverted: server rx = client upload, server tx = client download.
+          // XRay counters already match: downlinkBytes = client download, uplinkBytes = client upload.
           queries.insertTrafficSnapshot({
             client_id: client.id,
-            wg_rx: wgRxDelta,
-            wg_tx: wgTxDelta,
+            wg_rx: wgTxDelta,  // server tx = data sent to client = client download
+            wg_tx: wgRxDelta,  // server rx = data received from client = client upload
             xray_rx: xrayRx,
             xray_tx: xrayTx,
           });

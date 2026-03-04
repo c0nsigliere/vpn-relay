@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart,
@@ -55,7 +55,8 @@ function pingColor(ms: number, loss: number): string {
 
 export function ServerDetail() {
   const { id } = useParams<{ id: string }>();
-  const serverId = id as ServerId;
+  const navigate = useNavigate();
+  const serverId = (id as ServerId) ?? "a";
   const [period, setPeriod] = useState<Period>("24h");
   const [volumeTab, setVolumeTab] = useState<VolumeTab>("daily");
 
@@ -95,6 +96,9 @@ export function ServerDetail() {
   const statusError: string | undefined =
     rawStatus && "error" in rawStatus ? rawStatus.error : undefined;
 
+  const ip = isA ? statusData?.serverAIp : statusData?.serverBIp;
+  const trafficTotal24h = isA ? statusData?.trafficTotal24hA : statusData?.trafficTotal24hB;
+
   const snapshots = trafficData?.snapshots ?? [];
 
   if (statusLoading) {
@@ -111,12 +115,40 @@ export function ServerDetail() {
 
   return (
     <Layout backTo="/" title={serverLabel}>
+      {/* A / B tab bar */}
+      <div className="flex rounded-lg bg-tg-secondary p-0.5 mb-4 gap-0.5">
+        {(["a", "b"] as ServerId[]).map((sid) => (
+          <button
+            key={sid}
+            onClick={() => navigate(`/server/${sid}`, { replace: true })}
+            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              serverId === sid
+                ? "bg-tg-button text-tg-button"
+                : "text-tg-hint"
+            }`}
+          >
+            {sid === "a" ? "Server A (entry)" : "Server B (exit)"}
+          </button>
+        ))}
+      </div>
+
       {statusError ? (
         <div className="bg-tg-secondary rounded-xl p-4 mb-4">
           <p className="text-tg-destructive text-sm">{statusError}</p>
         </div>
       ) : status ? (
         <div className="bg-tg-secondary rounded-xl p-4 mb-4 space-y-3">
+          {/* IP + 24h traffic */}
+          <div className="grid grid-cols-2 gap-2 text-sm pb-1 border-b border-tg">
+            <StatRow label="IP" value={ip ?? "—"} />
+            <StatRow
+              label="24h Traffic"
+              value={trafficTotal24h
+                ? `↓${formatBytesLong(trafficTotal24h.rx)} ↑${formatBytesLong(trafficTotal24h.tx)}`
+                : "—"}
+            />
+          </div>
+
           {/* CPU + Load */}
           <div>
             <div className="flex justify-between text-xs mb-1">

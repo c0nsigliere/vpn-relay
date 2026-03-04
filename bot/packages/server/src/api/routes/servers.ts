@@ -39,25 +39,24 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
       ? { ...resultB.value, pingMs: ping?.ms, pingLossPercent: ping?.lossPercent }
       : { error: resultB.reason?.message ?? "unreachable" };
 
-    // Sparkline: last 144 server eth0 aggregate points, downsampled to 24
-    const rawSnapshots = queries.getAggregateServerTraffic(144);
-    const sparklineRaw = downsample(rawSnapshots, 24);
-    const trafficSparkline = sparklineRaw.map((s) => ({
-      ts: s.ts,
-      rx: s.rx,
-      tx: s.tx,
-    }));
+    // Per-server sparklines: last 144 points downsampled to 24
+    const rawA = queries.getServerTrafficSparkline("a", 144);
+    const rawB = queries.getServerTrafficSparkline("b", 144);
+    const trafficSparklineA = downsample(rawA, 24).map((s) => ({ ts: s.ts, rx: s.rx, tx: s.tx }));
+    const trafficSparklineB = downsample(rawB, 24).map((s) => ({ ts: s.ts, rx: s.rx, tx: s.tx }));
 
-    const totals24h = queries.getServerTrafficTotals24h();
-    const trafficTotal24h = { rx: totals24h.totalRx, tx: totals24h.totalTx };
+    const totals24hA = queries.getServerTrafficTotals24hById("a");
+    const totals24hB = queries.getServerTrafficTotals24hById("b");
 
     return reply.send({
       serverA,
       serverB,
       serverAIp: env.SERVER_A_HOST,
       serverBIp: env.SERVER_B_HOST,
-      trafficSparkline,
-      trafficTotal24h,
+      trafficSparklineA,
+      trafficSparklineB,
+      trafficTotal24hA: { rx: totals24hA.totalRx, tx: totals24hA.totalTx },
+      trafficTotal24hB: { rx: totals24hB.totalRx, tx: totals24hB.totalTx },
     });
   });
 

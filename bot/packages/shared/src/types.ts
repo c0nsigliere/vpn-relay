@@ -76,8 +76,10 @@ export interface ServersStatusResponse {
   serverB: ServerStatus | { error: string };
   serverAIp?: string;
   serverBIp?: string;
-  trafficSparkline?: Array<{ ts: string; rx: number; tx: number }>;
-  trafficTotal24h?: { rx: number; tx: number };
+  trafficSparklineA?: Array<{ ts: string; rx: number; tx: number }>;
+  trafficSparklineB?: Array<{ ts: string; rx: number; tx: number }>;
+  trafficTotal24hA?: { rx: number; tx: number };
+  trafficTotal24hB?: { rx: number; tx: number };
 }
 
 export type ServerId = "a" | "b";

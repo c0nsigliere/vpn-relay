@@ -1,35 +1,53 @@
 # VPN Relay — Project Context
 
-Ansible-managed VPN stack across two Ubuntu servers. Always read this before
-modifying any role, playbook, or variable.
+Ansible-managed VPN stack across two Ubuntu servers (server A in Russia and server B abroad) with control plane implemented as telegram bot (with telegram mini app) on server B.
 
-## Architecture
+## Server Roles:
 
-Two servers, three parallel subsystems:
+- Server A (Entry / Russia): Acts as the ingress node. Runs WireGuard and a pure L4 TCP port forwarder. It contains NO XRay cryptographic secrets or client configs.
+- Server B (Exit / Abroad): Acts as the egress node. Runs XRay (VLESS+Reality) and handles all actual decryption and internet routing. It contains NO WireGuard installation. Stores XRay keys (/etc/xray/keys/) and client lists (/etc/xray/clients.json).
 
-```
-Server A (Russia, entry point)          Server B (abroad, exit point)
-─────────────────────────────           ─────────────────────────────
-WG cascade:  wg-clients :51888/udp      XRay only — no WireGuard on B
-             10.66.0.0/24
-             iptables TPROXY :12345  ──► XRay VLESS+Reality :443
-             ip rule fwmark 0x1          freedom outbound → Internet
-             → table 100 → lo           (original dst preserved)
+## The 3 Ways Clients Can Connect:
 
-TCP relay:   :443/tcp (`port_a_tcp`) ──► :443/tcp (`xray_port`) (DNAT+MASQUERADE)
-             pure L4, zero secrets       XRay VLESS+Reality (systemd)
-                                         Reality keys in /etc/xray/keys/
-                                         Clients in /etc/xray/clients.json
-```
+- WireGuard Cascade (WG ➔ A ➔ B): Client connects to Server A via WireGuard (UDP). Server A intercepts this traffic via TPROXY and tunnels it to Server B's XRay.
+- XRay Relay (VLESS ➔ A ➔ B): Client connects to Server A via VLESS (TCP). Server A blindly forwards the traffic via DNAT to Server B's XRay. Server A acts as a dumb pipe.
+- Direct XRay (VLESS ➔ B): Client bypasses Server A entirely and connects directly to Server B's XRay (TCP).
 
 **Critical invariants:**
-- Server A never holds XRay keys or Reality secrets
-- Reality private key never leaves Server B
-- Server B has NO WireGuard — only XRay. wg-uplink is gone from both servers.
-- TPROXY (fwmark 0x1 → table 100) isolates client traffic from SSH/default route on A
-- TCP relay is pure L4 byte forwarding — no protocol awareness, no decryption
-- `xray_tproxy_port` (12345) must match between wg_cascade role and relay role
-- All port numbers are defined **only** in `group_vars/all.yml` — role defaults are commented out
+- Strict Secret Isolation: Server A is a "dumb pipe". It NEVER holds XRay configurations, Reality private keys, or client UUIDs. All decryption happens on Server B.
+- Routing Logic: Server A routes WireGuard traffic via TPROXY, and VLESS traffic via pure L4 TCP forwarding (no protocol awareness).
+- Single Source of Truth: ALL port numbers and shared configuration variables must be defined strictly in `group_vars/all.yml`. Do NOT put port definitions in role `defaults/main.yml`.
+
+## Project Scope & Holistic Consistency:
+This is a tightly coupled, multi-tier architecture (GrammY Bot + Fastify API + React TMA + Ansible Infrastructure). Every code change must be evaluated for cross-stack impact. If a new bot feature or API endpoint requires a new OS package, a new open port, a database schema change, or specific file permissions, you MUST ensure those requirements are reflected in the codebase and infrastructure.
+
+## Infrastructure as Code (IaC) Workflow:
+Ansible playbooks in this project serve strictly as the "Reference Architecture" for a fresh, from-scratch installation.
+
+- Declarative Code (Ansible): Update Ansible roles (group_vars, templates, tasks) to reflect the final, pristine target state. Do NOT write transitional Ansible tasks designed solely to migrate or patch the current live server state.
+- Imperative Execution (Live Servers): When a codebase change requires updating an existing live environment (e.g., altering a database schema, moving a file, or restarting a service), you must use your execution tools (direct SSH, commands) to apply these hotfixes and state migrations yourself. Bring the live server into alignment with the new code immediately, without cluttering the reference playbooks.
+
+## Execution Transparency & Mentorship:
+When utilizing tools to perform complex actions (e.g., executing SSH commands, running database migrations, or modifying live server state), you must act as a senior mentor and make your thought process transparent.
+
+- Architectural & Technological Decisions: When proposing software code, API structures, or database schemas, explain the why. Why choose this specific algorithmic approach, design pattern, or library. Briefly outline the trade-offs (e.g., performance vs. readability, memory footprint vs. speed) and why your solution fits this specific project best.
+- Explain the "Why": Before executing a structural change or complex command, briefly explain the rationale behind your approach and why it is the safest or most optimal method.
+- Deconstruct the Syntax: If you deploy intricate Linux commands (e.g., sed, awk, grep pipes, iptables), advanced SQL queries, or complex framework patterns, break down what the syntax actually does so I can learn from it.
+- Transparent Troubleshooting: If an execution fails and you need to pivot, do not just silently try another command. Briefly explain your hypothesis for why it failed and how your next step addresses the error.
+
+## Collaborative Design & Proactive Clarification:
+Act as a Co-Architect. Your goal is to help me build the right solution, not just the fastest one.
+
+- Do Not Blindly Execute: If my request is vague, incomplete, or potentially flawed from an engineering standpoint, DO NOT just guess and write code. Stop and push back.
+- Ask Probing Questions: Actively ask clarifying questions to help me shape the final design. Point out edge cases I might have missed (e.g., "What happens if the XRay server is unreachable?", "Should we paginate this API response?").
+- Propose Options: When asking for clarification, try to offer 2-3 viable architectural options with their respective trade-offs (complexity vs. performance) so I can make an informed decision. I value your pushback more than immediate compliance.
+
+## Active Diagnostics & Server Access:
+You are authorized and explicitly encouraged to act autonomously to diagnose issues. You have direct SSH access to both servers (keys are pre-configured). Connect via ssh root@server-a or ssh root@server-b (or via IP).
+
+- Do Not Guess, Verify: If a system is broken, do not hallucinate solutions. SSH into the servers, read logs (journalctl), check service statuses (systemctl), test connectivity, or run trace commands.
+- Tool Installation & Cleanup (Leave No Trace): You may install diagnostic packages (e.g., tcpdump, jq, net-tools) locally or remotely to aid your investigation. However, you must act as a clean professional: once the issue is resolved, immediately remove any temporary scripts, test files, or one-off diagnostic tools you installed.
+- Human-in-the-loop for Ansible: DO NOT execute ansible-playbook commands yourself, especially full stack deployments. Instead, formulate the exact CLI command (including any specific --tags, -l, or -e flags) and ask me to run it in my terminal. I must retain full visual control over Ansible's execution logs and state changes.
 
 ## Inventory Groups → Roles → Playbooks
 
@@ -110,13 +128,6 @@ a legacy duplicate, use `server_b_public_ip`.
 
 Client provisioning playbooks write locally to `artifacts/` (relative to repo root):
 
-## Other tasks
-
-You can connect to servers directly via SSH (the keys are already registered) to conduct diagnostics. You can install tools on the local computer and remote servers.
-Servers have names "server-a" and "server-b" in inventory or you can connect as root@* by ssh.
-
-If you need to run ansible-playbook (especially long running playbooks) better ask user run it himself in order to see all the details and have better control.
-
 ## After Each Change
 
 After completing any modification, verify that the following docs reflect the
@@ -124,7 +135,6 @@ current state of the codebase:
 
 - **`DESIGN.md`** — architecture, target state, subsystem diagrams
 - **`README.md`** — setup instructions, usage examples, public-facing info
-- **`TODO.md`** — completed items marked done, new debt items added
 
 If a change makes any of these files stale, update them as part of the same
 task before finishing.

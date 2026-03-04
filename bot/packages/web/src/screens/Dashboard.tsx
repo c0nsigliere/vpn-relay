@@ -19,23 +19,21 @@ export function Dashboard() {
   return (
     <Layout title="Dashboard">
       {/* Server status */}
-      <div className="space-y-3 mb-5">
+      <div className="space-y-2 mb-5">
         <ServerStatusCard
           title="Server A (entry)"
           serverId="a"
-          ip={data?.serverAIp}
           status={isLoading ? undefined : data?.serverA}
-          sparklineData={data?.trafficSparkline}
-          trafficTotal24h={data?.trafficTotal24h}
+          sparklineData={data?.trafficSparklineA}
+          trafficTotal24h={data?.trafficTotal24hA}
           onClick={() => { haptic.impact("light"); navigate("/server/a"); }}
         />
         <ServerStatusCard
           title="Server B (exit)"
           serverId="b"
-          ip={data?.serverBIp}
           status={isLoading ? undefined : data?.serverB}
-          sparklineData={data?.trafficSparkline}
-          trafficTotal24h={data?.trafficTotal24h}
+          sparklineData={data?.trafficSparklineB}
+          trafficTotal24h={data?.trafficTotal24hB}
           onClick={() => { haptic.impact("light"); navigate("/server/b"); }}
         />
       </div>

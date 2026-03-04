@@ -128,6 +128,17 @@ export const queries = {
     return rows.reverse();
   },
 
+  getServerTrafficSparkline(serverId: "a" | "b", limit: number): Array<{ ts: string; rx: number; tx: number }> {
+    const rows = db.prepare(`
+      SELECT ts, rx_bytes AS rx, tx_bytes AS tx
+      FROM server_traffic_snapshots
+      WHERE server_id = ?
+      ORDER BY ts DESC
+      LIMIT ?
+    `).all(serverId, limit) as Array<{ ts: string; rx: number; tx: number }>;
+    return rows.reverse();
+  },
+
   getAggregateServerTraffic(limit: number): Array<{ ts: string; rx: number; tx: number }> {
     const rows = db.prepare(`
       SELECT ts,

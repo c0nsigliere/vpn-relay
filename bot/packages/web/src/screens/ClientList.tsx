@@ -7,7 +7,6 @@ import { useTelegram } from "../hooks/useTelegram";
 import { fetchClientsWithTraffic } from "../api/client";
 
 type FilterStatus = "all" | "active" | "suspended";
-type FilterType = "all" | "wg" | "xray" | "both";
 
 export function ClientList() {
   const navigate = useNavigate();
@@ -15,7 +14,6 @@ export function ClientList() {
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
-  const [filterType, setFilterType] = useState<FilterType>("all");
   const [page, setPage] = useState(0);
 
   // Debounce search
@@ -31,8 +29,8 @@ export function ClientList() {
   }, [search]);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["clients", debouncedSearch, filterStatus, filterType, page],
-    queryFn: () => fetchClientsWithTraffic({ search: debouncedSearch, filter: filterStatus, type: filterType, page }),
+    queryKey: ["clients", debouncedSearch, filterStatus, page],
+    queryFn: () => fetchClientsWithTraffic({ search: debouncedSearch, filter: filterStatus, page }),
   });
 
   // MainButton → Add Client
@@ -67,8 +65,8 @@ export function ClientList() {
         />
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+      {/* Status filters */}
+      <div className="flex gap-2 mb-4">
         {(["all", "active", "suspended"] as FilterStatus[]).map((f) => (
           <button
             key={f}
@@ -80,20 +78,6 @@ export function ClientList() {
             }`}
           >
             {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
-        <div className="w-px bg-tg-secondary" />
-        {(["all", "wg", "xray", "both"] as FilterType[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => { setFilterType(t); setPage(0); }}
-            className={`px-3 py-1 rounded-full text-xs whitespace-nowrap border ${
-              filterType === t
-                ? "bg-tg-button text-tg-button border-transparent"
-                : "bg-tg-secondary text-tg-hint border-tg"
-            }`}
-          >
-            {t === "all" ? "All Types" : t.toUpperCase()}
           </button>
         ))}
       </div>
