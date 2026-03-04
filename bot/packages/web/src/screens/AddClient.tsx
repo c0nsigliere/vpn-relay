@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type React from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { useTelegram } from "../hooks/useTelegram";
@@ -6,6 +7,11 @@ import { createClient } from "../api/client";
 import type { ClientType } from "@vpn-relay/shared";
 
 const NAME_RE = /^[a-zA-Z0-9_]{1,32}$/;
+
+const inputStyle: React.CSSProperties = {
+  color: "var(--tg-text)",
+  WebkitTextFillColor: "var(--tg-text)",
+};
 
 const CLIENT_TYPES: { value: ClientType; label: string; desc: string }[] = [
   { value: "xray", label: "XRay (VLESS)", desc: "VLESS+Reality — best for censored regions" },
@@ -105,6 +111,7 @@ export function AddClient() {
           onChange={(e) => handleNameChange(e.target.value)}
           placeholder="e.g. alice_phone"
           maxLength={32}
+          style={inputStyle}
           className="w-full px-3 py-2 rounded-lg bg-tg-secondary text-tg placeholder-tg-hint text-sm border border-tg focus:outline-none"
         />
         {nameError && (
@@ -125,11 +132,10 @@ export function AddClient() {
             <button
               key={ct.value}
               onClick={() => setType(ct.value)}
-              className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${
-                type === ct.value
-                  ? "border-tg-button bg-blue-50"
-                  : "border-tg bg-tg-secondary"
-              }`}
+              className="w-full text-left px-4 py-3 rounded-xl border-2 transition-colors bg-tg-secondary"
+              style={{
+                borderColor: type === ct.value ? "var(--tg-button)" : "var(--tg-section-separator)",
+              }}
             >
               <div className="flex items-center gap-2">
                 <span
@@ -161,6 +167,7 @@ export function AddClient() {
           placeholder="No expiry"
           min="1"
           max="3650"
+          style={inputStyle}
           className="w-full px-3 py-2 rounded-lg bg-tg-secondary text-tg placeholder-tg-hint text-sm border border-tg focus:outline-none"
         />
       </div>
@@ -177,6 +184,7 @@ export function AddClient() {
           placeholder="No daily limit"
           min="0.001"
           step="0.1"
+          style={inputStyle}
           className="w-full px-3 py-2 rounded-lg bg-tg-secondary text-tg placeholder-tg-hint text-sm border border-tg focus:outline-none"
         />
       </div>
@@ -192,6 +200,7 @@ export function AddClient() {
           placeholder="No monthly limit"
           min="0.001"
           step="1"
+          style={inputStyle}
           className="w-full px-3 py-2 rounded-lg bg-tg-secondary text-tg placeholder-tg-hint text-sm border border-tg focus:outline-none"
         />
       </div>
