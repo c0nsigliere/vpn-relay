@@ -1,7 +1,7 @@
 # /etc/wireguard/wg-clients.conf
 # Managed by Ansible wg_cascade role (roles/wg_cascade/tasks/configs.yml)
 # DO NOT manually edit the [Interface] section.
-# Client peers are managed by playbooks/add_wg_client.yml.
+# Client peers are managed by the Telegram bot (wg.service.ts).
 
 [Interface]
 Address    = {{ wg_clients_addr_a }}
@@ -15,5 +15,5 @@ PostUp  = ip route replace local 0.0.0.0/0 dev lo table {{ xray_tproxy_table }} 
 PreDown = ip rule del fwmark 0x1/0x1 table {{ xray_tproxy_table }} priority 100 2>/dev/null || true
 PreDown = ip route del local 0.0.0.0/0 dev lo table {{ xray_tproxy_table }} 2>/dev/null || true
 
-# Client peers are appended below by add_wg_client.yml (blockinfile markers).
+# Client peers are appended below by the bot (BEGIN/END CLIENT markers).
 # Each peer block is wrapped: # BEGIN CLIENT <name> ... # END CLIENT <name>

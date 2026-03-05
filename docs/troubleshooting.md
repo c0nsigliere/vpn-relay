@@ -66,18 +66,11 @@ Typical causes in order:
    sudo systemctl restart wg-quick@wg-clients
    ```
 
-### add_wg_client.yml fails: "wg: command not found"
+### Controller missing wireguard-tools
 
-The controller needs `wireguard-tools` installed:
+The controller needs `wireguard-tools` for key operations during stack deploy:
 ```bash
 sudo apt install wireguard-tools   # Ubuntu/Debian
-```
-
-### add_wg_client.yml: "keys.yml requires both server_a and server_b"
-
-You ran `wg_cascade.yml` with `--limit`. Key exchange requires both hosts. Run without `--limit`:
-```bash
-ansible-playbook playbooks/wg_cascade.yml
 ```
 
 ### wg_uplink_port_b hard-fail at 51820

@@ -47,7 +47,7 @@
    - Removed "DPI Evasion Notes" section from CLAUDE.md (guidance now lives in the defaults)
 
 7. ~~**Unify client/user terminology**~~ ✅ — unified on "client" across all playbooks, roles, variables, and docs
-   - Playbooks renamed: `add_client.yml` → `add_wg_client.yml`, `add_xray_user.yml` → `add_xray_client.yml`, `cascade.yml` → `wg_cascade.yml`, etc.
+   - Playbooks renamed: `add_client.yml` → `add_wg_client.yml` (later removed), `add_xray_user.yml` → `add_xray_client.yml` (later removed), `cascade.yml` → `wg_cascade.yml`, etc.
    - XRay extra vars: `user_name`/`user_uuid` → `client_name`/`client_uuid`
    - XRay data file: `users.json` → `clients.json` (with one-time migration task)
    - Internal facts: `_xray_users` → `_xray_clients`, `_user_uuid` → `_client_uuid`, etc.

@@ -192,16 +192,6 @@ Client → Server A :443/tcp (TCP relay DNAT)
 
 ---
 
-### playbooks/add_wg_client.yml
-
-Добавляет WireGuard клиента:
-
-* генерит ключи
-* пушит pubkey на A
-* генерит `artifacts/clients/<name>.conf`
-
----
-
 ### playbooks/backup.yml
 
 Бэкап критического состояния серверов в `artifacts/backup/<timestamp>/`:
@@ -215,33 +205,6 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * По умолчанию `latest`, override через `-e "backup_name=..."`
 * Re-template config.json после восстановления ключей
 * После restore запустить `stack.yml` для полной рекенфигурации
-
----
-
-### playbooks/add_xray_client.yml
-
-Добавляет XRay клиента:
-
-* генерит UUID
-* добавляет клиента в БД бота
-* перегенерирует config.json из БД
-* перезапускает xray
-* генерит артефакты на контроллере:
-
-```
-artifacts/xray/<user>.vless.txt
-artifacts/xray/<user>.json
-artifacts/xray/<user>.qr.png (если qrencode)
-```
-
-В конфиге клиента:
-
-* address = Server A public IP
-* port = 443
-* pbk = reality public key
-* sid = shortId
-* sni = www.microsoft.com
-* fp = chrome
 
 ---
 
@@ -340,17 +303,7 @@ ansible-playbook playbooks/stack.yml
 ansible-playbook playbooks/verify_all.yml
 ```
 
-Добавить WG клиента:
-
-```
-ansible-playbook playbooks/add_wg_client.yml -e "client_name=..."
-```
-
-Добавить XRay клиента:
-
-```
-ansible-playbook playbooks/add_xray_client.yml -e "client_name=..."
-```
+Клиенты управляются через Telegram бота / TMA (DB — единственный source of truth).
 
 ---
 
