@@ -1,0 +1,12 @@
+/var/log/xray/access.log {
+    daily
+    rotate 3
+    compress
+    missingok
+    notifempty
+    copytruncate
+    postrotate
+        # Ensure vpn-bot can read the log for client IP extraction
+        setfacl -m u:vpn-bot:r /var/log/xray/access.log 2>/dev/null || true
+    endscript
+}

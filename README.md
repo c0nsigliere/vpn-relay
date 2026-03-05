@@ -177,6 +177,7 @@ ansible-playbook playbooks/stack.yml \
 - Auto-suspend expired clients (TTL support)
 - Health alerts if Server A goes unreachable
 - Security update notifications (apt-check every 12h)
+- Client IP tracking (WG endpoint + XRay access log) with ISP lookup (ip-api.com)
 
 **Required:** Get a bot token from [@BotFather](https://t.me/BotFather) and your numeric Telegram user ID.
 

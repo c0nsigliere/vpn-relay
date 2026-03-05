@@ -1,6 +1,34 @@
 ---
 # Read clients.json and template XRay config.json
 
+- name: Ensure xray log directory exists
+  ansible.builtin.file:
+    path: /var/log/xray
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  tags: [config, xray]
+
+- name: Grant vpn-bot read access to xray access log
+  ansible.builtin.acl:
+    path: /var/log/xray/access.log
+    entity: vpn-bot
+    etype: user
+    permissions: r
+    state: present
+  failed_when: false  # log file may not exist yet on fresh install
+  tags: [config, xray]
+
+- name: Deploy xray logrotate config
+  ansible.builtin.template:
+    src: logrotate-xray.j2
+    dest: /etc/logrotate.d/xray
+    mode: '0644'
+    owner: root
+    group: root
+  tags: [config, xray]
+
 - name: Ensure xray config directory exists
   ansible.builtin.file:
     path: "{{ xray_config_dir }}"

@@ -31,7 +31,7 @@ export const queries = {
     return db.prepare("SELECT * FROM clients WHERE name = ?").get(name) as Client | undefined;
   },
 
-  insertClient(client: Omit<Client, "created_at" | "last_seen_at">): void {
+  insertClient(client: Omit<Client, "created_at" | "last_seen_at" | "last_ip" | "last_ip_isp">): void {
     db.prepare(`
       INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, expires_at, is_active, daily_quota_gb, monthly_quota_gb)
       VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb)
@@ -116,6 +116,7 @@ export const queries = {
              SUM(xray_tx) AS xrayTx
       FROM traffic_snapshots
       WHERE client_id IN (${placeholders})
+        AND ts >= datetime('now', '-24 hours')
       GROUP BY client_id
     `).all(...clientIds) as Array<{ client_id: string; wgRx: number; wgTx: number; xrayRx: number; xrayTx: number }>;
     const map = new Map<string, TrafficTotals>();
@@ -403,6 +404,10 @@ export const queries = {
           status = 'clear', cleared_at = excluded.cleared_at
       `).run(key);
     }
+  },
+
+  updateClientIp(id: string, ip: string, isp: string | null): void {
+    db.prepare("UPDATE clients SET last_ip = ?, last_ip_isp = ? WHERE id = ?").run(ip, isp, id);
   },
 
   getClientTrafficLastHour(clientId: string): number {

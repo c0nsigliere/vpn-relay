@@ -5,6 +5,9 @@ import { queries } from "../db/queries";
 import { xrayService } from "../services/xray.service";
 import { wgService } from "../services/wg.service";
 import { sshPool } from "../services/ssh";
+import { xrayLogService } from "../services/xray-log.service";
+import { ipInfoService } from "../services/ip-info.service";
+import { env } from "../config/env";
 
 const INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -22,6 +25,41 @@ function detectLocalInterface(): string {
   } catch {
     return "eth0";
   }
+}
+
+/**
+ * Query conntrack on Server A to build a map of masqueraded port → real client IP.
+ *
+ * Conntrack line format:
+ *   tcp 6 300 ESTABLISHED src=5.18.217.45 dst=195.133.31.93 sport=51234 dport=443 src=104.248.240.45 dst=195.133.31.93 sport=443 dport=60123 [ASSURED]
+ *
+ * First src= is the real client IP; last dport= (before [ASSURED]) is the masqueraded
+ * source port that Server B sees in its XRay access log.
+ */
+const CONNTRACK_RE = /^tcp\s+\d+\s+\d+\s+\S+\s+src=(\d+\.\d+\.\d+\.\d+)\s+.*\sdport=(\d+)\s*(?:\[|$)/;
+
+async function getRelayRealIps(): Promise<Map<number, string>> {
+  const result = new Map<number, string>();
+  try {
+    const serverBIp = env.SERVER_B_HOST;
+    // Pre-filter on Server A to minimize data transfer.
+    // Server B IP appears as reply src= (not dst=) in conntrack, so grep for IP anywhere.
+    // Trailing `|| true` prevents grep exit code 1 (no matches) from failing SSH.
+    const out = await sshPool.exec(
+      `conntrack -L -p tcp --dst-nat 2>/dev/null | grep '${serverBIp}' || true`
+    );
+    for (const line of out.split("\n")) {
+      const m = line.match(CONNTRACK_RE);
+      if (!m) continue;
+      const realIp = m[1];
+      const masqPort = parseInt(m[2], 10);
+      // Multiple entries may exist; later ones overwrite (fine — any valid mapping works)
+      result.set(masqPort, realIp);
+    }
+  } catch {
+    // Server A unreachable or conntrack not installed — silently skip
+  }
+  return result;
 }
 
 async function collectServerEth0(): Promise<void> {
@@ -115,6 +153,61 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
               queries.updateLastSeen(client.id);
             }
           }
+        }
+
+      // ── Collect client IPs ──────────────────────────────────────────────
+        try {
+          // XRay access log: direct IPs + relay masqueraded ports
+          const { directIps, relayPorts } = xrayLogService.getRecentClientIps();
+
+          // If any clients connected via relay, resolve real IPs via conntrack on Server A
+          let conntrackMap = new Map<number, string>();
+          if (relayPorts.size > 0) {
+            conntrackMap = await getRelayRealIps();
+          }
+
+          // Determine current IP per client
+          // Priority: WG endpoint > XRay direct IP > XRay relay (conntrack-resolved)
+          const ipUpdates: Array<{ id: string; ip: string }> = [];
+
+          for (const client of clients) {
+            let ip: string | undefined;
+
+            // WG endpoint (always real client IP)
+            if (client.wg_pubkey) {
+              const wg = wgByPubkey.get(client.wg_pubkey);
+              if (wg?.endpoint) {
+                const colonIdx = wg.endpoint.lastIndexOf(":");
+                if (colonIdx > 0) ip = wg.endpoint.slice(0, colonIdx);
+              }
+            }
+
+            // XRay direct IP (fallback)
+            if (!ip && (client.type === "xray" || client.type === "both")) {
+              ip = directIps.get(client.name);
+            }
+
+            // XRay relay — resolve via conntrack correlation
+            if (!ip && (client.type === "xray" || client.type === "both")) {
+              const masqPort = relayPorts.get(client.name);
+              if (masqPort !== undefined) {
+                ip = conntrackMap.get(masqPort);
+              }
+            }
+
+            if (ip && ip !== client.last_ip) {
+              ipUpdates.push({ id: client.id, ip });
+            }
+          }
+
+          if (ipUpdates.length > 0) {
+            const ispMap = await ipInfoService.lookupBatch(ipUpdates.map((u) => u.ip));
+            for (const { id, ip } of ipUpdates) {
+              queries.updateClientIp(id, ip, ispMap.get(ip) ?? null);
+            }
+          }
+        } catch (err) {
+          console.error("[traffic worker] IP collection error:", err);
         }
       }
 

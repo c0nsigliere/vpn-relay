@@ -252,6 +252,18 @@ export function ClientDetail() {
             <span className="font-medium text-tg">{status.label}</span>
           </div>
 
+          {client.last_ip && (
+            <>
+              <div className="text-tg-hint">Last IP</div>
+              <div className="text-tg font-mono text-xs">
+                {client.last_ip}
+                {client.last_ip_isp && (
+                  <span className="font-sans text-tg-hint ml-1">({client.last_ip_isp})</span>
+                )}
+              </div>
+            </>
+          )}
+
           <div className="text-tg-hint">Type</div>
           <div className="text-tg">{typeLabel}</div>
 

@@ -16,6 +16,8 @@ export interface Client {
   daily_quota_gb: number | null;
   monthly_quota_gb: number | null;
   suspend_reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" | null;
+  last_ip: string | null;
+  last_ip_isp: string | null;
 }
 
 export interface ClientQuotaUsage {

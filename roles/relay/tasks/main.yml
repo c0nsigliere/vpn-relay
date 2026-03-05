@@ -1,6 +1,13 @@
 ---
 # Main task orchestrator for relay role
 
+- name: Install conntrack CLI tool
+  ansible.builtin.apt:
+    name: conntrack
+    state: present
+  tags:
+    - packages
+
 - name: Import validation tasks
   ansible.builtin.import_tasks: validate.yml
   tags:

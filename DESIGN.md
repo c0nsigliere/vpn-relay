@@ -392,9 +392,11 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 - `qr.service.ts` — QR code PNG for VLESS URIs
 - `system.service.ts` — CPU/RAM/disk/uptime via /proc + SSH
 - `metrics.cache.ts` — 20s TTL cache for system.service calls (prevents throughput delta double-read)
+- `ip-info.service.ts` — ISP lookup via ip-api.com batch endpoint, in-memory cache (re-lookup only on IP change)
+- `xray-log.service.ts` — parses XRay access log (`/var/log/xray/access.log`) for last client IP per email tag; filters out `wg-clients@xray` and Server A relay IP
 
 **Workers (background):**
-- `traffic.worker.ts` — 10min: XRay gRPC stats (reset delta) + WG SSH stats → traffic_snapshots
+- `traffic.worker.ts` — 10min: XRay gRPC stats (reset delta) + WG SSH stats → traffic_snapshots; collects client IPs (WG endpoint + XRay access log) → batch ISP lookup → `last_ip`/`last_ip_isp` columns
 - `ttl.worker.ts` — 1h: auto-suspend expired clients
 - `health.worker.ts` — 1min: SSH ping Server A → ping.store (used by alert worker)
 - `updates.worker.ts` — 12h: apt-check on A+B, alert if security updates > 0
@@ -473,6 +475,9 @@ Server validates HMAC-SHA256 and checks `user.id === ADMIN_ID`.
 ansible-playbook playbooks/deploy_tma.yml \
   -e "tma_domain=vpn.example.com tma_certbot_email=admin@example.com"
 ```
+
+**Client IP tracking:** ClientDetail shows `last_ip` + ISP name (from ip-api.com batch lookup).
+ClientRow shows ISP as a compact label. IPs collected by traffic worker every 10 min from WG endpoint and XRay access log.
 
 **stack.yml step 8:** TMA infra runs conditionally on `tma_domain | length > 0`.
 

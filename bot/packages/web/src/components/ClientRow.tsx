@@ -67,6 +67,11 @@ export function ClientRow({ client, totalRx = 0, totalTx = 0, quota }: ClientRow
               ↓{formatBytes(totalRx)} ↑{formatBytes(totalTx)}
             </span>
           )}
+          {client.last_ip_isp && (
+            <span className="text-xs text-tg-hint truncate max-w-[100px]">
+              {client.last_ip_isp}
+            </span>
+          )}
         </div>
         {client.expires_at && (
           <div className="text-xs text-tg-hint mt-0.5 ml-4">
