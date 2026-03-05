@@ -29,7 +29,6 @@
     bot_ssh_key_path: "/var/lib/vpn-bot/.ssh/id_ed25519"
     xray_config_dir: "/etc/xray"
     xray_keys_dir: "/etc/xray/keys"
-    xray_clients_file: "/etc/xray/clients.json"
 
   tasks:
     - name: Verify safety gate
@@ -92,9 +91,9 @@
       ignore_errors: true
       tags: [deploy, bot]
 
-    - name: Remove ACL — vpn-bot on clients.json
+    - name: Remove ACL — vpn-bot on config.json
       acl:
-        path: "{{ xray_clients_file }}"
+        path: "{{ xray_config_dir }}/config.json"
         entity: "{{ bot_user }}"
         etype: user
         state: absent

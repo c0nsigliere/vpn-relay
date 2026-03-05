@@ -11,14 +11,14 @@
     fail_msg: "bot_admin_id must be set (Telegram numeric user ID)"
   tags: [validate, bot]
 
-- name: Assert XRay clients.json exists
+- name: Assert XRay config.json exists
   stat:
-    path: "{{ xray_clients_file }}"
-  register: _xray_clients_stat
+    path: "{{ xray_config_dir }}/config.json"
+  register: _xray_config_stat
   tags: [validate, bot]
 
-- name: Assert XRay keys directory exists
+- name: Fail if XRay config.json missing
   assert:
-    that: _xray_clients_stat.stat.exists
-    fail_msg: "{{ xray_clients_file }} not found — run xray.yml first"
+    that: _xray_config_stat.stat.exists
+    fail_msg: "{{ xray_config_dir }}/config.json not found — run xray.yml first"
   tags: [validate, bot]

@@ -78,7 +78,8 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * XRay (systemd), VLESS + Reality, порт 8443/tcp
 * Порт 443: принимается через TCP relay на Server A
 * Reality private key хранится только на B (`/etc/xray/keys/`)
-* Клиенты в `/etc/xray/clients.json`; wg-uplink peer — отдельный UUID без flow
+* Клиенты хранятся в SQLite DB бота (`/var/lib/vpn-bot/data.db`); `config.json` перегенерируется из БД
+* wg-uplink peer (`wg-clients@xray`) — единственная статическая запись в `config.json` (UUID из env)
 
 ---
 
@@ -91,7 +92,7 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * SNI: `www.googletagmanager.com`
 * Fingerprint: `chrome`
 * Flow: `xtls-rprx-vision` (TLS-in-TLS splice, DPI protection)
-* Clients хранятся в `/etc/xray/clients.json`
+* Clients хранятся в SQLite DB бота; `config.json` генерируется из БД при каждом изменении
 * Reality ключи:
 
   * `/etc/xray/keys/reality.key`
@@ -120,7 +121,7 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * Только Server B
 * Установка XRay binary
 * Генерация Reality ключей
-* clients.json
+* config.json (generated from bot DB at runtime; Ansible seeds initial template)
 * systemd service
 * Firewall allow 443
 * Verify
@@ -205,7 +206,7 @@ Client → Server A :443/tcp (TCP relay DNAT)
 
 Бэкап критического состояния серверов в `artifacts/backup/<timestamp>/`:
 * WG ключи и конфиг с Server A
-* Reality ключи, clients.json и БД бота с Server B
+* Reality ключи и БД бота (`data.db`) с Server B
 * Symlink `latest` → текущий бэкап
 
 ### playbooks/restore.yml
@@ -222,8 +223,8 @@ Client → Server A :443/tcp (TCP relay DNAT)
 Добавляет XRay клиента:
 
 * генерит UUID
-* обновляет `/etc/xray/clients.json`
-* перерендерит config.json
+* добавляет клиента в БД бота
+* перегенерирует config.json из БД
 * перезапускает xray
 * генерит артефакты на контроллере:
 
@@ -374,7 +375,7 @@ Admin (Telegram)
     ▼
 Bot (Server B) ─── gRPC :10085 ──► XRay (local)
     │                                  (HandlerService + StatsService)
-    │                                  /etc/xray/clients.json (atomic write)
+    │                                  config.json rebuilt from SQLite DB
     │
     └─── SSH ed25519 ──────────────► Server A
                                        wg set / wg syncconf / wg show dump
@@ -385,7 +386,7 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 **Bot source:** `bot/packages/server/src/` — deployed to `/opt/vpn-bot` on Server B via Ansible role `telegram_bot`
 
 **Services:**
-- `xray.service.ts` — gRPC AlterInbound (live add/remove) + atomic clients.json sync
+- `xray.service.ts` — reads active clients from DB, rebuilds `config.json` directly + xray-restart.path trigger
 - `wg.service.ts` — SSH to Server A: keypair gen, peer management, syncconf
 - `ssh.ts` — auto-reconnecting ssh2 connection pool
 - `charts.service.ts` — chartjs-node-canvas traffic PNG
@@ -406,7 +407,7 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 
 **Security:**
 - `vpn-bot` system user, no shell, data in `/var/lib/vpn-bot/`
-- ACL on `/etc/xray/keys/{reality.pub,shortid}` (read) and `/etc/xray/clients.json` (read+write)
+- ACL on `/etc/xray/keys/{reality.pub,shortid}` (read) and `/etc/xray/config.json` (read+write)
 - SSH keypair generated at deploy time, pubkey pushed to Server A authorized_keys
 - Reality private key never leaves Server B
 
@@ -436,7 +437,7 @@ Fastify HTTP server (inside bot process)
     │  POST /api/clients/:id/send-config
     ▼
 ClientService (shared with bot menus)
-    ├── xray.service.ts — atomic config.json write + xray-restart.path
+    ├── xray.service.ts — rebuild config.json from DB + xray-restart.path
     ├── wg.service.ts   — SSH to Server A
     └── bot.api.*       — sendMessage/sendPhoto to admin chat
 ```
@@ -489,12 +490,12 @@ ClientRow shows ISP as a compact label. IPs collected by traffic worker every 10
 Controller (local)
     │
     ├── backup.yml ──fetch──► Server A: wg-clients.key, .pub, .conf
-    │                  └────► Server B: reality.key, .pub, shortid, clients.json, data.db
+    │                  └────► Server B: reality.key, .pub, shortid, data.db
     │
     └── artifacts/backup/
           2026-03-01T12-00-00/
             server-a/   (WG keys + config)
-            server-b/   (Reality keys + clients + bot DB)
+            server-b/   (Reality keys + bot DB)
           latest -> 2026-03-01T12-00-00/
 ```
 

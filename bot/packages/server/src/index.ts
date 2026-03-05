@@ -109,6 +109,12 @@ bot.catch((err) => {
   console.error("[bot error]", err.message);
 });
 
+// Sync XRay config.json from DB on startup — ensures config matches DB state
+// after restarts, restores, or crashes mid-operation.
+xrayService.syncConfigAndRestart()
+  .then(() => console.log("[startup] XRay config synced from DB"))
+  .catch((err) => console.warn("[startup] XRay config sync failed:", err.message));
+
 // Workers
 const workers = [
   trafficWorker(bot),

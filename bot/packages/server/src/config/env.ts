@@ -20,8 +20,8 @@ const envSchema = z.object({
   SERVER_B_XRAY_PORT: z.string().transform(Number).pipe(z.number().int()).default("8443"),
   XRAY_API_PORT: z.string().transform(Number).pipe(z.number().int()).default("10085"),
   XRAY_KEYS_DIR: z.string().default("/etc/xray/keys"),
-  XRAY_CLIENTS_FILE: z.string().default("/etc/xray/clients.json"),
   XRAY_CONFIG_FILE: z.string().default("/etc/xray/config.json"),
+  XRAY_WG_UPLINK_UUID: z.string().default(""),
 
   // XRay DPI evasion params
   XRAY_SNI: z.string().default("www.googletagmanager.com"),

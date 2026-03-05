@@ -2,7 +2,11 @@ import { InlineKeyboard, InputFile } from "grammy";
 import { BotContext } from "../context";
 import { queries, Client } from "../../db/queries";
 import { xrayService } from "../../services/xray.service";
-import { wgService } from "../../services/wg.service";
+import {
+  suspendClient as doSuspend,
+  resumeClient as doResume,
+  deleteClient as doDelete,
+} from "../../services/client.service";
 import { chartsService } from "../../services/charts.service";
 import { qrService } from "../../services/qr.service";
 
@@ -14,13 +18,13 @@ function formatBytes(bytes: number): string {
 }
 
 function clientSummary(c: Client): string {
-  const status = c.is_active ? "🟢 Active" : "🔴 Suspended";
+  const status = c.is_active ? "Active" : "Suspended";
   const expiry = c.expires_at
-    ? `\n⏰ Expires: ${c.expires_at.replace("T", " ").slice(0, 16)} UTC`
+    ? `\nExpires: ${c.expires_at.replace("T", " ").slice(0, 16)} UTC`
     : "";
   const type = c.type === "both" ? "WireGuard + XRay" : c.type.toUpperCase();
   return (
-    `👤 *${c.name}*\n` +
+    `*${c.name}*\n` +
     `Type: ${type}\n` +
     `Status: ${status}${expiry}\n` +
     (c.wg_ip ? `IP: \`${c.wg_ip}\`` : "")
@@ -29,17 +33,17 @@ function clientSummary(c: Client): string {
 
 function clientKeyboard(c: Client): InlineKeyboard {
   const kb = new InlineKeyboard()
-    .text("🔑 Get Config", `card:config:${c.id}`)
-    .text("📈 Traffic Graph", `card:graph:${c.id}`)
+    .text("Get Config", `card:config:${c.id}`)
+    .text("Traffic Graph", `card:graph:${c.id}`)
     .row();
 
   if (c.is_active) {
-    kb.text("⏸ Suspend", `card:suspend:${c.id}`);
+    kb.text("Suspend", `card:suspend:${c.id}`);
   } else {
-    kb.text("▶️ Resume", `card:resume:${c.id}`);
+    kb.text("Resume", `card:resume:${c.id}`);
   }
-  kb.text("🗑 Delete", `card:delete_confirm:${c.id}`).row();
-  kb.text("« Back", "menu:client_list");
+  kb.text("Delete", `card:delete_confirm:${c.id}`).row();
+  kb.text("Back", "menu:client_list");
   return kb;
 }
 
@@ -47,8 +51,8 @@ export async function showClientCard(ctx: BotContext, clientId: string): Promise
   await ctx.answerCallbackQuery?.();
   const client = queries.getClientById(clientId);
   if (!client) {
-    await ctx.editMessageText("❌ Client not found.", {
-      reply_markup: new InlineKeyboard().text("« Back", "menu:client_list"),
+    await ctx.editMessageText("Client not found.", {
+      reply_markup: new InlineKeyboard().text("Back", "menu:client_list"),
     });
     return;
   }
@@ -64,10 +68,10 @@ export async function showClientCard(ctx: BotContext, clientId: string): Promise
   }
 
   const trafficLine =
-    (client.type !== "xray" ? `WG: ↓${formatBytes(totalWgRx)} ↑${formatBytes(totalWgTx)}\n` : "") +
-    (client.type !== "wg" ? `XRay: ↓${formatBytes(totalXrayRx)} ↑${formatBytes(totalXrayTx)}` : "");
+    (client.type !== "xray" ? `WG: ${formatBytes(totalWgRx)} / ${formatBytes(totalWgTx)}\n` : "") +
+    (client.type !== "wg" ? `XRay: ${formatBytes(totalXrayRx)} / ${formatBytes(totalXrayTx)}` : "");
 
-  const text = `${clientSummary(client)}\n\n📊 Traffic:\n${trafficLine || "No data yet"}`;
+  const text = `${clientSummary(client)}\n\nTraffic:\n${trafficLine || "No data yet"}`;
   await ctx.editMessageText(text, {
     parse_mode: "Markdown",
     reply_markup: clientKeyboard(client),
@@ -83,7 +87,7 @@ export async function handleClientCardCallback(ctx: BotContext): Promise<void> {
 
   const client = queries.getClientById(clientId);
   if (!client) {
-    await ctx.editMessageText("❌ Client not found.");
+    await ctx.editMessageText("Client not found.");
     return;
   }
 
@@ -114,7 +118,7 @@ export async function handleClientCardCallback(ctx: BotContext): Promise<void> {
 async function sendConfig(ctx: BotContext, client: Client): Promise<void> {
   if (client.type === "wg" || client.type === "both") {
     await ctx.reply(
-      "⚠️ WireGuard private key was only shown at creation time. Re-add client to get a new config.",
+      "WireGuard private key was only shown at creation time. Re-add client to get a new config.",
       { reply_markup: clientKeyboard(client) }
     );
   }
@@ -124,7 +128,7 @@ async function sendConfig(ctx: BotContext, client: Client): Promise<void> {
     const uris = xrayService.generateVlessUris(client.name, client.xray_uuid);
 
     const text = [
-      `🔑 *VLESS Config for ${client.name}*\n`,
+      `*VLESS Config for ${client.name}*\n`,
       `*Direct (Server B):*`,
       `\`${uris.direct}\`\n`,
       `*Via Relay (Server A):*`,
@@ -149,50 +153,38 @@ async function sendConfig(ctx: BotContext, client: Client): Promise<void> {
 async function sendTrafficGraph(ctx: BotContext, client: Client): Promise<void> {
   const snapshots = queries.getTrafficHistory(client.id, 144).reverse();
   if (snapshots.length < 2) {
-    await ctx.reply("📊 Not enough traffic data yet. Check back later.");
+    await ctx.reply("Not enough traffic data yet. Check back later.");
     return;
   }
   const png = await chartsService.renderTrafficChart(client.name, snapshots);
   await ctx.replyWithPhoto(new InputFile(png, "traffic.png"), {
-    caption: `📈 Traffic — ${client.name}`,
+    caption: `Traffic — ${client.name}`,
   });
 }
 
 async function suspend(ctx: BotContext, client: Client): Promise<void> {
   try {
-    if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
-      await wgService.suspendClient(client.wg_pubkey);
-    }
-    if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
-      await xrayService.removeClient(client.name, client.xray_uuid);
-    }
-    queries.setClientActive(client.id, false);
+    await doSuspend(client);
     client.is_active = 0;
     await ctx.editMessageText(
-      `✅ ${client.name} suspended.`,
+      `${client.name} suspended.`,
       { reply_markup: clientKeyboard(client) }
     );
   } catch (err) {
-    await ctx.reply(`❌ Suspend failed: ${(err as Error).message}`);
+    await ctx.reply(`Suspend failed: ${(err as Error).message}`);
   }
 }
 
 async function resume(ctx: BotContext, client: Client): Promise<void> {
   try {
-    if ((client.type === "wg" || client.type === "both") && client.wg_pubkey && client.wg_ip) {
-      await wgService.resumeClient(client.wg_pubkey, client.wg_ip);
-    }
-    if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
-      await xrayService.addClient(client.name, client.xray_uuid);
-    }
-    queries.setClientActive(client.id, true);
+    await doResume(client);
     client.is_active = 1;
     await ctx.editMessageText(
-      `✅ ${client.name} resumed.`,
+      `${client.name} resumed.`,
       { reply_markup: clientKeyboard(client) }
     );
   } catch (err) {
-    await ctx.reply(`❌ Resume failed: ${(err as Error).message}`);
+    await ctx.reply(`Resume failed: ${(err as Error).message}`);
   }
 }
 
@@ -200,35 +192,29 @@ async function confirmDelete(ctx: BotContext, client: Client): Promise<void> {
   ctx.session.step = "awaiting_delete_confirm";
   ctx.session.data.clientId = client.id;
   await ctx.editMessageText(
-    `⚠️ *Delete ${client.name}?*\n\nThis will remove the client from WireGuard and XRay. This cannot be undone.`,
+    `*Delete ${client.name}?*\n\nThis will remove the client from WireGuard and XRay. This cannot be undone.`,
     {
       parse_mode: "Markdown",
       reply_markup: new InlineKeyboard()
-        .text("🗑 Yes, delete", `card:delete:${client.id}`)
-        .text("« Cancel", `client:${client.id}`),
+        .text("Yes, delete", `card:delete:${client.id}`)
+        .text("Cancel", `client:${client.id}`),
     }
   );
 }
 
 async function deleteClient(ctx: BotContext, client: Client): Promise<void> {
   try {
-    if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
-      await wgService.removeClient(client.name, client.wg_pubkey);
-    }
-    if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
-      await xrayService.removeClient(client.name, client.xray_uuid);
-    }
-    queries.deleteClient(client.id);
+    await doDelete(client);
     ctx.session.step = "idle";
     ctx.session.data = {};
     await ctx.editMessageText(
-      `🗑 *${client.name}* deleted.`,
+      `*${client.name}* deleted.`,
       {
         parse_mode: "Markdown",
-        reply_markup: new InlineKeyboard().text("« Client List", "menu:client_list"),
+        reply_markup: new InlineKeyboard().text("Client List", "menu:client_list"),
       }
     );
   } catch (err) {
-    await ctx.reply(`❌ Delete failed: ${(err as Error).message}`);
+    await ctx.reply(`Delete failed: ${(err as Error).message}`);
   }
 }

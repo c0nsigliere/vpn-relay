@@ -235,7 +235,7 @@ ansible-playbook playbooks/stack.yml \
 
 ### 10. Backup & Restore (recommended)
 
-Back up critical server state (keys, configs, client lists, bot DB) to the local controller:
+Back up critical server state (keys, configs, bot SQLite DB) to the local controller:
 
 ```bash
 # Create a timestamped backup:
@@ -262,7 +262,7 @@ ansible-playbook playbooks/stack.yml
 | Server | Files |
 |--------|-------|
 | A | WG private/public keys, `wg-clients.conf` |
-| B | Reality private/public keys, shortId, `clients.json`, bot SQLite DB |
+| B | Reality private/public keys, shortId, bot SQLite DB (`data.db`) |
 
 All existing client configs continue working after restore (same keys, same UUIDs).
 
@@ -601,7 +601,7 @@ vpn-relay/
 │       │   ├── handlers/text-input.ts  # Name entry + client creation
 │       │   └── menus/                  # Inline keyboard menus
 │       ├── services/
-│       │   ├── xray.service.ts         # gRPC AlterInbound + clients.json sync
+│       │   ├── xray.service.ts         # Rebuild config.json from DB + xray restart
 │       │   ├── wg.service.ts           # SSH WireGuard management on A
 │       │   ├── ssh.ts                  # Auto-reconnecting ssh2 pool
 │       │   ├── charts.service.ts       # Traffic PNG (chartjs-node-canvas)

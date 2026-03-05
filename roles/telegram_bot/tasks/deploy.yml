@@ -101,15 +101,6 @@
     state: present
   tags: [deploy, bot]
 
-- name: Set ACL — vpn-bot reads/writes clients.json
-  acl:
-    path: "{{ xray_clients_file }}"
-    entity: "{{ bot_user }}"
-    etype: user
-    permissions: rw
-    state: present
-  tags: [deploy, bot]
-
 - name: Set ACL — vpn-bot reads/writes config.json
   acl:
     path: "{{ xray_config_dir }}/config.json"
@@ -118,4 +109,3 @@
     permissions: rw
     state: present
   tags: [deploy, bot]
-

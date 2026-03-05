@@ -1,19 +1,18 @@
 /**
- * XRay service — uses the local xray CLI for stats and atomic clients.json
- * writes + service restart for client management.
+ * XRay service — manages XRay config.json from DB state and provides
+ * stats queries via the local xray CLI.
  *
- * This avoids gRPC proto dependency hell: XRay proto files have deep
- * transitive imports that are impractical to bundle. The xray binary itself
- * provides a built-in `xray api` CLI that communicates with the local gRPC
- * endpoint using its own bundled proto definitions.
+ * DB is the single source of truth for client state. This service
+ * rebuilds config.json from DB on every state change (create, suspend,
+ * resume, rename, delete) and restarts XRay via systemd path unit.
  */
 
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import * as crypto from "crypto";
 import { execSync } from "child_process";
 import { env } from "../config/env";
+import { queries } from "../db/queries";
 
 const XRAY_BIN = "/usr/local/bin/xray";
 
@@ -28,37 +27,18 @@ export interface ClientStats {
 }
 
 class XrayService {
-  // Add a VLESS client: persist to clients.json + update config.json + restart xray
-  async addClient(name: string, uuid?: string): Promise<string> {
-    const clientUuid = uuid ?? crypto.randomUUID();
-    this.syncClientsJson("add", { name, uuid: clientUuid });
+  /**
+   * Rebuild config.json from DB + restart XRay.
+   * Call after any client state change (create, suspend, resume, rename, delete).
+   */
+  async syncConfigAndRestart(): Promise<void> {
     this.syncConfigJson();
-    await this.restartXray();
-    return clientUuid;
-  }
-
-  // Remove a VLESS client: persist to clients.json + update config.json + restart xray
-  async removeClient(name: string, uuid: string): Promise<void> {
-    this.syncClientsJson("remove", { name, uuid });
-    this.syncConfigJson(new Set([uuid]));
     await this.restartXray();
   }
 
-  // Rename a VLESS client: update clients.json name + resync config.json email + restart
-  async renameClient(oldName: string, newName: string): Promise<void> {
-    const file = env.XRAY_CLIENTS_FILE;
-    let clients: Array<{ name: string; uuid: string }> = [];
-    if (fs.existsSync(file)) {
-      try { clients = JSON.parse(fs.readFileSync(file, "utf8")); } catch { clients = []; }
-    }
-    const entry = clients.find((c) => c.name === oldName);
-    if (entry) entry.name = newName;
-    const tmp = `${file}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(clients, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, file);
-
-    this.syncConfigJson();
-    await this.restartXray();
+  /** Generate a new UUID for a VLESS client. */
+  generateUuid(): string {
+    return crypto.randomUUID();
   }
 
   // Query traffic stats for a client via `xray api statsquery` CLI
@@ -123,41 +103,12 @@ class XrayService {
     return { direct, relay };
   }
 
-  // Atomic write to clients.json
-  private syncClientsJson(
-    action: "add" | "remove",
-    client: { name: string; uuid: string }
-  ): void {
-    const file = env.XRAY_CLIENTS_FILE;
-    let clients: Array<{ name: string; uuid: string }> = [];
-
-    if (fs.existsSync(file)) {
-      try {
-        clients = JSON.parse(fs.readFileSync(file, "utf8"));
-      } catch {
-        clients = [];
-      }
-    }
-
-    if (action === "add") {
-      if (!clients.find((c) => c.name === client.name || c.uuid === client.uuid)) {
-        clients.push(client);
-      }
-    } else {
-      clients = clients.filter((c) => c.uuid !== client.uuid);
-    }
-
-    // Atomic write: temp file then rename
-    const tmp = `${file}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(clients, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, file);
-  }
-
-  // Sync bot-managed clients into config.json so they survive xray restarts.
-  // Preserves Ansible-managed clients (those not in clients.json).
-  // excludeUuids: UUIDs just removed from clients.json that must still be
-  // recognised as bot-managed so they don't survive as "static" entries.
-  private syncConfigJson(excludeUuids?: Set<string>): void {
+  /**
+   * Rebuild config.json client list from two sources:
+   * 1. Static entry: wg-clients@xray (WG cascade TPROXY uplink, UUID from env)
+   * 2. Active bot clients: from DB (is_active=1, type xray/both, has xray_uuid)
+   */
+  private syncConfigJson(): void {
     const configFile = env.XRAY_CONFIG_FILE;
     const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
 
@@ -166,28 +117,26 @@ class XrayService {
     );
     if (!vlessIn) throw new Error("vless-in inbound not found in config.json");
 
-    // Read current bot-managed clients
-    let botClients: Array<{ name: string; uuid: string }> = [];
-    if (fs.existsSync(env.XRAY_CLIENTS_FILE)) {
-      try {
-        botClients = JSON.parse(fs.readFileSync(env.XRAY_CLIENTS_FILE, "utf8"));
-      } catch { /* start fresh */ }
-    }
-    const botUuids = new Set(botClients.map((c) => c.uuid));
-    if (excludeUuids) {
-      for (const uuid of excludeUuids) botUuids.add(uuid);
+    // Static: WG cascade TPROXY uplink (Ansible-managed, no flow)
+    const staticClients: Array<{ id: string; email: string }> = [];
+    if (env.XRAY_WG_UPLINK_UUID) {
+      staticClients.push({
+        id: env.XRAY_WG_UPLINK_UUID,
+        email: "wg-clients@xray",
+      });
     }
 
-    // Keep non-bot clients (Ansible-managed), replace bot clients with current list
-    const staticClients = (vlessIn.settings.clients as any[]).filter(
-      (c) => !botUuids.has(c.id)
+    // Bot clients: active XRay clients from DB
+    const activeClients = queries.getActiveClients().filter(
+      (c) => (c.type === "xray" || c.type === "both") && c.xray_uuid
     );
-    const newBotClients = botClients.map((c) => ({
-      id: c.uuid,
+    const botClients = activeClients.map((c) => ({
+      id: c.xray_uuid!,
       email: `${c.name}@xray`,
       ...(env.XRAY_FLOW ? { flow: env.XRAY_FLOW } : {}),
     }));
-    vlessIn.settings.clients = [...staticClients, ...newBotClients];
+
+    vlessIn.settings.clients = [...staticClients, ...botClients];
 
     const tmp = `${configFile}.tmp.${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });

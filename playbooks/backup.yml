@@ -7,12 +7,12 @@
 # Output:
 #   artifacts/backup/<timestamp>/
 #     server-a/   — WG keys + config
-#     server-b/   — Reality keys, clients.json, bot DB
+#     server-b/   — Reality keys, bot DB (source of truth for clients)
 #   artifacts/backup/latest → <timestamp>  (symlink)
 #
 # What gets backed up:
 #   Server A: wg-clients.key, wg-clients.pub, wg-clients.conf
-#   Server B: reality.key, reality.pub, shortid, clients.json, vpn-bot data.db
+#   Server B: reality.key, reality.pub, shortid, vpn-bot data.db
 #
 # Security:
 #   - artifacts/backup/ is gitignored
@@ -82,7 +82,7 @@
       no_log: true
 
 # =========================================================================
-# Step 3: Backup Server B (XRay keys + clients + bot DB)
+# Step 3: Backup Server B (XRay keys + bot DB)
 # =========================================================================
 
 - name: Backup Server B
@@ -111,12 +111,6 @@
       ansible.builtin.fetch:
         src: /etc/xray/keys/shortid
         dest: "{{ backup_dir }}/server-b/shortid"
-        flat: true
-
-    - name: Fetch clients.json
-      ansible.builtin.fetch:
-        src: /etc/xray/clients.json
-        dest: "{{ backup_dir }}/server-b/clients.json"
         flat: true
 
     # Bot DB: stop service for consistent SQLite snapshot

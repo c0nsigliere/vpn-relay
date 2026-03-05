@@ -27,10 +27,12 @@
     fail_msg: "Port {{ xray_port }} is not listening"
     success_msg: "Port {{ xray_port }} is listening"
 
-- name: Read clients.json for summary
-  ansible.builtin.slurp:
-    src: "{{ xray_clients_file }}"
-  register: _xray_verify_clients
+- name: Count clients in config.json
+  ansible.builtin.shell:
+    cmd: "jq '.inbounds[] | select(.tag==\"vless-in\") | .settings.clients | length' {{ xray_config_dir }}/config.json"
+    executable: /bin/bash
+  register: _xray_client_count
+  changed_when: false
   failed_when: false
 
 - name: Display XRay server summary
@@ -43,5 +45,5 @@
         Reality SNI: {{ xray_reality_server_names | join(', ') }}
         Fingerprint: {{ xray_reality_fingerprint }}
         Flow: {{ xray_vless_flow | default('(none)', true) }}
-        Clients: {{ (_xray_verify_clients.content | default('W10=') | b64decode | from_json) | length }}
+        Clients in config: {{ _xray_client_count.stdout | default('?') }}
   changed_when: false

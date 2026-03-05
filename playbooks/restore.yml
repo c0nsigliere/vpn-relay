@@ -10,13 +10,13 @@
 #
 # What gets restored:
 #   Server A: wg-clients.key, wg-clients.pub, wg-clients.conf
-#   Server B: reality.key, reality.pub, shortid, clients.json, vpn-bot data.db
+#   Server B: reality.key, reality.pub, shortid, vpn-bot data.db
+#
+# The bot DB is the single source of truth for clients. On startup,
+# the bot rebuilds config.json from DB + restarts XRay automatically.
 #
 # After restore, run stack.yml to re-template derived configs:
 #   ansible-playbook playbooks/stack.yml
-#
-# Security:
-#   - Key copy tasks use no_log: true
 
 - name: Validate backup
   hosts: localhost
@@ -80,7 +80,6 @@
         - reality.key
         - reality.pub
         - shortid
-        - clients.json
 
     - name: Assert Server B files present
       ansible.builtin.assert:
@@ -155,7 +154,7 @@
       failed_when: false
 
 # =========================================================================
-# Restore Server B (XRay keys + clients + bot DB)
+# Restore Server B (XRay keys + bot DB)
 # =========================================================================
 
 - name: Restore Server B
@@ -202,38 +201,11 @@
         owner: root
         group: root
 
-    # --- clients.json ---
-    - name: Restore clients.json
-      ansible.builtin.copy:
-        src: "{{ backup_dir }}/server-b/clients.json"
-        dest: /etc/xray/clients.json
-        mode: '0600'
-        owner: root
-        group: root
-
-    - name: Set ACL for vpn-bot on clients.json
-      ansible.posix.acl:
-        path: /etc/xray/clients.json
-        entity: vpn-bot
-        etype: user
-        permissions: rw
-        state: present
-      failed_when: false
-
-    # --- Re-template config.json from restored keys ---
+    # --- Re-template config.json from restored keys (static entries only) ---
     - name: Import key facts from xray_server role
       ansible.builtin.import_role:
         name: xray_server
         tasks_from: keys
-
-    - name: Read restored clients.json
-      ansible.builtin.slurp:
-        src: /etc/xray/clients.json
-      register: _restored_clients_slurp
-
-    - name: Set clients fact for config template
-      ansible.builtin.set_fact:
-        _xray_clients: "{{ _restored_clients_slurp.content | b64decode | from_json }}"
 
     - name: Re-template XRay config.json
       ansible.builtin.template:
@@ -275,6 +247,7 @@
         group: vpn-bot
       when: _bot_db_exists | bool
 
+    # Bot startup will sync config.json from DB automatically
     - name: Start vpn-bot after DB restore
       ansible.builtin.systemd:
         name: vpn-bot
@@ -311,9 +284,8 @@
             - /etc/xray/keys/reality.key
             - /etc/xray/keys/reality.pub
             - /etc/xray/keys/shortid
-            - /etc/xray/clients.json
-            - /etc/xray/config.json (re-templated)
-            {{ '- /var/lib/vpn-bot/data.db' if hostvars['localhost']['_bot_db_backup']['stat']['exists'] else '- (bot DB not in backup — skipped)' }}
+            - /etc/xray/config.json (re-templated, static entries only)
+            {{ '- /var/lib/vpn-bot/data.db (bot syncs config.json from DB on startup)' if hostvars['localhost']['_bot_db_backup']['stat']['exists'] else '- (bot DB not in backup — skipped)' }}
 
           Next steps:
             1. Run full stack to re-template all derived configs:

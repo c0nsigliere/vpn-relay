@@ -2,6 +2,9 @@
  * ClientService — shared business logic for creating, suspending,
  * resuming, deleting, and sending config for VPN clients.
  * Used by both the Telegram bot menus and the Fastify REST API.
+ *
+ * DB is the single source of truth. Every mutation writes to DB first,
+ * then calls xrayService.syncConfigAndRestart() to rebuild config.json.
  */
 
 import { v4 as uuidv4 } from "uuid";
@@ -45,10 +48,11 @@ export async function createClient(
   }
 
   if (type === "xray" || type === "both") {
-    xrayUuid = await xrayService.addClient(name);
+    xrayUuid = xrayService.generateUuid();
     xrayUris = xrayService.generateVlessUris(name, xrayUuid);
   }
 
+  // DB first — source of truth
   queries.insertClient({
     id,
     name,
@@ -63,6 +67,11 @@ export async function createClient(
     suspend_reason: null,
   });
 
+  // Rebuild XRay config from DB
+  if (type === "xray" || type === "both") {
+    await xrayService.syncConfigAndRestart();
+  }
+
   const client = queries.getClientById(id)!;
   return { client, wgConf, xrayUris };
 }
@@ -71,20 +80,22 @@ export async function suspendClient(client: Client, reason: "manual" | "daily_qu
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
     await wgService.suspendClient(client.wg_pubkey);
   }
-  if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
-    await xrayService.removeClient(client.name, client.xray_uuid);
-  }
+  // DB first — syncConfigAndRestart reads active clients from DB
   queries.setClientActive(client.id, false, reason);
+  if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
+    await xrayService.syncConfigAndRestart();
+  }
 }
 
 export async function resumeClient(client: Client): Promise<void> {
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey && client.wg_ip) {
     await wgService.resumeClient(client.wg_pubkey, client.wg_ip);
   }
-  if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
-    await xrayService.addClient(client.name, client.xray_uuid);
-  }
+  // DB first — syncConfigAndRestart reads active clients from DB
   queries.setClientActive(client.id, true);
+  if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
+    await xrayService.syncConfigAndRestart();
+  }
 }
 
 export async function updateQuota(
@@ -112,20 +123,22 @@ export async function renameClient(client: Client, newName: string): Promise<voi
   if (client.type === "wg" || client.type === "both") {
     await wgService.renameClient(client.name, newName);
   }
-  if (client.type === "xray" || client.type === "both") {
-    await xrayService.renameClient(client.name, newName);
-  }
+  // DB first — syncConfigAndRestart reads names from DB
   queries.updateClientName(client.id, newName);
+  if (client.type === "xray" || client.type === "both") {
+    await xrayService.syncConfigAndRestart();
+  }
 }
 
 export async function deleteClient(client: Client): Promise<void> {
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
     await wgService.removeClient(client.name, client.wg_pubkey);
   }
-  if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
-    await xrayService.removeClient(client.name, client.xray_uuid);
-  }
+  // DB first — syncConfigAndRestart reads active clients from DB
   queries.deleteClient(client.id);
+  if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
+    await xrayService.syncConfigAndRestart();
+  }
 }
 
 /**

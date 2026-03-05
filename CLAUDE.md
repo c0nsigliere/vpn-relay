@@ -5,7 +5,7 @@ Ansible-managed VPN stack across two Ubuntu servers (server A in Russia and serv
 ## Server Roles:
 
 - Server A (Entry / Russia): Acts as the ingress node. Runs WireGuard and a pure L4 TCP port forwarder. It contains NO XRay cryptographic secrets or client configs.
-- Server B (Exit / Abroad): Acts as the egress node. Runs XRay (VLESS+Reality) and handles all actual decryption and internet routing. It contains NO WireGuard installation. Stores XRay keys (/etc/xray/keys/) and client lists (/etc/xray/clients.json).
+- Server B (Exit / Abroad): Acts as the egress node. Runs XRay (VLESS+Reality) and handles all actual decryption and internet routing. It contains NO WireGuard installation. Stores XRay keys (`/etc/xray/keys/`). Client state lives in the bot's SQLite DB (`/var/lib/vpn-bot/data.db`); `config.json` is rebuilt from DB on every change.
 
 ## The 3 Ways Clients Can Connect:
 
@@ -90,7 +90,7 @@ Validate inputs before touching the system, verify state after.
 `_mem_available_mb`, `_swap_total_mb`, `_swap_free_mb`, `_mem_total_mb`.
 Reusable from any playbook via `include_tasks`.
 
-**Terminology:** Always use `client` (not `user`): `client_name`, `client_uuid`, `clients.json`, `_xray_clients`.
+**Terminology:** Always use `client` (not `user`): `client_name`, `client_uuid`.
 
 **DPI evasion defaults** (in `group_vars/all.yml` — wrong values break clients):
 - `xray_port: 443` — XRay listens on B

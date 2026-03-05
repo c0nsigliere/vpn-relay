@@ -1,5 +1,5 @@
 ---
-# Read clients.json and template XRay config.json
+# Template XRay config.json (static entries only — bot clients come from DB)
 
 - name: Ensure xray log directory exists
   ansible.builtin.file:
@@ -36,42 +36,6 @@
     mode: '0700'
     owner: root
     group: root
-
-# One-time migration: rename users.json → clients.json (idempotent)
-- name: Check if legacy users.json exists
-  ansible.builtin.stat:
-    path: "{{ xray_config_dir }}/users.json"
-  register: _xray_legacy_users_stat
-
-- name: Rename users.json → clients.json (one-time migration)
-  ansible.builtin.command:
-    cmd: "mv {{ xray_config_dir }}/users.json {{ xray_clients_file }}"
-  when:
-    - _xray_legacy_users_stat.stat.exists
-  changed_when: true
-
-- name: Check if clients.json exists
-  ansible.builtin.stat:
-    path: "{{ xray_clients_file }}"
-  register: _xray_clients_stat
-
-- name: Create empty clients.json if missing
-  ansible.builtin.copy:
-    content: "[]"
-    dest: "{{ xray_clients_file }}"
-    mode: '0600'
-    owner: root
-    group: root
-  when: not _xray_clients_stat.stat.exists
-
-- name: Read clients.json
-  ansible.builtin.slurp:
-    src: "{{ xray_clients_file }}"
-  register: _xray_clients_slurp
-
-- name: Parse clients list
-  ansible.builtin.set_fact:
-    _xray_clients: "{{ _xray_clients_slurp.content | b64decode | from_json }}"
 
 - name: Template XRay config.json
   ansible.builtin.template:
