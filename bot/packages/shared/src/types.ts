@@ -18,6 +18,7 @@ export interface Client {
   suspend_reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" | null;
   last_ip: string | null;
   last_ip_isp: string | null;
+  last_connection_route: "direct" | "relay" | null;
 }
 
 export interface ClientQuotaUsage {

@@ -76,6 +76,7 @@ try { db.exec("ALTER TABLE clients ADD COLUMN monthly_quota_gb REAL DEFAULT NULL
 try { db.exec("ALTER TABLE clients ADD COLUMN suspend_reason TEXT DEFAULT NULL"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE clients ADD COLUMN last_ip TEXT DEFAULT NULL"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE clients ADD COLUMN last_ip_isp TEXT DEFAULT NULL"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE clients ADD COLUMN last_connection_route TEXT DEFAULT NULL"); } catch { /* already exists */ }
 
 // Alert tables
 db.exec(`

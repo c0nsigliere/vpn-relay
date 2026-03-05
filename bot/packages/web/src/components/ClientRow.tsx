@@ -57,6 +57,17 @@ export function ClientRow({ client, totalRx = 0, totalTx = 0, quota }: ClientRow
           <span className="text-xs text-tg-hint bg-tg-secondary px-1.5 py-0.5 rounded">
             {typeLabel}
           </span>
+          {client.last_connection_route && (client.type === "xray" || client.type === "both") && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded"
+              style={{
+                backgroundColor: client.last_connection_route === "direct" ? "#89b4fa20" : "#cba6f720",
+                color: client.last_connection_route === "direct" ? "#89b4fa" : "#cba6f7",
+              }}
+            >
+              {client.last_connection_route === "direct" ? "Direct" : "Relay"}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3 mt-0.5 ml-4">
           <span className="text-xs" style={{ color: dot === "#a6e3a1" ? "#a6e3a1" : "var(--tg-hint)" }}>

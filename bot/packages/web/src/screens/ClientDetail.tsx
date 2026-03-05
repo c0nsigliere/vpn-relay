@@ -264,6 +264,23 @@ export function ClientDetail() {
             </>
           )}
 
+          {client.last_connection_route && (client.type === "xray" || client.type === "both") && (
+            <>
+              <div className="text-tg-hint">Route</div>
+              <div>
+                <span
+                  className="text-xs px-1.5 py-0.5 rounded font-medium"
+                  style={{
+                    backgroundColor: client.last_connection_route === "direct" ? "#89b4fa20" : "#cba6f720",
+                    color: client.last_connection_route === "direct" ? "#89b4fa" : "#cba6f7",
+                  }}
+                >
+                  {client.last_connection_route === "direct" ? "Direct (Server B)" : "Relay (Server A)"}
+                </span>
+              </div>
+            </>
+          )}
+
           <div className="text-tg-hint">Type</div>
           <div className="text-tg">{typeLabel}</div>
 

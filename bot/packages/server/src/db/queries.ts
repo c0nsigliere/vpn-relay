@@ -31,7 +31,7 @@ export const queries = {
     return db.prepare("SELECT * FROM clients WHERE name = ?").get(name) as Client | undefined;
   },
 
-  insertClient(client: Omit<Client, "created_at" | "last_seen_at" | "last_ip" | "last_ip_isp">): void {
+  insertClient(client: Omit<Client, "created_at" | "last_seen_at" | "last_ip" | "last_ip_isp" | "last_connection_route">): void {
     db.prepare(`
       INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, expires_at, is_active, daily_quota_gb, monthly_quota_gb)
       VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb)
@@ -406,8 +406,8 @@ export const queries = {
     }
   },
 
-  updateClientIp(id: string, ip: string, isp: string | null): void {
-    db.prepare("UPDATE clients SET last_ip = ?, last_ip_isp = ? WHERE id = ?").run(ip, isp, id);
+  updateClientIp(id: string, ip: string, isp: string | null, route: "direct" | "relay" | null = null): void {
+    db.prepare("UPDATE clients SET last_ip = ?, last_ip_isp = ?, last_connection_route = ? WHERE id = ?").run(ip, isp, route, id);
   },
 
   getClientTrafficLastHour(clientId: string): number {

@@ -168,10 +168,11 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
 
           // Determine current IP per client
           // Priority: WG endpoint > XRay direct IP > XRay relay (conntrack-resolved)
-          const ipUpdates: Array<{ id: string; ip: string }> = [];
+          const ipUpdates: Array<{ id: string; ip: string; route: "direct" | "relay" | null }> = [];
 
           for (const client of clients) {
             let ip: string | undefined;
+            let route: "direct" | "relay" | null = null;
 
             // WG endpoint (always real client IP)
             if (client.wg_pubkey) {
@@ -179,12 +180,15 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
               if (wg?.endpoint) {
                 const colonIdx = wg.endpoint.lastIndexOf(":");
                 if (colonIdx > 0) ip = wg.endpoint.slice(0, colonIdx);
+                // WG clients always go through cascade (relay), but route
+                // field is only meaningful for xray-type connections
               }
             }
 
             // XRay direct IP (fallback)
             if (!ip && (client.type === "xray" || client.type === "both")) {
               ip = directIps.get(client.name);
+              if (ip) route = "direct";
             }
 
             // XRay relay — resolve via conntrack correlation
@@ -192,18 +196,21 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
               const masqPort = relayPorts.get(client.name);
               if (masqPort !== undefined) {
                 ip = conntrackMap.get(masqPort);
+                if (ip) route = "relay";
               }
             }
 
-            if (ip && ip !== client.last_ip) {
-              ipUpdates.push({ id: client.id, ip });
+            // Also update route even if IP didn't change (client may switch direct↔relay)
+            const routeChanged = route !== null && route !== client.last_connection_route;
+            if (ip && (ip !== client.last_ip || routeChanged)) {
+              ipUpdates.push({ id: client.id, ip, route });
             }
           }
 
           if (ipUpdates.length > 0) {
             const ispMap = await ipInfoService.lookupBatch(ipUpdates.map((u) => u.ip));
-            for (const { id, ip } of ipUpdates) {
-              queries.updateClientIp(id, ip, ispMap.get(ip) ?? null);
+            for (const { id, ip, route } of ipUpdates) {
+              queries.updateClientIp(id, ip, ispMap.get(ip) ?? null, route);
             }
           }
         } catch (err) {
