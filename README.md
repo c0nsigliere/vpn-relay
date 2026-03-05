@@ -469,18 +469,17 @@ ansible-playbook playbooks/rollback_xray.yml -e "xray_remove_keys=true"
 vpn-relay/
 ├── ansible.cfg
 ├── requirements.yml                     # ansible.posix + community.general
+├── DESIGN.md                            # Architecture & target state diagrams
+├── TODO.md                              # Roadmap & task tracking
 ├── inventory/
 │   ├── inventory.ini                    # (gitignored — copy from .example)
 │   ├── inventory.ini.example
 │   └── group_vars/
 │       ├── all.yml                      # (gitignored) shared vars
 │       ├── all.yml.example
-│       ├── wg_cascade.yml               # (gitignored) cascade vars
-│       ├── wg_cascade.yml.example
-│       ├── relay_servers.yml            # (gitignored) relay vars
-│       ├── relay_servers.yml.example
-│       ├── xray_servers.yml             # (gitignored) XRay server vars
-│       ├── xray_servers.yml.example
+│       ├── wg_cascade.yml.example       # (gitignored) cascade vars
+│       ├── relay_servers.yml.example    # (gitignored) relay vars
+│       ├── xray_servers.yml.example     # (gitignored) XRay server vars
 │       ├── server_a.yml                 # Per-host overrides for Server A
 │       └── server_b.yml                 # Per-host overrides for Server B
 ├── artifacts/
@@ -492,8 +491,8 @@ vpn-relay/
 │   ├── maintenance.md                  # Update/upgrade workflows, persistence, checklists
 │   └── windows-wsl.md                  # WSL2 setup for Windows users
 ├── playbooks/
-│   ├── stack.yml                        # Full stack single entrypoint (7 steps)
-│   ├── wg_cascade.yml                   # Deploy WireGuard cascade (A+B)
+│   ├── stack.yml                        # Full stack single entrypoint (8 steps)
+│   ├── wg_cascade.yml                   # Deploy WireGuard cascade (A only)
 │   ├── add_wg_client.yml               # Add WG client, fetch .conf
 │   ├── verify_wg_cascade.yml           # Standalone cascade verification
 │   ├── verify_all.yml                   # Verify cascade + relay together
@@ -507,6 +506,7 @@ vpn-relay/
 │   ├── backup.yml                       # Backup server state to controller
 │   ├── restore.yml                      # Restore server state from backup
 │   ├── deploy_bot.yml                   # Deploy Telegram bot (B only)
+│   ├── deploy_tma.yml                   # Deploy TMA (nginx + certbot on B)
 │   ├── remove_bot.yml                   # Remove Telegram bot (safety gate required)
 │   ├── bootstrap_ssh.yml                # First-time: push SSH key + harden sshd
 │   ├── maintenance_add_swap.yml         # Add swapfile if missing
@@ -514,104 +514,196 @@ vpn-relay/
 │   ├── upgrade.yml                      # dist-upgrade (maintenance window)
 │   ├── reboot-if-needed.yml             # Conditional reboot
 │   └── maintenance.yml                  # Full maintenance orchestrator
-└── roles/
-    ├── wg_cascade/                      # WireGuard cascade role
-    │   ├── defaults/main.yml
-    │   ├── handlers/main.yml
-    │   ├── tasks/
-    │   │   ├── main.yml
-    │   │   ├── validate.yml
-    │   │   ├── packages.yml
-    │   │   ├── sysctl.yml
-    │   │   ├── keys.yml
-    │   │   ├── configs.yml
-    │   │   ├── routing.yml
-    │   │   ├── firewall_keep.yml
-    │   │   ├── firewall_disable.yml
-    │   │   ├── services.yml
-    │   │   ├── verify.yml
-    │   │   └── memory.yml
-    │   └── templates/
-    │       ├── wg-clients.conf.j2       # wg-clients config with TPROXY PostUp/PreDown
-    │       └── client.conf.j2           # per-client .conf template
-    ├── relay/                           # XRay L4 relay role + XRay uplink client
-    │   ├── defaults/main.yml
-    │   ├── tasks/
-    │   │   ├── main.yml
-    │   │   ├── validate.yml
-    │   │   ├── sysctl.yml
-    │   │   ├── ufw_keep.yml
-    │   │   ├── ufw_disable.yml
-    │   │   ├── iptables.yml
-    │   │   ├── xray_uplink.yml          # Install XRay + config wg-uplink tunnel on A
-    │   │   ├── persist.yml
-    │   │   └── verify.yml
-    │   ├── handlers/main.yml
-    │   └── templates/
-    │       ├── ufw-before-rules.j2
-    │       ├── xray-uplink-client.json.j2  # XRay config: TPROXY inbound → VLESS+Reality
-    │       └── xray.service.j2             # systemd unit for XRay on Server A
-    ├── xray_server/                     # XRay VLESS+Reality server role
-    │   ├── defaults/main.yml
-    │   ├── handlers/main.yml
-    │   ├── tasks/
-    │   │   ├── main.yml
-    │   │   ├── validate.yml
-    │   │   ├── install.yml
-    │   │   ├── keys.yml
-    │   │   ├── config.yml
-    │   │   ├── firewall_keep.yml
-    │   │   ├── firewall_disable.yml
-    │   │   ├── service.yml
-    │   │   └── verify.yml
-    │   └── templates/
-    │       ├── config.json.j2
-    │       ├── xray.service.j2
-    │       ├── xray-client.vless.txt.j2
-    │       └── xray-client.json.j2
-    ├── telegram_bot/                    # Telegram bot deploy role
-    │   ├── defaults/main.yml
-    │   ├── handlers/main.yml
-    │   └── tasks/
-    │       ├── main.yml
-    │       ├── validate.yml
-    │       ├── install.yml
-    │       ├── deploy.yml
-    │       ├── service.yml
-    │       └── verify.yml
-    └── maintenance/                     # OS update/maintenance role
-        ├── defaults/main.yml
-        └── tasks/
-            ├── main.yml
-            ├── update.yml
-            ├── upgrade.yml
-            ├── reboot.yml
-            ├── health.yml
-            └── unattended_upgrades.yml
-├── bot/                                 # Telegram bot source (TypeScript)
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── src/
-│       ├── index.ts                     # Bot entry point + callback router
-│       ├── config/env.ts               # Zod-validated env
-│       ├── db/                          # SQLite (WAL) schema + queries
-│       ├── bot/
-│       │   ├── context.ts              # Session type
-│       │   ├── middlewares/auth.ts     # Admin-only guard
-│       │   ├── handlers/text-input.ts  # Name entry + client creation
-│       │   └── menus/                  # Inline keyboard menus
-│       ├── services/
-│       │   ├── xray.service.ts         # Rebuild config.json from DB + xray restart
-│       │   ├── wg.service.ts           # SSH WireGuard management on A
-│       │   ├── ssh.ts                  # Auto-reconnecting ssh2 pool
-│       │   ├── charts.service.ts       # Traffic PNG (chartjs-node-canvas)
-│       │   ├── qr.service.ts           # QR code PNG for VLESS URIs
-│       │   └── system.service.ts       # CPU/RAM/uptime via /proc + SSH
-│       └── workers/
-│           ├── traffic.worker.ts       # 10min: collect XRay+WG stats
-│           ├── ttl.worker.ts           # 1h: auto-suspend expired clients
-│           ├── health.worker.ts        # 1min: SSH ping A, alert on failure
-│           └── updates.worker.ts       # 12h: apt-check A+B, alert on updates
+├── roles/
+│   ├── wg_cascade/                      # WireGuard cascade role
+│   │   ├── defaults/main.yml
+│   │   ├── handlers/main.yml
+│   │   ├── tasks/
+│   │   │   ├── main.yml
+│   │   │   ├── validate.yml
+│   │   │   ├── packages.yml
+│   │   │   ├── sysctl.yml
+│   │   │   ├── keys.yml
+│   │   │   ├── configs.yml
+│   │   │   ├── firewall_keep.yml
+│   │   │   ├── firewall_disable.yml
+│   │   │   ├── services.yml
+│   │   │   ├── verify.yml
+│   │   │   └── memory.yml
+│   │   └── templates/
+│   │       ├── wg-clients.conf.j2       # wg-clients config with TPROXY PostUp/PreDown
+│   │       └── client.conf.j2           # per-client .conf template
+│   ├── relay/                           # XRay L4 relay role + XRay uplink client
+│   │   ├── defaults/main.yml
+│   │   ├── handlers/main.yml
+│   │   ├── tasks/
+│   │   │   ├── main.yml
+│   │   │   ├── validate.yml
+│   │   │   ├── sysctl.yml
+│   │   │   ├── ufw_keep.yml
+│   │   │   ├── ufw_disable.yml
+│   │   │   ├── iptables.yml
+│   │   │   ├── xray_uplink.yml          # Install XRay + config TPROXY tunnel on A
+│   │   │   ├── persist.yml
+│   │   │   └── verify.yml
+│   │   └── templates/
+│   │       ├── ufw-before-rules.j2
+│   │       ├── xray-uplink-client.json.j2  # XRay config: TPROXY inbound → VLESS+Reality
+│   │       └── xray.service.j2             # systemd unit for XRay on Server A
+│   ├── xray_server/                     # XRay VLESS+Reality server role
+│   │   ├── defaults/main.yml
+│   │   ├── handlers/main.yml
+│   │   ├── tasks/
+│   │   │   ├── main.yml
+│   │   │   ├── validate.yml
+│   │   │   ├── install.yml
+│   │   │   ├── keys.yml
+│   │   │   ├── config.yml
+│   │   │   ├── firewall_keep.yml
+│   │   │   ├── firewall_disable.yml
+│   │   │   ├── service.yml
+│   │   │   └── verify.yml
+│   │   └── templates/
+│   │       ├── config.json.j2
+│   │       ├── xray.service.j2
+│   │       ├── logrotate-xray.j2        # XRay log rotation config
+│   │       ├── xray-client.vless.txt.j2
+│   │       └── xray-client.json.j2
+│   ├── telegram_bot/                    # Telegram bot deploy role
+│   │   ├── defaults/main.yml
+│   │   ├── handlers/main.yml
+│   │   ├── tasks/
+│   │   │   ├── main.yml
+│   │   │   ├── validate.yml
+│   │   │   ├── install.yml
+│   │   │   ├── deploy.yml
+│   │   │   ├── service.yml
+│   │   │   └── verify.yml
+│   │   └── templates/
+│   │       ├── vpn-bot.service.j2       # Bot systemd unit
+│   │       ├── env.j2                   # Bot environment file
+│   │       ├── xray-restart.service.j2  # XRay restart on config change
+│   │       └── xray-restart.path.j2     # Path unit trigger for restart
+│   ├── nginx_tma/                       # Nginx reverse-proxy for TMA
+│   │   ├── defaults/main.yml
+│   │   ├── handlers/main.yml
+│   │   ├── tasks/
+│   │   │   ├── main.yml
+│   │   │   ├── validate.yml
+│   │   │   ├── install.yml
+│   │   │   ├── certbot.yml
+│   │   │   ├── configure.yml
+│   │   │   └── verify.yml
+│   │   └── templates/
+│   │       └── tma-nginx.conf.j2        # SSL 8444 → proxy to Fastify 3000
+│   └── maintenance/                     # OS update/maintenance role
+│       ├── defaults/main.yml
+│       └── tasks/
+│           ├── main.yml
+│           ├── update.yml
+│           ├── upgrade.yml
+│           ├── reboot.yml
+│           ├── health.yml
+│           └── unattended_upgrades.yml
+└── bot/                                 # Telegram bot + TMA (pnpm monorepo)
+    ├── package.json
+    ├── pnpm-workspace.yaml
+    ├── pnpm-lock.yaml
+    └── packages/
+        ├── shared/                      # Shared types & constants
+        │   ├── package.json
+        │   ├── tsconfig.json
+        │   └── src/
+        │       ├── index.ts
+        │       └── types.ts
+        ├── server/                      # Bot backend (GrammY + Fastify)
+        │   ├── package.json
+        │   ├── tsconfig.json
+        │   └── src/
+        │       ├── index.ts             # Entry point: bot + API startup
+        │       ├── config/
+        │       │   └── env.ts           # Zod-validated env
+        │       ├── db/
+        │       │   ├── index.ts         # SQLite (WAL) connection
+        │       │   └── queries.ts       # Prepared statements
+        │       ├── bot/
+        │       │   ├── context.ts       # Session type
+        │       │   ├── middlewares/
+        │       │   │   └── auth.ts      # Admin-only guard
+        │       │   ├── handlers/
+        │       │   │   └── text-input.ts # Name entry + client creation
+        │       │   └── menus/
+        │       │       ├── main.ts
+        │       │       ├── client-list.ts
+        │       │       ├── client-card.ts
+        │       │       ├── add-client.ts
+        │       │       ├── server-status.ts
+        │       │       └── settings.ts
+        │       ├── api/
+        │       │   ├── server.ts        # Fastify instance (127.0.0.1:3000)
+        │       │   ├── middleware/
+        │       │   │   └── tma-auth.ts  # HMAC-SHA256 initData validation
+        │       │   └── routes/
+        │       │       ├── clients.ts
+        │       │       ├── servers.ts
+        │       │       ├── traffic.ts
+        │       │       ├── alerts.ts
+        │       │       ├── settings.ts
+        │       │       └── send-config.ts
+        │       ├── services/
+        │       │   ├── client.service.ts   # Single entry point for all client ops
+        │       │   ├── xray.service.ts     # Rebuild config.json from DB + restart
+        │       │   ├── wg.service.ts       # SSH WireGuard management on A
+        │       │   ├── ssh.ts              # Auto-reconnecting ssh2 pool
+        │       │   ├── charts.service.ts   # Traffic PNG (chartjs-node-canvas)
+        │       │   ├── qr.service.ts       # QR code PNG for VLESS URIs
+        │       │   ├── system.service.ts   # CPU/RAM/uptime via /proc + SSH
+        │       │   ├── ip-info.service.ts  # GeoIP lookups for client IPs
+        │       │   ├── xray-log.service.ts # XRay access log parsing
+        │       │   ├── metrics.cache.ts    # In-memory metrics aggregation
+        │       │   └── ping.store.ts       # Server reachability state
+        │       └── workers/
+        │           ├── traffic.worker.ts   # 10min: collect XRay+WG stats
+        │           ├── ttl.worker.ts       # 1h: auto-suspend expired clients
+        │           ├── health.worker.ts    # 1min: SSH ping A, alert on failure
+        │           ├── updates.worker.ts   # 12h: apt-check A+B, alert on updates
+        │           ├── alert.worker.ts     # 30s: 11 alert checks with cooldowns
+        │           ├── rollup.worker.ts    # Daily traffic aggregation
+        │           └── quota.worker.ts     # Quota enforcement + warnings
+        └── web/                         # Telegram Mini App (React + Vite)
+            ├── package.json
+            ├── tsconfig.json
+            ├── vite.config.ts
+            ├── tailwind.config.js
+            ├── postcss.config.js
+            ├── index.html
+            └── src/
+                ├── main.tsx
+                ├── App.tsx              # Router: screens ↔ Telegram navigation
+                ├── api/
+                │   └── client.ts        # Fetch wrapper with TMA auth header
+                ├── screens/
+                │   ├── Dashboard.tsx
+                │   ├── ClientList.tsx
+                │   ├── ClientDetail.tsx
+                │   ├── AddClient.tsx
+                │   ├── ServerDetail.tsx
+                │   └── Settings.tsx
+                ├── components/
+                │   ├── Layout.tsx
+                │   ├── ClientRow.tsx
+                │   ├── QuotaProgressBar.tsx
+                │   ├── ServerStatusCard.tsx
+                │   ├── ServerTrafficChart.tsx
+                │   ├── Sparkline.tsx
+                │   └── TrafficChart.tsx
+                ├── hooks/
+                │   └── useTelegram.ts   # Telegram WebApp SDK bridge
+                ├── utils/
+                │   └── format.ts        # Byte/date formatting helpers
+                └── styles/
+                    ├── index.css
+                    └── telegram.css      # Telegram theme variable bindings
 ```
 
 ## Requirements
