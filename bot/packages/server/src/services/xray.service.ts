@@ -40,7 +40,7 @@ class XrayService {
   // Remove a VLESS client: persist to clients.json + update config.json + restart xray
   async removeClient(name: string, uuid: string): Promise<void> {
     this.syncClientsJson("remove", { name, uuid });
-    this.syncConfigJson();
+    this.syncConfigJson(new Set([uuid]));
     await this.restartXray();
   }
 
@@ -155,7 +155,9 @@ class XrayService {
 
   // Sync bot-managed clients into config.json so they survive xray restarts.
   // Preserves Ansible-managed clients (those not in clients.json).
-  private syncConfigJson(): void {
+  // excludeUuids: UUIDs just removed from clients.json that must still be
+  // recognised as bot-managed so they don't survive as "static" entries.
+  private syncConfigJson(excludeUuids?: Set<string>): void {
     const configFile = env.XRAY_CONFIG_FILE;
     const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
 
@@ -172,6 +174,9 @@ class XrayService {
       } catch { /* start fresh */ }
     }
     const botUuids = new Set(botClients.map((c) => c.uuid));
+    if (excludeUuids) {
+      for (const uuid of excludeUuids) botUuids.add(uuid);
+    }
 
     // Keep non-bot clients (Ansible-managed), replace bot clients with current list
     const staticClients = (vlessIn.settings.clients as any[]).filter(
