@@ -11,6 +11,11 @@
   tags:
     - install
 
+- name: Configure root SSH admin access to Server A
+  ansible.builtin.import_tasks: admin_ssh.yml
+  tags:
+    - install
+
 - name: Import key generation tasks
   ansible.builtin.import_tasks: keys.yml
   tags:

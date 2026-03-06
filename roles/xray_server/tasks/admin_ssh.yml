@@ -1,0 +1,53 @@
+---
+# Configure root SSH admin access from server-b to server-a
+
+- name: Ensure root .ssh directory exists
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  tags: [install]
+
+- name: Generate root SSH keypair on server-b (if absent)
+  community.crypto.openssh_keypair:
+    path: /root/.ssh/id_ed25519
+    type: ed25519
+    comment: "root@server-b"
+    mode: "0600"
+  register: _serverb_keypair
+  tags: [install]
+
+- name: Create root SSH config with server-a alias
+  ansible.builtin.blockinfile:
+    path: /root/.ssh/config
+    create: yes
+    owner: root
+    group: root
+    mode: "0600"
+    marker: "# {mark} ANSIBLE MANAGED - server-a alias"
+    block: |
+      Host server-a
+          HostName {{ hostvars[groups['relay_servers'][0]]['ansible_host'] }}
+          User root
+          Port 22
+          StrictHostKeyChecking yes
+  tags: [install]
+
+- name: Add server-a host key to root known_hosts
+  ansible.builtin.known_hosts:
+    path: /root/.ssh/known_hosts
+    name: "{{ hostvars[groups['relay_servers'][0]]['ansible_host'] }}"
+    key: "{{ lookup('pipe', 'ssh-keyscan -t ed25519 ' + hostvars[groups['relay_servers'][0]]['ansible_host'] + ' 2>/dev/null') }}"
+    state: present
+  tags: [install]
+
+- name: Authorize server-b root key on server-a
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ _serverb_keypair.public_key }}"
+    state: present
+    comment: "root@server-b (admin access)"
+  delegate_to: "{{ groups['relay_servers'][0] }}"
+  tags: [install]
