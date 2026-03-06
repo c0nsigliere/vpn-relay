@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type React from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
@@ -31,6 +31,7 @@ export function AddClient() {
   const [toast, setToast] = useState("");
 
   const nameValid = NAME_RE.test(name);
+  const submittedRef = useRef(false);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -47,6 +48,7 @@ export function AddClient() {
       close();
     },
     onError: (err: Error) => {
+      submittedRef.current = false;
       haptic.notification("error");
       mainButton?.hideProgress?.();
       mainButton?.enable?.();
@@ -54,6 +56,9 @@ export function AddClient() {
       setTimeout(() => setToast(""), 4000);
     },
   });
+
+  const mutationRef = useRef(mutation);
+  mutationRef.current = mutation;
 
   // MainButton — "Create Client"
   useEffect(() => {
@@ -69,10 +74,11 @@ export function AddClient() {
     }
 
     const handler = () => {
-      if (!nameValid || mutation.isPending) return;
+      if (!nameValid || submittedRef.current) return;
+      submittedRef.current = true;
       mainButton.showProgress?.();
       mainButton.disable?.();
-      mutation.mutate();
+      mutationRef.current.mutate();
     };
 
     mainButton.onClick(handler);
@@ -80,7 +86,7 @@ export function AddClient() {
       mainButton.offClick(handler);
       mainButton.hide();
     };
-  }, [mainButton, nameValid, mutation]);
+  }, [mainButton, nameValid]);
 
   const handleNameChange = (v: string) => {
     setName(v);
