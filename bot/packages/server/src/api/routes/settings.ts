@@ -1,11 +1,17 @@
 import { FastifyInstance } from "fastify";
-import { createReadStream } from "fs";
+import { createReadStream, statSync } from "fs";
 import { basename } from "path";
 import { env } from "../../config/env";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", tmaAuthMiddleware);
+
+  // GET /api/settings/db-info — returns DB file size
+  app.get("/api/settings/db-info", async () => {
+    const stat = statSync(env.DB_PATH);
+    return { size: stat.size };
+  });
 
   // GET /api/settings/backup — streams DB file as a download
   app.get("/api/settings/backup", async (_req, reply) => {

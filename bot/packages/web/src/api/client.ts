@@ -181,6 +181,10 @@ export function patchAlertSetting(key: string, body: PatchAlertSettingRequest): 
   });
 }
 
+export function fetchDbInfo(): Promise<{ size: number }> {
+  return apiFetch<{ size: number }>("/api/settings/db-info");
+}
+
 export async function downloadBackup(): Promise<void> {
   const { blob, filename } = await apiFetchBlob("/api/settings/backup");
   const url = URL.createObjectURL(blob);

@@ -9,13 +9,7 @@ import {
 } from "../../services/client.service";
 import { chartsService } from "../../services/charts.service";
 import { qrService } from "../../services/qr.service";
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
+import { formatBytes } from "../../utils/format";
 
 function clientSummary(c: Client): string {
   const status = c.is_active ? "Active" : "Suspended";

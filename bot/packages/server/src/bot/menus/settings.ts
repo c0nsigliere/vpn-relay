@@ -2,11 +2,19 @@ import { InlineKeyboard, InputFile } from "grammy";
 import * as fs from "fs";
 import { BotContext } from "../context";
 import { env } from "../../config/env";
+import { formatBytes } from "../../utils/format";
 
 export async function showSettings(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery?.();
+
+  let dbInfo = "";
+  try {
+    const stat = fs.statSync(env.DB_PATH);
+    dbInfo = `\n\n💾 Database: ${formatBytes(stat.size)}`;
+  } catch {}
+
   await ctx.editMessageText(
-    "⚙️ *Settings*",
+    `⚙️ *Settings*${dbInfo}`,
     {
       parse_mode: "Markdown",
       reply_markup: new InlineKeyboard()

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { useTelegram } from "../hooks/useTelegram";
-import { downloadBackup, fetchAlertSettings, patchAlertSetting } from "../api/client";
+import { downloadBackup, fetchAlertSettings, fetchDbInfo, patchAlertSetting } from "../api/client";
+import { formatBytes } from "../utils/format";
 import type { AlertSetting } from "@vpn-relay/shared";
 
 // ── Alert metadata ────────────────────────────────────────────────────────────
@@ -263,6 +264,11 @@ export function Settings() {
   const [downloading, setDownloading] = useState(false);
   const [backupError, setBackupError] = useState<string | null>(null);
 
+  const { data: dbInfo } = useQuery({
+    queryKey: ["dbInfo"],
+    queryFn: fetchDbInfo,
+  });
+
   const { data: alertData } = useQuery({
     queryKey: ["alertSettings"],
     queryFn: fetchAlertSettings,
@@ -314,6 +320,9 @@ export function Settings() {
           <h2 className="font-medium text-sm text-tg mb-1">Database Backup</h2>
           <p className="text-xs text-tg-hint mb-3">
             Download a copy of the SQLite database containing all clients and traffic history.
+            {dbInfo && (
+              <span className="block mt-1">Size: {formatBytes(dbInfo.size)}</span>
+            )}
           </p>
           <button
             onClick={handleBackup}
