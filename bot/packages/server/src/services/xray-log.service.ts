@@ -54,6 +54,11 @@ class XrayLogService {
 
     const serverAIp = env.SERVER_A_HOST;
 
+    // Track the LAST log entry per client (later lines = more recent = current connection mode).
+    // A single client can have both relay and direct entries in the 5000-line window if they
+    // switched connection type. We only care about the most recent one.
+    const lastEntry = new Map<string, { relay: boolean; ip: string; port: number }>();
+
     for (const line of tail) {
       const m = line.match(LINE_RE);
       if (!m) continue;
@@ -63,12 +68,16 @@ class XrayLogService {
       // Skip WG cascade uplink (not a real client)
       if (name === "wg-clients") continue;
 
-      if (ip === serverAIp) {
+      lastEntry.set(name, { relay: ip === serverAIp, ip, port: parseInt(port, 10) });
+    }
+
+    for (const [name, entry] of lastEntry) {
+      if (entry.relay) {
         // Relay connection — save masqueraded source port for conntrack correlation
-        relayPorts.set(name, parseInt(port, 10));
+        relayPorts.set(name, entry.port);
       } else {
         // Direct connection — real client IP
-        directIps.set(name, ip);
+        directIps.set(name, entry.ip);
       }
     }
 

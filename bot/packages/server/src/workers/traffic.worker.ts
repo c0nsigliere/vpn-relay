@@ -38,8 +38,21 @@ function detectLocalInterface(): string {
  */
 const CONNTRACK_RE = /^tcp\s+\d+\s+\d+\s+\S+\s+src=(\d+\.\d+\.\d+\.\d+)\s+.*\sdport=(\d+)\s*(?:\[|$)/;
 
-async function getRelayRealIps(): Promise<Map<number, string>> {
-  const result = new Map<number, string>();
+interface ConntrackData {
+  /** masqPort → realIP — for correlating XRay log source ports with client IPs */
+  masqToIp: Map<number, string>;
+  /**
+   * All real client IPs currently connected via relay (i.e. any active DNAT entry to Server B).
+   * Used as a fallback when the specific masqPort has already left conntrack (short-lived
+   * connections close before the 10-minute worker fires), but the client still has other
+   * long-lived connections in the table.
+   */
+  connectedIps: Set<string>;
+}
+
+async function getRelayConntrackData(): Promise<ConntrackData> {
+  const masqToIp = new Map<number, string>();
+  const connectedIps = new Set<string>();
   try {
     const serverBIp = env.SERVER_B_HOST;
     // Pre-filter on Server A to minimize data transfer.
@@ -53,13 +66,13 @@ async function getRelayRealIps(): Promise<Map<number, string>> {
       if (!m) continue;
       const realIp = m[1];
       const masqPort = parseInt(m[2], 10);
-      // Multiple entries may exist; later ones overwrite (fine — any valid mapping works)
-      result.set(masqPort, realIp);
+      masqToIp.set(masqPort, realIp);
+      connectedIps.add(realIp);
     }
   } catch {
     // Server A unreachable or conntrack not installed — silently skip
   }
-  return result;
+  return { masqToIp, connectedIps };
 }
 
 async function collectServerEth0(): Promise<void> {
@@ -162,8 +175,11 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
 
           // If any clients connected via relay, resolve real IPs via conntrack on Server A
           let conntrackMap = new Map<number, string>();
+          let relayConnectedIps = new Set<string>();
           if (relayPorts.size > 0) {
-            conntrackMap = await getRelayRealIps();
+            const ct = await getRelayConntrackData();
+            conntrackMap = ct.masqToIp;
+            relayConnectedIps = ct.connectedIps;
           }
 
           // Determine current IP per client
@@ -198,6 +214,17 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
                 ip = conntrackMap.get(masqPort);
                 if (ip) route = "relay";
               }
+            }
+
+            // XRay relay fallback: masqPort correlation above fails for short-lived
+            // connections that already left conntrack by the time this worker fires
+            // (10-min interval >> typical HTTPS connection lifetime). If the client's
+            // known IP is still present in any active conntrack DNAT entry to Server B,
+            // we can confirm relay without a port match.
+            if (!ip && (client.type === "xray" || client.type === "both")
+                && client.last_ip && relayConnectedIps.has(client.last_ip)) {
+              ip = client.last_ip;
+              route = "relay";
             }
 
             // Also update route even if IP didn't change (client may switch direct↔relay)
