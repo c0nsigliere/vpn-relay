@@ -119,6 +119,26 @@ export async function updateQuota(
   }
 }
 
+export async function updateExpiry(
+  clientId: string,
+  expiresAt: string | null
+): Promise<void> {
+  const client = queries.getClientById(clientId);
+  if (!client) return;
+
+  queries.updateClientExpiry(clientId, expiresAt);
+
+  // Auto-resume if suspended due to expiry and new expiry is in the future (or removed)
+  if (client.is_active === 0 && client.suspend_reason === "expired") {
+    const expiryCleared = expiresAt === null;
+    const expiryExtended = expiresAt !== null && new Date(expiresAt) > new Date();
+    if (expiryCleared || expiryExtended) {
+      const freshClient = queries.getClientById(clientId)!;
+      await resumeClient(freshClient);
+    }
+  }
+}
+
 export async function renameClient(client: Client, newName: string): Promise<void> {
   if (client.type === "wg" || client.type === "both") {
     await wgService.renameClient(client.name, newName);

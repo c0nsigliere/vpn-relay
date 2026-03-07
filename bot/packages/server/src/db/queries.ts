@@ -58,6 +58,10 @@ export const queries = {
     db.prepare("UPDATE clients SET name = ? WHERE id = ?").run(newName, id);
   },
 
+  updateClientExpiry(id: string, expiresAt: string | null): void {
+    db.prepare("UPDATE clients SET expires_at = ? WHERE id = ?").run(expiresAt, id);
+  },
+
   insertTrafficSnapshot(snapshot: Omit<TrafficSnapshot, "id" | "ts">): void {
     db.prepare(`
       INSERT INTO traffic_snapshots (client_id, wg_rx, wg_tx, xray_rx, xray_tx)

@@ -14,7 +14,7 @@ import { TrafficChart } from "../components/TrafficChart";
 import { useTelegram } from "../hooks/useTelegram";
 import {
   fetchClient, patchClient, deleteClient, sendConfig, renameClient,
-  fetchTrafficHistory, fetchClientMonthly, fetchClientDaily, updateQuota,
+  fetchTrafficHistory, fetchClientMonthly, fetchClientDaily, updateQuota, updateExpiry,
 } from "../api/client";
 import { QuotaProgressBar } from "../components/QuotaProgressBar";
 import { formatBytesLong, formatMonth, formatDay, formatRelativeTime } from "../utils/format";
@@ -57,6 +57,8 @@ export function ClientDetail() {
   const [editingQuota, setEditingQuota] = useState(false);
   const [quotaDaily, setQuotaDaily] = useState<string>("");
   const [quotaMonthly, setQuotaMonthly] = useState<string>("");
+  const [editingExpiry, setEditingExpiry] = useState(false);
+  const [expiryDate, setExpiryDate] = useState<string>("");
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ["client", id],
@@ -138,6 +140,20 @@ export function ClientDetail() {
     },
   });
 
+  const expiryMutation = useMutation({
+    mutationFn: (expiresAt: string | null) => updateExpiry(id!, expiresAt),
+    onSuccess: () => {
+      haptic.notification("success");
+      setEditingExpiry(false);
+      void queryClient.invalidateQueries({ queryKey: ["client", id] });
+      void queryClient.invalidateQueries({ queryKey: ["clients"] });
+    },
+    onError: (err: Error) => {
+      haptic.notification("error");
+      alert(err.message);
+    },
+  });
+
   const configMutation = useMutation({
     mutationFn: () => sendConfig(id!),
     onSuccess: () => {
@@ -196,6 +212,29 @@ export function ClientDetail() {
     const daily = quotaDaily ? parseFloat(quotaDaily) : null;
     const monthly = quotaMonthly ? parseFloat(quotaMonthly) : null;
     quotaMutation.mutate({ daily, monthly });
+  };
+
+  const handleEditExpiryStart = () => {
+    if (client?.expires_at) {
+      // Extract YYYY-MM-DD from ISO string for <input type="date">
+      setExpiryDate(client.expires_at.slice(0, 10));
+    } else {
+      // Default to 30 days from now
+      const d = new Date(Date.now() + 30 * 86_400_000);
+      setExpiryDate(d.toISOString().slice(0, 10));
+    }
+    setEditingExpiry(true);
+  };
+
+  const handleExpirySave = () => {
+    if (!expiryDate) return;
+    // Set to end of day UTC
+    const iso = new Date(expiryDate + "T23:59:59Z").toISOString();
+    expiryMutation.mutate(iso);
+  };
+
+  const handleExpiryRemove = () => {
+    expiryMutation.mutate(null);
   };
 
   const handleDelete = () => {
@@ -291,12 +330,16 @@ export function ClientDetail() {
             </>
           )}
 
-          {client.expires_at && (
-            <>
-              <div className="text-tg-hint">Expires</div>
-              <div className="text-tg">{new Date(client.expires_at).toLocaleDateString()}</div>
-            </>
-          )}
+          <div className="text-tg-hint">Expires</div>
+          <div className="text-tg flex items-center gap-1.5">
+            <span>{client.expires_at ? new Date(client.expires_at).toLocaleDateString() : "Never"}</span>
+            <button
+              onClick={handleEditExpiryStart}
+              className="text-xs text-tg-hint border border-tg px-1.5 py-0 rounded"
+            >
+              {client.expires_at ? "Edit" : "Set"}
+            </button>
+          </div>
 
           <div className="text-tg-hint">Created</div>
           <div className="text-tg">{new Date(client.created_at).toLocaleDateString()}</div>
@@ -386,6 +429,47 @@ export function ClientDetail() {
             </button>
             <button
               onClick={() => setEditingQuota(false)}
+              className="px-3 py-2 rounded-lg bg-tg text-tg-hint text-sm border border-tg"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Expiry inline form */}
+      {editingExpiry && (
+        <div className="bg-tg-secondary rounded-xl p-4 mb-4 space-y-3">
+          <div className="text-sm font-medium text-tg mb-1">Edit Expiry</div>
+          <div>
+            <label className="text-xs text-tg-hint block mb-1">Expiry Date</label>
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              min={new Date().toISOString().slice(0, 10)}
+              className="w-full bg-tg rounded-lg px-3 py-2 text-sm text-tg outline-none border border-tg focus:border-tg-button"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleExpirySave}
+              disabled={!expiryDate || expiryMutation.isPending}
+              className="flex-1 px-3 py-2 rounded-lg bg-tg-button text-tg-button text-sm font-medium disabled:opacity-40"
+            >
+              {expiryMutation.isPending ? "Saving…" : "Save"}
+            </button>
+            {client.expires_at && (
+              <button
+                onClick={handleExpiryRemove}
+                disabled={expiryMutation.isPending}
+                className="px-3 py-2 rounded-lg bg-tg text-tg-destructive text-sm border border-tg disabled:opacity-40"
+              >
+                Remove
+              </button>
+            )}
+            <button
+              onClick={() => setEditingExpiry(false)}
               className="px-3 py-2 rounded-lg bg-tg text-tg-hint text-sm border border-tg"
             >
               Cancel
@@ -498,6 +582,14 @@ export function ClientDetail() {
           className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
         >
           Edit Quota
+        </button>
+
+        <button
+          onClick={handleEditExpiryStart}
+          disabled={editingExpiry}
+          className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+        >
+          {client.expires_at ? "Edit Expiry" : "Set Expiry"}
         </button>
 
         <button

@@ -9,6 +9,7 @@ import {
   deleteClient,
   sendConfigToChat,
   updateQuota,
+  updateExpiry,
 } from "../../services/client.service";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 import { env } from "../../config/env";
@@ -117,7 +118,7 @@ export async function clientsRoutes(
     const client = queries.getClientById(req.params.id);
     if (!client) return reply.code(404).send({ error: "Client not found" });
 
-    const body = req.body as { action?: string; newName?: string; dailyQuotaGb?: number | null; monthlyQuotaGb?: number | null };
+    const body = req.body as { action?: string; newName?: string; dailyQuotaGb?: number | null; monthlyQuotaGb?: number | null; expiresAt?: string | null };
     try {
       if (body.action === "suspend") {
         await suspendClient(client, "manual");
@@ -139,8 +140,20 @@ export async function clientsRoutes(
         const dailyQuotaGb = body.dailyQuotaGb !== undefined ? body.dailyQuotaGb : client.daily_quota_gb;
         const monthlyQuotaGb = body.monthlyQuotaGb !== undefined ? body.monthlyQuotaGb : client.monthly_quota_gb;
         await updateQuota(client.id, dailyQuotaGb, monthlyQuotaGb);
+      } else if (body.action === "update-expiry") {
+        const { expiresAt } = body;
+        if (expiresAt !== undefined && expiresAt !== null) {
+          const d = new Date(expiresAt);
+          if (isNaN(d.getTime())) {
+            return reply.code(400).send({ error: "Invalid date format for expiresAt" });
+          }
+          if (d <= new Date()) {
+            return reply.code(400).send({ error: "expiresAt must be a future date" });
+          }
+        }
+        await updateExpiry(client.id, expiresAt ?? null);
       } else {
-        return reply.code(400).send({ error: "action must be suspend, resume, rename, or update-quota" });
+        return reply.code(400).send({ error: "action must be suspend, resume, rename, update-quota, or update-expiry" });
       }
       const updated = queries.getClientById(req.params.id)!;
       return reply.send(updated);

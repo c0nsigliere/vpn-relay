@@ -119,6 +119,13 @@ export function updateQuota(id: string, dailyQuotaGb: number | null, monthlyQuot
   });
 }
 
+export function updateExpiry(id: string, expiresAt: string | null): Promise<Client> {
+  return apiFetch<Client>(`/api/clients/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "update-expiry", expiresAt }),
+  });
+}
+
 export function sendConfig(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/api/clients/${id}/send-config`, {
     method: "POST",

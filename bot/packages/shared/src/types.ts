@@ -49,10 +49,11 @@ export interface CreateClientRequest {
 }
 
 export interface PatchClientRequest {
-  action: "suspend" | "resume" | "rename" | "update-quota";
+  action: "suspend" | "resume" | "rename" | "update-quota" | "update-expiry";
   newName?: string;        // required when action === "rename"
   dailyQuotaGb?: number | null;
   monthlyQuotaGb?: number | null;
+  expiresAt?: string | null; // ISO string or null; required when action === "update-expiry"
 }
 
 export interface ClientsResponse {
