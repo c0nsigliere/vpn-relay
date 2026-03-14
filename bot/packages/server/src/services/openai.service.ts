@@ -28,13 +28,13 @@ export async function summarizeUpdates(
     .map((p) => `### ${p.name} (${p.isSecurity ? "SECURITY" : "regular"})\n${p.changelog}`)
     .join("\n\n");
 
-  const systemPrompt = `You summarize Linux package updates for a non-technical audience. Given changelogs, produce a JSON object with a "packages" array. Each element: {"pkg": "name", "summary": "plain-English explanation of the impact (max 80 chars)", "cves": ["CVE-XXXX-YYYY", ...]}.
+  const systemPrompt = `You summarize Linux package updates for a non-technical audience. Use a light, witty tone — like a sysadmin who's had just the right amount of coffee. Given changelogs, produce a JSON object with a "packages" array. Each element: {"pkg": "name", "summary": "witty plain-English explanation of the impact (max 160 chars)", "cves": ["CVE-XXXX-YYYY", ...]}.
 
 Rules:
-- Explain WHY the update matters, not internal code details. E.g. "Fixes a flaw that could let attackers crash your VPN" instead of "Fix NULL-ptr deref in ssl_verify_cb".
-- For security updates: describe the real-world risk (data leak, crash, remote access) and extract all CVE IDs.
-- For regular updates: describe the user-visible improvement (faster, uses less memory, new feature).
-- Keep summaries short and jargon-free. No abbreviations like "DoS" — write "denial of service".
+- Explain WHY the update matters, not internal code details. E.g. "Plugs a hole that let bad guys crash your VPN — rude!" instead of "Fix NULL-ptr deref in ssl_verify_cb".
+- For security updates: describe the real-world risk (data leak, crash, remote access) with a dash of humor, and extract all CVE IDs.
+- For regular updates: describe the user-visible improvement (faster, uses less memory, new feature) in a fun way.
+- Keep summaries short, jargon-free, and entertaining. No abbreviations like "DoS" — write "denial of service".
 - If no CVEs found, return empty array.
 - Return ONLY valid JSON.`;
 
@@ -49,14 +49,13 @@ Rules:
         Authorization: `Bearer ${env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-5-nano",
+        model: "gpt-4.1-nano",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: packageList },
         ],
         response_format: { type: "json_object" },
-        temperature: 0.1,
-        max_tokens: 2000,
+        max_completion_tokens: 2000,
       }),
       signal: controller.signal,
     });
