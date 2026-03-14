@@ -38,6 +38,9 @@ const envSchema = z.object({
 
   // Timezone offset for daily traffic grouping (e.g. "+3:00" for Moscow)
   TZ_OFFSET: z.string().default("+3:00"),
+
+  // OpenAI API key for AI-powered update summaries (optional — degrades gracefully)
+  OPENAI_API_KEY: z.string().optional(),
 });
 
 function loadEnv() {

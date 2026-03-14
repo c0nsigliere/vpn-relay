@@ -106,6 +106,14 @@ const ALERT_META: Record<string, AlertMeta> = {
       { key: "cooldown_min", label: "Cooldown", unit: "min", min: 1 },
     ],
   },
+  reboot_required: {
+    name: "Reboot Required",
+    description: "Server has pending reboot (/var/run/reboot-required exists)",
+    group: "warning",
+    fields: [
+      { key: "cooldown_min", label: "Cooldown", unit: "min", min: 1 },
+    ],
+  },
   abnormal_traffic: {
     name: "Abnormal Traffic",
     description: "Client exceeds traffic threshold per hour — auto-suspended",
@@ -122,6 +130,14 @@ const ALERT_META: Record<string, AlertMeta> = {
     fields: [
       { key: "threshold", label: "Usage %", unit: "%", min: 1, step: 5 },
       { key: "cooldown_min", label: "Cooldown", unit: "min", min: 720 },
+    ],
+  },
+  updates_pending: {
+    name: "Updates Pending",
+    description: "Enriched package update alerts with changelogs and AI summaries",
+    group: "info",
+    fields: [
+      { key: "cooldown_min", label: "Cooldown", unit: "min", min: 60 },
     ],
   },
 };

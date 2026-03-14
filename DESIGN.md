@@ -342,6 +342,8 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 - `xray.service.ts` — reads active clients from DB, rebuilds `config.json` directly + xray-restart.path trigger
 - `wg.service.ts` — SSH to Server A: keypair gen, peer management, syncconf
 - `ssh.ts` — auto-reconnecting ssh2 connection pool
+- `updates.service.ts` — fetches upgradable packages (`apt list --upgradable`) and changelogs (batched `apt-get changelog`) from both servers
+- `openai.service.ts` — single-function wrapper for OpenAI chat completions (native fetch, no npm dep). Summarizes changelogs into one-liners + CVE extraction. Returns null on any error (graceful degradation)
 - `charts.service.ts` — chartjs-node-canvas traffic PNG
 - `qr.service.ts` — QR code PNG for VLESS URIs
 - `system.service.ts` — CPU/RAM/disk/uptime via /proc + SSH
@@ -353,7 +355,7 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 - `traffic.worker.ts` — 10min: XRay gRPC stats (reset delta) + WG SSH stats → traffic_snapshots; collects client IPs (WG endpoint + XRay access log) → batch ISP lookup → `last_ip`/`last_ip_isp` columns
 - `ttl.worker.ts` — 1h: auto-suspend expired clients
 - `health.worker.ts` — 1min: SSH ping Server A → ping.store (used by alert worker)
-- `updates.worker.ts` — 12h: apt-check on A+B, alert if security updates > 0
+- `updates.worker.ts` — 12h: enriched package update alerts with changelogs and optional AI summaries (OpenAI gpt-4o-mini). 3 tiers: Tier 1 (AI summaries + CVEs), Tier 2 (package list), Tier 3 (bare count fallback). Integrated with alert system (`updates_pending` key). Hash-based dedup avoids redundant changelog/AI calls.
 - `quota.worker.ts` — 1min: enforce daily/monthly quotas, daily/monthly reset
 - `rollup.worker.ts` — nightly: move old snapshots → *_traffic_monthly tables
 - `alert.worker.ts` — 30s (90s delayed start): evaluate all alert conditions (see § Alert System)
@@ -471,7 +473,7 @@ alert.worker.ts (30s interval, 90s delayed start)
     │
     ├── ping.store      → cascade_down, cascade_degradation
     ├── systemctl       → service_dead_xray, service_dead_wg (via SSH)
-    ├── metricsCache    → disk_full, network_saturation, cpu_overload, reboot_detected
+    ├── metricsCache    → disk_full, network_saturation, cpu_overload, reboot_detected, reboot_required
     ├── DB queries      → abnormal_traffic, quota_warning
     └── openssl         → cert_expiry
 ```
@@ -493,8 +495,10 @@ Composite keys (`disk_full:a`, `quota_warning:{client_id}`) give independent coo
 | `cpu_overload` | warning | 95%, 10 min | metricsCache |
 | `cert_expiry` | warning | 7 days | openssl x509 |
 | `reboot_detected` | warning | uptime < 10 min | os.uptime() / SSH /proc/uptime |
+| `reboot_required` | warning | file exists, 12h cooldown | metricsCache.rebootRequired |
 | `abnormal_traffic` | info | 50 GB/hr, auto-suspend | DB: traffic_snapshots |
 | `quota_warning` | info | 90% of monthly quota | DB: getQuotaUsageBatch |
+| `updates_pending` | info | — (12h cooldown) | updates.worker: apt list --upgradable |
 | `channel_capacity` | config | 100 Mbps | read by network_saturation |
 
 **API:** `GET /api/settings/alerts`, `PATCH /api/settings/alerts/:key`

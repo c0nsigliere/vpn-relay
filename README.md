@@ -174,7 +174,7 @@ ansible-playbook playbooks/stack.yml \
 - Server status (CPU/RAM/uptime for A and B)
 - Auto-suspend expired clients (TTL support)
 - Health alerts if Server A goes unreachable
-- Security update notifications (apt-check every 12h)
+- Enriched update alerts — lists which packages need updating with changelogs and optional AI summaries (CVEs for security, brief descriptions for regular). Set `OPENAI_API_KEY` for AI summaries; degrades gracefully without it
 - Client IP tracking (WG endpoint + XRay access log) with ISP lookup (ip-api.com)
 
 **Required:** Get a bot token from [@BotFather](https://t.me/BotFather) and your numeric Telegram user ID.
@@ -397,6 +397,7 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `bot_user` | `vpn-bot` | System user the bot runs as |
 | `node_major_version` | `20` | Node.js major version to install |
 | `bot_remove` | `false` | Safety gate for `remove_bot.yml` — must set to `true` to remove |
+| `openai_api_key` | `""` | OpenAI API key for AI-powered update summaries (optional) |
 | `bot_remove_data` | `false` | Also remove `bot_data_dir` (SQLite DB) when removing |
 
 Pass credentials as extra vars or store them in an Ansible vault file:
@@ -657,13 +658,15 @@ vpn-relay/
         │       │   ├── ip-info.service.ts  # GeoIP lookups for client IPs
         │       │   ├── xray-log.service.ts # XRay access log parsing
         │       │   ├── metrics.cache.ts    # In-memory metrics aggregation
-        │       │   └── ping.store.ts       # Server reachability state
+        │       │   ├── ping.store.ts       # Server reachability state
+        │       │   ├── updates.service.ts  # apt list + changelog fetching
+        │       │   └── openai.service.ts   # AI update summaries (optional)
         │       └── workers/
         │           ├── traffic.worker.ts   # 10min: collect XRay+WG stats
         │           ├── ttl.worker.ts       # 1h: auto-suspend expired clients
         │           ├── health.worker.ts    # 1min: SSH ping A, alert on failure
         │           ├── updates.worker.ts   # 12h: apt-check A+B, alert on updates
-        │           ├── alert.worker.ts     # 30s: 11 alert checks with cooldowns
+        │           ├── alert.worker.ts     # 30s: 12 alert checks with cooldowns
         │           ├── rollup.worker.ts    # Daily traffic aggregation
         │           └── quota.worker.ts     # Quota enforcement + warnings
         └── web/                         # Telegram Mini App (React + Vite)

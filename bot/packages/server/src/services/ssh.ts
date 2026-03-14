@@ -67,10 +67,10 @@ class SshPool {
     });
   }
 
-  async exec(command: string): Promise<string> {
+  async exec(command: string, timeoutMs = COMMAND_TIMEOUT_MS): Promise<string> {
     const conn = await this.connect();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("SSH command timed out")), COMMAND_TIMEOUT_MS);
+      const timer = setTimeout(() => reject(new Error("SSH command timed out")), timeoutMs);
       conn.exec(command, (err, stream) => {
         if (err) {
           clearTimeout(timer);

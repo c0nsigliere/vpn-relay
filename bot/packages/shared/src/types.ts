@@ -75,6 +75,7 @@ export interface ServerStatus {
   ramTotalMb: number;
   uptime: string;
   updatesAvailable: number;
+  updatesTotalAvailable: number;
   rebootRequired: boolean;
   diskUsedGb?: number;
   diskTotalGb?: number;
@@ -175,7 +176,9 @@ export type AlertKey =
   | "quota_warning"
   | "cert_expiry"
   | "reboot_detected"
-  | "channel_capacity";
+  | "reboot_required"
+  | "channel_capacity"
+  | "updates_pending";
 
 export interface AlertSetting {
   alert_key: string;

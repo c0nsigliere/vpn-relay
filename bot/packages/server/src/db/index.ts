@@ -110,7 +110,9 @@ const _alertDefaults = [
   { alert_key: "quota_warning",      enabled: 1, threshold: 90,  threshold2: null, cooldown_min: 720 },
   { alert_key: "cert_expiry",        enabled: 1, threshold: 7,   threshold2: null, cooldown_min: 1440 },
   { alert_key: "reboot_detected",    enabled: 1, threshold: null, threshold2: null, cooldown_min: 60 },
+  { alert_key: "reboot_required",   enabled: 1, threshold: null, threshold2: null, cooldown_min: 720 },
   { alert_key: "channel_capacity",   enabled: 1, threshold: 100, threshold2: null, cooldown_min: 0 },
+  { alert_key: "updates_pending",   enabled: 1, threshold: null, threshold2: null, cooldown_min: 720 },
 ];
 const _seedStmt = db.prepare(
   "INSERT OR IGNORE INTO alert_settings (alert_key, enabled, threshold, threshold2, cooldown_min) VALUES (@alert_key, @enabled, @threshold, @threshold2, @cooldown_min)"
