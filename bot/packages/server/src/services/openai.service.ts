@@ -24,6 +24,14 @@ export async function summarizeUpdates(
   if (!env.OPENAI_API_KEY) return null;
   if (packages.length === 0) return new Map();
 
+  // Build a set of real CVEs per package to filter out hallucinated ones
+  const realCves = new Map<string, Set<string>>();
+  for (const p of packages) {
+    const cves = new Set<string>();
+    for (const m of p.changelog.matchAll(/CVE-\d{4}-\d{4,}/g)) cves.add(m[0]);
+    realCves.set(p.name, cves);
+  }
+
   const packageList = packages
     .map((p) => `### ${p.name} (${p.isSecurity ? "SECURITY" : "regular"})\n${p.changelog}`)
     .join("\n\n");
@@ -35,7 +43,8 @@ Rules:
 - For security updates: describe the real-world risk (data leak, crash, remote access) with a dash of humor, and extract all CVE IDs.
 - For regular updates: describe the user-visible improvement (faster, uses less memory, new feature) in a fun way.
 - Keep summaries short, jargon-free, and entertaining. No abbreviations like "DoS" — write "denial of service".
-- If no CVEs found, return empty array.
+- ONLY return CVE IDs that appear verbatim in the changelog text. Never invent, guess, or use placeholder CVE IDs.
+- If no CVEs found in the text, return empty array.
 - Return ONLY valid JSON.`;
 
   try {
@@ -76,10 +85,10 @@ Rules:
     const parsed = JSON.parse(content) as { packages: OpenAIResponseItem[] };
     const result = new Map<string, PackageSummary>();
     for (const item of parsed.packages ?? []) {
-      result.set(item.pkg, {
-        summary: item.summary,
-        cves: item.cves ?? [],
-      });
+      // Filter out hallucinated CVEs — only keep IDs that exist in the original changelog
+      const allowed = realCves.get(item.pkg);
+      const cves = (item.cves ?? []).filter((c) => allowed?.has(c));
+      result.set(item.pkg, { summary: item.summary, cves });
     }
     return result;
   } catch (err) {
