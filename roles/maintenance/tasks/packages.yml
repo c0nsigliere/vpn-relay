@@ -1,0 +1,9 @@
+---
+# Ensure required system packages are present.
+# update-notifier-common provides /usr/lib/update-notifier/apt-check
+# which the bot uses to query pending updates on both servers.
+
+- name: Install update-notifier-common
+  ansible.builtin.apt:
+    name: update-notifier-common
+    state: present

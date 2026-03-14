@@ -4,6 +4,12 @@
 # When import_tasks has a 'when' clause, the condition applies to every task
 # in the imported file.
 
+- name: Ensure required system packages
+  ansible.builtin.import_tasks: packages.yml
+  tags:
+    - packages
+    - maintenance
+
 - name: Manage unattended-upgrades package
   ansible.builtin.import_tasks: unattended_upgrades.yml
   tags:

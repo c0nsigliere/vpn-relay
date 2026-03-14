@@ -239,7 +239,12 @@ export function ServerDetail() {
                 {status.updatesAvailable} security update{status.updatesAvailable !== 1 ? "s" : ""}
               </span>
             )}
-            {!status.rebootRequired && status.updatesAvailable === 0 && (
+            {status.updatesTotalAvailable - status.updatesAvailable > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                {status.updatesTotalAvailable - status.updatesAvailable} package update{status.updatesTotalAvailable - status.updatesAvailable !== 1 ? "s" : ""}
+              </span>
+            )}
+            {!status.rebootRequired && status.updatesTotalAvailable === 0 && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">
                 Up to date
               </span>

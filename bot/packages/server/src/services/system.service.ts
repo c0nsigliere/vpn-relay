@@ -8,6 +8,7 @@ export interface ServerStatus {
   ramTotalMb: number;
   uptime: string;
   updatesAvailable: number;
+  updatesTotalAvailable: number;
   rebootRequired: boolean;
   diskUsedGb?: number;
   diskTotalGb?: number;
@@ -134,6 +135,7 @@ async function parseLocalStatus(
 
   // APT updates
   let updatesAvailable = 0;
+  let updatesTotalAvailable = 0;
   let rebootRequired = false;
   try {
     const { execSync } = await import("child_process");
@@ -142,7 +144,10 @@ async function parseLocalStatus(
       timeout: 10000,
     });
     const match = aptOut.match(/^(\d+);(\d+)/);
-    if (match) updatesAvailable = parseInt(match[2], 10); // security updates
+    if (match) {
+      updatesTotalAvailable = parseInt(match[1], 10); // all updates
+      updatesAvailable = parseInt(match[2], 10);       // security updates
+    }
     rebootRequired = fs.existsSync("/var/run/reboot-required");
   } catch {
     // apt-check not available or failed
@@ -154,6 +159,7 @@ async function parseLocalStatus(
     ramTotalMb,
     uptime,
     updatesAvailable,
+    updatesTotalAvailable,
     rebootRequired,
     diskUsedGb,
     diskTotalGb,
@@ -229,6 +235,7 @@ async function parseRemoteStatus(
   // Updates
   const aptOut = results[3] as string;
   const aptMatch = aptOut.match(/^(\d+);(\d+)/m);
+  const updatesTotalAvailable = aptMatch ? parseInt(aptMatch[1], 10) : 0;
   const updatesAvailable = aptMatch ? parseInt(aptMatch[2], 10) : 0;
   const rebootRequired = aptOut.includes("REBOOT:1");
 
@@ -285,6 +292,7 @@ async function parseRemoteStatus(
     ramTotalMb,
     uptime,
     updatesAvailable,
+    updatesTotalAvailable,
     rebootRequired,
     diskUsedGb,
     diskTotalGb,

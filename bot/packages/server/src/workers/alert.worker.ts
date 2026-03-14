@@ -440,6 +440,38 @@ async function checkRebootDetected(bot: Bot<BotContext>): Promise<void> {
   }
 }
 
+async function checkRebootRequired(bot: Bot<BotContext>): Promise<void> {
+  if (!isEnabled("reboot_required")) return;
+
+  const [resultA, resultB] = await Promise.allSettled([
+    metricsCache.getStatusA(),
+    metricsCache.getStatusB(),
+  ]);
+
+  const checks = [
+    {
+      key: "reboot_required:a",
+      label: "Server A",
+      required: resultA.status === "fulfilled" ? resultA.value.rebootRequired : undefined,
+    },
+    {
+      key: "reboot_required:b",
+      label: "Server B",
+      required: resultB.status === "fulfilled" ? resultB.value.rebootRequired : undefined,
+    },
+  ];
+
+  for (const { key, label, required } of checks) {
+    if (required === undefined) continue;
+    const state = queries.getAlertState(key);
+    if (required && shouldFire(key)) {
+      await fireAlert(key, `🔄 *Reboot required* on ${label}`, bot);
+    } else if (!required && state?.status === "fired") {
+      await clearAlert(key, `✅ *Reboot no longer required* on ${label}`, bot);
+    }
+  }
+}
+
 // ── Worker loop ───────────────────────────────────────────────────────────────
 
 export function alertWorker(bot: Bot<BotContext>): { stop: () => void } {
@@ -461,6 +493,7 @@ export function alertWorker(bot: Bot<BotContext>): { stop: () => void } {
       await checkQuotaWarning(bot);
       await checkCertExpiry(bot);
       await checkRebootDetected(bot);
+      await checkRebootRequired(bot);
     } catch (err) {
       console.error("[alert worker] unhandled error:", err);
     }
