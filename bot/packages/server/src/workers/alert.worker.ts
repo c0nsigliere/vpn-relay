@@ -72,6 +72,7 @@ function shouldFire(stateKey: string): boolean {
 }
 
 async function fireAlert(stateKey: string, msg: string, bot: Bot<BotContext>, context?: string): Promise<void> {
+  logger.warn(`Alert fired: ${stateKey}`);
   queries.upsertAlertState(stateKey, "fired", context);
   try {
     await bot.api.sendMessage(env.ADMIN_ID, msg, { parse_mode: "Markdown" });
@@ -81,6 +82,7 @@ async function fireAlert(stateKey: string, msg: string, bot: Bot<BotContext>, co
 }
 
 async function clearAlert(stateKey: string, msg: string, bot: Bot<BotContext>): Promise<void> {
+  logger.info(`Alert cleared: ${stateKey}`);
   queries.upsertAlertState(stateKey, "clear");
   try {
     await bot.api.sendMessage(env.ADMIN_ID, msg, { parse_mode: "Markdown" });
@@ -509,6 +511,7 @@ export function alertWorker(bot: Bot<BotContext>): { stop: () => void } {
     timer = setInterval(() => { void run(); }, INTERVAL_MS);
   }, STARTUP_DELAY_MS);
 
+  logger.info("started (every 30s, first run in 90s)");
   return {
     stop: () => {
       stopped = true;

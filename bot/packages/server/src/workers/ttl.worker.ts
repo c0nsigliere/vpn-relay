@@ -34,5 +34,6 @@ export function ttlWorker(bot: Bot<BotContext>): { stop: () => void } {
   const timer = setInterval(run, INTERVAL_MS);
   run().catch(logOnError(logger, "initial run"));
 
+  logger.info("started (every 1h)");
   return { stop: () => clearInterval(timer) };
 }

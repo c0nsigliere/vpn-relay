@@ -37,6 +37,7 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
 
       // ── Phase 1: Daily reset ─────────────────────────────────────────────
       if (nowDay !== lastDay) {
+        logger.info(`Day boundary: ${lastDay} → ${nowDay}`);
         lastDay = nowDay;
         const dailySuspended = queries.getQuotaSuspendedClients("daily_quota");
         for (const client of dailySuspended) {
@@ -60,6 +61,7 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
 
       // ── Phase 2: Monthly reset ───────────────────────────────────────────
       if (nowMonth !== lastMonth) {
+        logger.info(`Month boundary: ${lastMonth} → ${nowMonth}`);
         lastMonth = nowMonth;
         const monthlySuspended = queries.getQuotaSuspendedClients("monthly_quota");
         for (const client of monthlySuspended) {
@@ -110,5 +112,6 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
   const timer = setInterval(run, INTERVAL_MS);
   run().catch(logOnError(logger, "initial run"));
 
+  logger.info("started (every 1m)");
   return { stop: () => clearInterval(timer) };
 }

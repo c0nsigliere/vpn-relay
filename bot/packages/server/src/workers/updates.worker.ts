@@ -309,6 +309,7 @@ async function sendMessages(bot: Bot<BotContext>, parts: string[]): Promise<void
 export function updatesWorker(bot: Bot<BotContext>): { stop: () => void } {
   const run = async () => {
     if (!isEnabled()) return;
+    logger.info("Checking for updates...");
 
     try {
       const results = await Promise.allSettled([
@@ -330,6 +331,7 @@ export function updatesWorker(bot: Bot<BotContext>): { stop: () => void } {
   // Run after 60s on startup to avoid false alerts during init
   const initTimer = setTimeout(() => run().catch(logOnError(logger, "initial run")), 60_000);
 
+  logger.info("started (every 12h, first run in 60s)");
   return {
     stop: () => {
       clearInterval(timer);

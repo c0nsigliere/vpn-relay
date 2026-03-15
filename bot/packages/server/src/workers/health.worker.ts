@@ -14,18 +14,25 @@ const FAILURE_THRESHOLD = 3;
 export function healthWorker(bot: Bot<BotContext>): { stop: () => void } {
   let consecutiveFailures = 0;
   let alertSent = false;
+  let wasReachable = false;
 
   const run = async () => {
     try {
       const ok = await sshPool.ping();
       if (ok) {
+        if (!wasReachable) {
+          logger.info("Server A reachable");
+          wasReachable = true;
+        }
         if (alertSent && consecutiveFailures >= FAILURE_THRESHOLD) {
           await bot.api.sendMessage(env.ADMIN_ID, "✅ Server A is back online.");
         }
         consecutiveFailures = 0;
         alertSent = false;
       } else {
+        wasReachable = false;
         consecutiveFailures++;
+        logger.warn(`Server A unreachable (${consecutiveFailures}/${FAILURE_THRESHOLD})`);
         if (consecutiveFailures >= FAILURE_THRESHOLD && !alertSent) {
           alertSent = true;
           await bot.api.sendMessage(
@@ -59,5 +66,6 @@ export function healthWorker(bot: Bot<BotContext>): { stop: () => void } {
   void run();
   const timer = setInterval(run, INTERVAL_MS);
 
+  logger.info("started (every 1m)");
   return { stop: () => clearInterval(timer) };
 }

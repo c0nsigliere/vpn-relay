@@ -150,6 +150,7 @@ async function shutdown(signal: string): Promise<void> {
   await bot.stop();
   if (apiServer) await apiServer.close();
   workers.forEach((w) => w.stop());
+  logger.info("All workers stopped");
   sshPool.close();
   xrayService.close();
   db.close();

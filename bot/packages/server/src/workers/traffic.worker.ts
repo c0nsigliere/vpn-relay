@@ -250,6 +250,8 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
 
       // Always collect server eth0 counters (independent of client count)
       await collectServerEth0();
+
+      logger.debug(`Cycle done: ${clients.length} clients polled`);
     } catch (err) {
       logger.error("Worker error", err);
     }
@@ -258,5 +260,6 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
   const timer = setInterval(run, INTERVAL_MS);
   run().catch(logOnError(logger, "initial run"));
 
+  logger.info("started (every 10m)");
   return { stop: () => clearInterval(timer) };
 }

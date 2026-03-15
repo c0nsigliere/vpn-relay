@@ -22,5 +22,6 @@ export function rollupWorker(): { stop: () => void } {
   // Run once shortly after startup (avoid blocking startup path)
   setTimeout(run, 60_000);
 
+  logger.info("started (every 24h, first run in 60s)");
   return { stop: () => clearInterval(timer) };
 }
