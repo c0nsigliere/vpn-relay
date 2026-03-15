@@ -8,6 +8,13 @@
     update_cache: false
   tags: [install, bot]
 
+- name: Check installed Node.js major version
+  shell: node --version 2>/dev/null | sed 's/^v\([0-9]*\).*/\1/'
+  register: _node_installed_major
+  changed_when: false
+  failed_when: false
+  tags: [install, bot]
+
 - name: Install Node.js {{ node_major_version }} (NodeSource)
   block:
     - name: Download NodeSource setup script
@@ -25,6 +32,7 @@
         name: nodejs
         state: present
         update_cache: true
+  when: _node_installed_major.stdout != node_major_version | string
   tags: [install, bot]
 
 - name: Install pnpm globally via npm
