@@ -1,6 +1,9 @@
 import { Client as SSH2Client, ConnectConfig } from "ssh2";
 import * as fs from "fs";
 import { env } from "../config/env";
+import { createLogger, logOnError } from "../utils/logger";
+
+const logger = createLogger("ssh");
 
 const RECONNECT_DELAY_MS = 5000;
 const COMMAND_TIMEOUT_MS = 30000;
@@ -40,6 +43,7 @@ class SshPool {
       conn.on("ready", () => {
         this.client = conn;
         this.connecting = false;
+        logger.info(`Connected to ${env.SERVER_A_HOST}`);
         const pending = [...this.pendingQueue];
         this.pendingQueue = [];
         pending.forEach(({ resolve }) => resolve(conn));
@@ -48,6 +52,7 @@ class SshPool {
       conn.on("error", (err) => {
         this.client = null;
         this.connecting = false;
+        logger.error(`Connection error: ${err.message}`);
         const pending = [...this.pendingQueue];
         this.pendingQueue = [];
         pending.forEach(({ reject }) => reject(err));
@@ -55,10 +60,11 @@ class SshPool {
 
       conn.on("close", () => {
         this.client = null;
+        logger.info("Connection closed");
         if (!this.closed) {
-          // Auto-reconnect after delay
+          logger.info(`Reconnecting in ${RECONNECT_DELAY_MS}ms...`);
           setTimeout(() => {
-            if (!this.closed) this.connect().catch(() => {});
+            if (!this.closed) this.connect().catch(logOnError(logger, "reconnect"));
           }, RECONNECT_DELAY_MS);
         }
       });

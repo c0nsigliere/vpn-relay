@@ -4,6 +4,9 @@ import { sshPool } from "../services/ssh";
 import { setPing } from "../services/ping.store";
 import { env } from "../config/env";
 import { execSync } from "child_process";
+import { createLogger } from "../utils/logger";
+
+const logger = createLogger("health");
 
 const INTERVAL_MS = 60 * 1000; // 1 minute
 const FAILURE_THRESHOLD = 3;
@@ -33,7 +36,7 @@ export function healthWorker(bot: Bot<BotContext>): { stop: () => void } {
         }
       }
     } catch (err) {
-      console.error("[health worker] error:", err);
+      logger.error("Worker error", err);
     }
 
     // ICMP ping A ↔ B — requires CAP_NET_RAW (set via AmbientCapabilities in systemd unit)

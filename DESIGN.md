@@ -351,6 +351,9 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 - `ip-info.service.ts` — ISP lookup via ip-api.com batch endpoint, in-memory cache (re-lookup only on IP change)
 - `xray-log.service.ts` — parses XRay access log (`/var/log/xray/access.log`) for last client IP per email tag; filters out `wg-clients@xray` and Server A relay IP
 
+**Utils:**
+- `logger.ts` — structured logger with levels (`debug`/`info`/`warn`/`error`), module prefixes, and `LOG_LEVEL` env gate. `error`/`warn` → stderr (journald priority 3-4); `info`/`debug` → stdout. `logOnError()` helper replaces `.catch(() => {})` patterns.
+
 **Workers (background):**
 - `traffic.worker.ts` — 10min: XRay gRPC stats (reset delta) + WG SSH stats → traffic_snapshots; collects client IPs (WG endpoint + XRay access log) → batch ISP lookup → `last_ip`/`last_ip_isp` columns
 - `ttl.worker.ts` — 1h: auto-suspend expired clients

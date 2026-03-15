@@ -3,6 +3,10 @@
  * In-memory cache keyed by IP — only re-lookup when a client's IP changes.
  */
 
+import { createLogger } from "../utils/logger";
+
+const logger = createLogger("ip-info");
+
 interface IpApiResponse {
   status: "success" | "fail";
   isp?: string;
@@ -47,7 +51,7 @@ class IpInfoService {
       });
 
       if (res.status === 429) {
-        console.warn("[ip-info] rate limited, skipping batch lookup");
+        logger.warn("Rate limited, skipping batch lookup");
         return result;
       }
 
@@ -61,7 +65,7 @@ class IpInfoService {
         }
       }
     } catch (err) {
-      console.warn("[ip-info] batch lookup failed:", (err as Error).message);
+      logger.warn(`Batch lookup failed: ${(err as Error).message}`);
     }
 
     // Also include previously-cached entries for requested IPs

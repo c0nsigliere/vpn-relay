@@ -1,5 +1,8 @@
 import { Bot, session } from "grammy";
 import { env } from "./config/env";
+import { createLogger, logOnError } from "./utils/logger";
+
+const logger = createLogger("bot");
 import { db } from "./db/index";
 import { BotContext, initialSession } from "./bot/context";
 import { authMiddleware } from "./bot/middlewares/auth";
@@ -106,14 +109,14 @@ bot.on("message:text", textInputHandler);
 
 // Error handler — prevent unhandled Telegram API errors from crashing the bot
 bot.catch((err) => {
-  console.error("[bot error]", err.message);
+  logger.error(err.message);
 });
 
 // Sync XRay config.json from DB on startup — ensures config matches DB state
 // after restarts, restores, or crashes mid-operation.
 xrayService.syncConfigAndRestart()
-  .then(() => console.log("[startup] XRay config synced from DB"))
-  .catch((err) => console.warn("[startup] XRay config sync failed:", err.message));
+  .then(() => logger.info("XRay config synced from DB"))
+  .catch(logOnError(logger, "XRay config sync failed"));
 
 // Workers
 const workers = [
@@ -136,14 +139,14 @@ if (env.TMA_URL) {
         web_app: { url: env.TMA_URL },
       },
     })
-    .catch((err) => console.warn("[tma] Could not set menu button:", err.message));
+    .catch(logOnError(logger, "Could not set menu button"));
 }
 
 let apiServer: FastifyInstance | null = null;
 
 // Graceful shutdown
 async function shutdown(signal: string): Promise<void> {
-  console.log(`Received ${signal}, shutting down...`);
+  logger.info(`Received ${signal}, shutting down...`);
   await bot.stop();
   if (apiServer) await apiServer.close();
   workers.forEach((w) => w.stop());
@@ -159,11 +162,12 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 // Start Fastify API (only if TMA_DOMAIN or TMA_PORT explicitly configured)
 startApiServer(bot)
   .then((server) => { apiServer = server; })
-  .catch((err) => console.warn("[api] Fastify failed to start:", err.message));
+  .catch(logOnError(logger, "Fastify failed to start"));
 
 bot.start({
-  onStart: (info) => console.log(`Bot @${info.username} started`),
+  onStart: (info) => logger.info(`Bot @${info.username} started`),
 }).catch((err) => {
+  // Keep console.error for crash path — logger may not be functional during fatal startup errors
   console.error("Bot crashed:", err);
   process.exit(1);
 });

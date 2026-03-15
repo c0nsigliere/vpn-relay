@@ -48,6 +48,7 @@ You are authorized and explicitly encouraged to act autonomously to diagnose iss
 - Do Not Guess, Verify: If a system is broken, do not hallucinate solutions. SSH into the servers, read logs (journalctl), check service statuses (systemctl), test connectivity, or run trace commands.
 - Tool Installation & Cleanup (Leave No Trace): You may install diagnostic packages (e.g., tcpdump, jq, net-tools) locally or remotely to aid your investigation. However, you must act as a clean professional: once the issue is resolved, immediately remove any temporary scripts, test files, or one-off diagnostic tools you installed.
 - Human-in-the-loop for Ansible: DO NOT execute ansible-playbook commands yourself, especially full stack deployments. Instead, formulate the exact CLI command (including any specific --tags, -l, or -e flags) and ask me to run it in my terminal. I must retain full visual control over Ansible's execution logs and state changes.
+- Agent can inspect vpn-bot runtime behaviour via systemd journald using journalctl -u vpn-bot (add -p err for only problems or pipe to grep for filtering by module/level). If deeper investigation is needed, increase verbosity by setting LOG_LEVEL in /var/lib/vpn-bot/.env and restarting the service, then revert after debugging.
 
 ## Inventory Groups → Roles → Playbooks
 

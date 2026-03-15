@@ -41,6 +41,9 @@ const envSchema = z.object({
 
   // OpenAI API key for AI-powered update summaries (optional — degrades gracefully)
   OPENAI_API_KEY: z.string().optional(),
+
+  // Log level gate (read early by logger from process.env; validated here for docs)
+  LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
 function loadEnv() {

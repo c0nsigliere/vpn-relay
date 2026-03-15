@@ -13,8 +13,11 @@ import { queries } from "../db/queries";
 import { xrayService } from "./xray.service";
 import { wgService } from "./wg.service";
 import { qrService } from "./qr.service";
+import { createLogger } from "../utils/logger";
 import type { BotContext } from "../bot/context";
 import type { Client, ClientType } from "@vpn-relay/shared";
+
+const logger = createLogger("client");
 
 export interface CreateClientResult {
   client: Client;
@@ -73,10 +76,12 @@ export async function createClient(
   }
 
   const client = queries.getClientById(id)!;
+  logger.info(`Created client "${name}" (type=${type})`);
   return { client, wgConf, xrayUris };
 }
 
 export async function suspendClient(client: Client, reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" = "manual"): Promise<void> {
+  logger.info(`Suspending "${client.name}" (reason=${reason})`);
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
     await wgService.suspendClient(client.wg_pubkey);
   }
@@ -88,6 +93,7 @@ export async function suspendClient(client: Client, reason: "manual" | "daily_qu
 }
 
 export async function resumeClient(client: Client): Promise<void> {
+  logger.info(`Resuming "${client.name}"`);
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey && client.wg_ip) {
     await wgService.resumeClient(client.wg_pubkey, client.wg_ip);
   }
@@ -160,6 +166,7 @@ export async function updateExpiry(
 }
 
 export async function renameClient(client: Client, newName: string): Promise<void> {
+  logger.info(`Renaming "${client.name}" → "${newName}"`);
   if (client.type === "wg" || client.type === "both") {
     await wgService.renameClient(client.name, newName);
   }
@@ -171,6 +178,7 @@ export async function renameClient(client: Client, newName: string): Promise<voi
 }
 
 export async function deleteClient(client: Client): Promise<void> {
+  logger.info(`Deleting "${client.name}"`);
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
     await wgService.removeClient(client.name, client.wg_pubkey);
   }

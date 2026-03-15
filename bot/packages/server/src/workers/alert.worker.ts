@@ -26,6 +26,9 @@ import { queries } from "../db/queries";
 import { suspendClient } from "../services/client.service";
 import { metricsCache } from "../services/metrics.cache";
 import { env } from "../config/env";
+import { createLogger } from "../utils/logger";
+
+const logger = createLogger("alert");
 
 const INTERVAL_MS = 30_000;
 const STARTUP_DELAY_MS = 90_000; // let other workers populate data first
@@ -73,7 +76,7 @@ async function fireAlert(stateKey: string, msg: string, bot: Bot<BotContext>, co
   try {
     await bot.api.sendMessage(env.ADMIN_ID, msg, { parse_mode: "Markdown" });
   } catch (err) {
-    console.error(`[alert] send failed for ${stateKey}:`, err);
+    logger.error(`Send failed for ${stateKey}`, err);
   }
 }
 
@@ -82,7 +85,7 @@ async function clearAlert(stateKey: string, msg: string, bot: Bot<BotContext>): 
   try {
     await bot.api.sendMessage(env.ADMIN_ID, msg, { parse_mode: "Markdown" });
   } catch (err) {
-    console.error(`[alert] recovery send failed for ${stateKey}:`, err);
+    logger.error(`Recovery send failed for ${stateKey}`, err);
   }
 }
 
@@ -327,7 +330,7 @@ async function checkAbnormalTraffic(bot: Bot<BotContext>): Promise<void> {
       try {
         await suspendClient(client, "abnormal_traffic");
       } catch (err) {
-        console.error(`[alert] Failed to suspend ${client.name} for abnormal traffic:`, err);
+        logger.error(`Failed to suspend ${client.name} for abnormal traffic`, err);
       }
       await fireAlert(
         stateKey,
@@ -400,7 +403,7 @@ async function checkCertExpiry(bot: Bot<BotContext>): Promise<void> {
       await clearAlert("cert_expiry", `✅ *TLS cert* renewed for ${env.TMA_DOMAIN}`, bot);
     }
   } catch (err) {
-    console.error("[alert] cert_expiry check failed:", err);
+    logger.error("cert_expiry check failed", err);
   }
 }
 
@@ -495,7 +498,7 @@ export function alertWorker(bot: Bot<BotContext>): { stop: () => void } {
       await checkRebootDetected(bot);
       await checkRebootRequired(bot);
     } catch (err) {
-      console.error("[alert worker] unhandled error:", err);
+      logger.error("Unhandled error", err);
     }
   };
 

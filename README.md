@@ -398,6 +398,7 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `node_major_version` | `20` | Node.js major version to install |
 | `bot_remove` | `false` | Safety gate for `remove_bot.yml` — must set to `true` to remove |
 | `openai_api_key` | `""` | OpenAI API key for AI-powered update summaries (optional) |
+| `bot_log_level` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
 | `bot_remove_data` | `false` | Also remove `bot_data_dir` (SQLite DB) when removing |
 
 Pass credentials as extra vars or store them in an Ansible vault file:

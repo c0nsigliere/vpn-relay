@@ -13,6 +13,9 @@ import * as crypto from "crypto";
 import { execSync } from "child_process";
 import { env } from "../config/env";
 import { queries } from "../db/queries";
+import { createLogger } from "../utils/logger";
+
+const logger = createLogger("xray");
 
 const XRAY_BIN = "/usr/local/bin/xray";
 
@@ -34,6 +37,10 @@ class XrayService {
   async syncConfigAndRestart(): Promise<void> {
     this.syncConfigJson();
     await this.restartXray();
+    const count = queries.getActiveClients().filter(
+      (c) => (c.type === "xray" || c.type === "both") && c.xray_uuid
+    ).length;
+    logger.info(`Config synced (${count} active xray clients), restart triggered`);
   }
 
   /** Generate a new UUID for a VLESS client. */
@@ -71,8 +78,8 @@ class XrayService {
         if (direction === "uplink") entry.uplinkBytes = bytes;
         else entry.downlinkBytes = bytes;
       }
-    } catch {
-      // xray api not available or no stats yet
+    } catch (err) {
+      logger.debug(`queryAllStats failed: ${err instanceof Error ? err.message : err}`);
     }
     return result;
   }
@@ -156,7 +163,7 @@ class XrayService {
       await new Promise((r) => setTimeout(r, 300));
       if (!fs.existsSync(trigger)) return;
     }
-    console.warn("[xray] restart not confirmed within 10s — systemd path unit will complete it");
+    logger.warn("Restart not confirmed within 10s — systemd path unit will complete it");
   }
 
   private async queryStatsCli(pattern: string, reset: boolean): Promise<ClientStats> {
@@ -178,7 +185,8 @@ class XrayService {
         uplinkBytes: BigInt(up?.stat?.value ?? 0),
         downlinkBytes: BigInt(down?.stat?.value ?? 0),
       };
-    } catch {
+    } catch (err) {
+      logger.debug(`queryStatsCli failed: ${err instanceof Error ? err.message : err}`);
       return { uplinkBytes: BigInt(0), downlinkBytes: BigInt(0) };
     }
   }

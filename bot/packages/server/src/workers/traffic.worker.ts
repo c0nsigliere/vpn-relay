@@ -8,6 +8,9 @@ import { sshPool } from "../services/ssh";
 import { xrayLogService } from "../services/xray-log.service";
 import { ipInfoService } from "../services/ip-info.service";
 import { env } from "../config/env";
+import { createLogger, logOnError } from "../utils/logger";
+
+const logger = createLogger("traffic");
 
 const INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -241,19 +244,19 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
             }
           }
         } catch (err) {
-          console.error("[traffic worker] IP collection error:", err);
+          logger.error("IP collection error", err);
         }
       }
 
       // Always collect server eth0 counters (independent of client count)
       await collectServerEth0();
     } catch (err) {
-      console.error("[traffic worker] error:", err);
+      logger.error("Worker error", err);
     }
   };
 
   const timer = setInterval(run, INTERVAL_MS);
-  run().catch(() => {});
+  run().catch(logOnError(logger, "initial run"));
 
   return { stop: () => clearInterval(timer) };
 }

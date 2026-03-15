@@ -4,6 +4,9 @@ import fastifyCors from "@fastify/cors";
 import path from "path";
 import { Bot } from "grammy";
 import { env } from "../config/env";
+import { createLogger } from "../utils/logger";
+
+const logger = createLogger("api");
 import { clientsRoutes } from "./routes/clients";
 import { sendConfigRoutes } from "./routes/send-config";
 import { serversRoutes } from "./routes/servers";
@@ -46,6 +49,6 @@ export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInsta
 export async function startApiServer(bot: Bot<BotContext>): Promise<FastifyInstance> {
   const app = await buildApiServer(bot);
   await app.listen({ port: env.TMA_PORT, host: "127.0.0.1" });
-  console.log(`TMA API listening on http://127.0.0.1:${env.TMA_PORT}`);
+  logger.info(`Listening on http://127.0.0.1:${env.TMA_PORT}`);
   return app;
 }

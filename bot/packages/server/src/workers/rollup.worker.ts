@@ -1,4 +1,7 @@
 import { queries } from "../db/queries";
+import { createLogger } from "../utils/logger";
+
+const logger = createLogger("rollup");
 
 const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -8,10 +11,10 @@ export function rollupWorker(): { stop: () => void } {
       const clientCount = queries.rollupClientTraffic();
       const serverCount = queries.rollupServerTraffic();
       if (clientCount > 0 || serverCount > 0) {
-        console.log(`[rollup worker] Rolled up ${clientCount} client snapshots, ${serverCount} server snapshots`);
+        logger.info(`Rolled up ${clientCount} client snapshots, ${serverCount} server snapshots`);
       }
     } catch (err) {
-      console.error("[rollup worker] error:", err);
+      logger.error("Worker error", err);
     }
   };
 

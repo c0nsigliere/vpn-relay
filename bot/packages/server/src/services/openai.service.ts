@@ -6,6 +6,9 @@
  */
 
 import { env } from "../config/env";
+import { createLogger } from "../utils/logger";
+
+const logger = createLogger("openai");
 
 export interface PackageSummary {
   summary: string;
@@ -72,7 +75,7 @@ Rules:
     clearTimeout(timeout);
 
     if (!response.ok) {
-      console.warn(`[openai] API returned ${response.status}: ${await response.text()}`);
+      logger.warn(`API returned ${response.status}: ${await response.text()}`);
       return null;
     }
 
@@ -92,7 +95,7 @@ Rules:
     }
     return result;
   } catch (err) {
-    console.warn("[openai] summarization failed:", err);
+    logger.warn("Summarization failed", err);
     return null;
   }
 }

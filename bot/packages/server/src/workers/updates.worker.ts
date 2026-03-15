@@ -18,6 +18,9 @@ import { getUpgradablePackages, getChangelogs, parseChangelog, type PackageInfo,
 import { summarizeUpdates, type PackageSummary } from "../services/openai.service";
 import { queries } from "../db/queries";
 import { env } from "../config/env";
+import { createLogger, logOnError } from "../utils/logger";
+
+const logger = createLogger("updates");
 
 const INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const MAX_REGULAR_SHOWN = 5;
@@ -202,7 +205,7 @@ async function processServer(
   try {
     packages = await getUpgradablePackages(server);
   } catch (err) {
-    console.warn(`[updates] apt list failed for ${label}:`, err);
+    logger.warn(`apt list failed for ${label}`, err);
   }
 
   // No packages available — try Tier 3 fallback
@@ -217,7 +220,7 @@ async function processServer(
         await sendMessages(bot, [msg]);
       }
     } catch (err) {
-      console.error(`[updates] fallback also failed for ${label}:`, err);
+      logger.error(`Fallback also failed for ${label}`, err);
     }
     return;
   }
@@ -257,7 +260,7 @@ async function processServer(
   try {
     changelogs = await getChangelogs(server, changelogTargets);
   } catch (err) {
-    console.warn(`[updates] changelog fetch failed for ${label}:`, err);
+    logger.warn(`Changelog fetch failed for ${label}`, err);
   }
 
   // Step 4: Regex-parse changelogs (always works, no external deps)
@@ -296,7 +299,7 @@ async function sendMessages(bot: Bot<BotContext>, parts: string[]): Promise<void
     try {
       await bot.api.sendMessage(env.ADMIN_ID, part, { parse_mode: "Markdown" });
     } catch (err) {
-      console.error("[updates] send failed:", err);
+      logger.error("Send failed", err);
     }
   }
 }
@@ -315,17 +318,17 @@ export function updatesWorker(bot: Bot<BotContext>): { stop: () => void } {
 
       for (const r of results) {
         if (r.status === "rejected") {
-          console.error("[updates worker] server check failed:", r.reason);
+          logger.error("Server check failed", r.reason);
         }
       }
     } catch (err) {
-      console.error("[updates worker] error:", err);
+      logger.error("Worker error", err);
     }
   };
 
   const timer = setInterval(run, INTERVAL_MS);
   // Run after 60s on startup to avoid false alerts during init
-  const initTimer = setTimeout(() => run().catch(() => {}), 60_000);
+  const initTimer = setTimeout(() => run().catch(logOnError(logger, "initial run")), 60_000);
 
   return {
     stop: () => {
