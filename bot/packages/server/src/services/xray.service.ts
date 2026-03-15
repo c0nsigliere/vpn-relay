@@ -156,7 +156,7 @@ class XrayService {
       await new Promise((r) => setTimeout(r, 300));
       if (!fs.existsSync(trigger)) return;
     }
-    throw new Error("xray restart timed out after 10s");
+    console.warn("[xray] restart not confirmed within 10s — systemd path unit will complete it");
   }
 
   private async queryStatsCli(pattern: string, reset: boolean): Promise<ClientStats> {

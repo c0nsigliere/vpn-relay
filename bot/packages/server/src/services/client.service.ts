@@ -108,11 +108,31 @@ export async function updateQuota(
 
   queries.updateClientQuota(clientId, dailyQuotaGb, monthlyQuotaGb);
 
-  // Auto-resume if suspended by quota that was removed
+  // Auto-resume if suspended by quota that was removed or increased above current usage
   if (client.is_active === 0) {
+    const GB = 1_073_741_824;
     const suspendedByDaily = client.suspend_reason === "daily_quota";
     const suspendedByMonthly = client.suspend_reason === "monthly_quota";
-    if ((suspendedByDaily && dailyQuotaGb === null) || (suspendedByMonthly && monthlyQuotaGb === null)) {
+    let shouldResume = false;
+
+    if (suspendedByDaily) {
+      if (dailyQuotaGb === null) {
+        shouldResume = true;
+      } else {
+        const dailyUsed = queries.getClientDailyUsageBytes(clientId);
+        if (dailyUsed < dailyQuotaGb * GB) shouldResume = true;
+      }
+    }
+    if (suspendedByMonthly) {
+      if (monthlyQuotaGb === null) {
+        shouldResume = true;
+      } else {
+        const monthlyUsed = queries.getClientMonthlyUsageBytes(clientId);
+        if (monthlyUsed < monthlyQuotaGb * GB) shouldResume = true;
+      }
+    }
+
+    if (shouldResume) {
       const freshClient = queries.getClientById(clientId)!;
       await resumeClient(freshClient);
     }

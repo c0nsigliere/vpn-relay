@@ -123,6 +123,24 @@ export async function clientsRoutes(
       if (body.action === "suspend") {
         await suspendClient(client, "manual");
       } else if (body.action === "resume") {
+        if (client.is_active === 0) {
+          if (client.suspend_reason === "daily_quota" && client.daily_quota_gb !== null) {
+            const dailyUsed = queries.getClientDailyUsageBytes(client.id);
+            if (dailyUsed >= client.daily_quota_gb * GB) {
+              return reply.code(400).send({
+                error: `Cannot resume: daily quota exceeded (${(dailyUsed / GB).toFixed(2)}/${client.daily_quota_gb.toFixed(2)} GB). Increase or remove the quota first.`,
+              });
+            }
+          }
+          if (client.suspend_reason === "monthly_quota" && client.monthly_quota_gb !== null) {
+            const monthlyUsed = queries.getClientMonthlyUsageBytes(client.id);
+            if (monthlyUsed >= client.monthly_quota_gb * GB) {
+              return reply.code(400).send({
+                error: `Cannot resume: monthly quota exceeded (${(monthlyUsed / GB).toFixed(2)}/${client.monthly_quota_gb.toFixed(2)} GB). Increase or remove the quota first.`,
+              });
+            }
+          }
+        }
         await resumeClient(client);
       } else if (body.action === "rename") {
         const { newName } = body;
