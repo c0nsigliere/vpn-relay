@@ -4,13 +4,13 @@ Ansible-managed VPN stack across two Ubuntu servers (server A in Russia and serv
 
 ## Server Roles:
 
-- Server A (Entry / Russia): Acts as the ingress node. Runs WireGuard and a pure L4 TCP port forwarder. It contains NO XRay cryptographic secrets or client configs.
+- Server A (Entry / Russia): Acts as the ingress node. Runs WireGuard and a pure L4 TCP port forwarder.
 - Server B (Exit / Abroad): Acts as the egress node. Runs XRay (VLESS+Reality) and handles all actual decryption and internet routing. It contains NO WireGuard installation. Stores XRay keys (`/etc/xray/keys/`). Client state lives in the bot's SQLite DB (`/var/lib/vpn-bot/data.db`); `config.json` is rebuilt from DB on every change.
 
 ## The 3 Ways Clients Can Connect:
 
 - WireGuard Cascade (WG ➔ A ➔ B): Client connects to Server A via WireGuard (UDP). Server A intercepts this traffic via TPROXY and tunnels it to Server B's XRay.
-- XRay Relay (VLESS ➔ A ➔ B): Client connects to Server A via VLESS (TCP). Server A blindly forwards the traffic via DNAT to Server B's XRay. Server A acts as a dumb pipe.
+- XRay Relay (VLESS ➔ A ➔ B): Client connects to Server A via VLESS (TCP). Server A blindly forwards the traffic via DNAT to Server B's XRay.
 - Direct XRay (VLESS ➔ B): Client bypasses Server A entirely and connects directly to Server B's XRay (TCP).
 
 **Critical invariants:**
@@ -48,7 +48,7 @@ You are authorized and explicitly encouraged to act autonomously to diagnose iss
 - Do Not Guess, Verify: If a system is broken, do not hallucinate solutions. SSH into the servers, read logs (journalctl), check service statuses (systemctl), test connectivity, or run trace commands.
 - Tool Installation & Cleanup (Leave No Trace): You may install diagnostic packages (e.g., tcpdump, jq, net-tools) locally or remotely to aid your investigation. However, you must act as a clean professional: once the issue is resolved, immediately remove any temporary scripts, test files, or one-off diagnostic tools you installed.
 - Human-in-the-loop for Ansible: DO NOT execute ansible-playbook commands yourself, especially full stack deployments. Instead, formulate the exact CLI command (including any specific --tags, -l, or -e flags) and ask me to run it in my terminal. I must retain full visual control over Ansible's execution logs and state changes.
-- Agent can inspect vpn-bot runtime behaviour via systemd journald using journalctl -u vpn-bot (add -p err for only problems or pipe to grep for filtering by module/level). If deeper investigation is needed, increase verbosity by setting LOG_LEVEL in /var/lib/vpn-bot/.env and restarting the service, then revert after debugging.
+- Agent can inspect vpn-bot runtime behaviour via systemd journald using journalctl -u vpn-bot (add -p err for only problems or pipe to grep for filtering by module/level).
 
 ## Inventory Groups → Roles → Playbooks
 
@@ -122,8 +122,7 @@ inventory/host_vars/*.yml    ← per-host overrides (rarely used)
 -e "var=value"               ← CLI overrides (highest priority)
 ```
 
-Canonical IP variable: `server_b_public_ip`. If you see `ip_b_public` — that's
-a legacy duplicate, use `server_b_public_ip`.
+Canonical IP variable: `server_b_public_ip`.
 
 ## Artifacts
 
