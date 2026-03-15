@@ -113,6 +113,7 @@ export async function updateQuota(
   if (!client) return;
 
   queries.updateClientQuota(clientId, dailyQuotaGb, monthlyQuotaGb);
+  logger.info(`Quota updated "${client.name}": daily ${client.daily_quota_gb} → ${dailyQuotaGb}, monthly ${client.monthly_quota_gb} → ${monthlyQuotaGb}`);
 
   // Auto-resume if suspended by quota that was removed or increased above current usage
   if (client.is_active === 0) {
@@ -139,6 +140,7 @@ export async function updateQuota(
     }
 
     if (shouldResume) {
+      logger.info(`Auto-resuming "${client.name}" (quota raised above usage)`);
       const freshClient = queries.getClientById(clientId)!;
       await resumeClient(freshClient);
     }
@@ -153,12 +155,14 @@ export async function updateExpiry(
   if (!client) return;
 
   queries.updateClientExpiry(clientId, expiresAt);
+  logger.info(`Expiry updated "${client.name}": ${client.expires_at ?? "none"} → ${expiresAt ?? "none"}`);
 
   // Auto-resume if suspended due to expiry and new expiry is in the future (or removed)
   if (client.is_active === 0 && client.suspend_reason === "expired") {
     const expiryCleared = expiresAt === null;
     const expiryExtended = expiresAt !== null && new Date(expiresAt) > new Date();
     if (expiryCleared || expiryExtended) {
+      logger.info(`Auto-resuming "${client.name}" (expiry extended)`);
       const freshClient = queries.getClientById(clientId)!;
       await resumeClient(freshClient);
     }

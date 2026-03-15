@@ -2,6 +2,9 @@ import { FastifyInstance } from "fastify";
 import { queries } from "../../db/queries";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 import type { AlertSettingsResponse, PatchAlertSettingRequest } from "@vpn-relay/shared";
+import { createLogger } from "../../utils/logger";
+
+const logger = createLogger("alert-settings");
 
 export async function alertsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", tmaAuthMiddleware);
@@ -32,6 +35,7 @@ export async function alertsRoutes(app: FastifyInstance): Promise<void> {
     if (cooldown_min !== undefined) updates.cooldown_min = cooldown_min;
 
     queries.updateAlertSetting(key, updates);
+    logger.info(`Alert "${key}" updated: ${JSON.stringify(updates)}`);
     const updated = queries.getAlertSetting(key);
     return reply.send(updated);
   });

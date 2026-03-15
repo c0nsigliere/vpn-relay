@@ -46,6 +46,7 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
               const monthlyUsed = queries.getClientMonthlyUsageBytes(client.id);
               if (monthlyUsed >= client.monthly_quota_gb * GB) {
                 // Upgrade to monthly suspension
+                logger.info(`Upgrading "${client.name}" suspension: daily_quota → monthly_quota`);
                 queries.setClientActive(client.id, false, "monthly_quota");
                 await notify(`📅 *${client.name}*: daily quota reset but monthly quota still exceeded — kept suspended.`);
                 continue;
