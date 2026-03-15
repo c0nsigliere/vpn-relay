@@ -595,7 +595,7 @@ export function ClientDetail() {
         <button
           onClick={() => configMutation.mutate()}
           disabled={configMutation.isPending}
-          className="w-full px-4 py-3 rounded-xl bg-tg-button text-tg-button font-medium text-sm disabled:opacity-60"
+          className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
         >
           {configMutation.isPending ? "Sending…" : "📩 Send Config to Chat"}
         </button>
