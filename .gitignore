@@ -8,10 +8,6 @@ inventory/group_vars/wg_cascade.yml
 inventory/group_vars/relay_servers.yml
 inventory/group_vars/xray_servers.yml
 
-# XRay/V2Ray client config with real credentials
-config.json
-config_awg.ini
-
 # Ansible runtime files
 *.retry
 .ansible/

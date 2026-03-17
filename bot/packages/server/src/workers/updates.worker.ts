@@ -95,6 +95,41 @@ function mergeSummary(
   return { cves: [...cveSet], summary };
 }
 
+/**
+ * Group security packages that share identical CVE sets so we don't repeat
+ * the same 8 CVE links five times for vim/vim-common/vim-runtime/vim-tiny/xxd.
+ */
+interface SecurityGroup {
+  packages: PackageInfo[];
+  cves: string[];
+  summary: string;
+}
+
+function groupByCves(
+  security: PackageInfo[],
+  regexParsed: Map<string, ChangelogSummary>,
+  aiSummaries: Map<string, PackageSummary> | null
+): SecurityGroup[] {
+  const groups: SecurityGroup[] = [];
+  const keyToIdx = new Map<string, number>();
+
+  for (const pkg of security) {
+    const { cves, summary } = mergeSummary(pkg.name, regexParsed, aiSummaries);
+    // Fingerprint: sorted CVE IDs (empty → unique per package so they stay separate)
+    const key = cves.length > 0 ? [...cves].sort().join("|") : `__solo__${pkg.name}`;
+    const idx = keyToIdx.get(key);
+    if (idx !== undefined) {
+      groups[idx].packages.push(pkg);
+      // Keep the longer summary (AI may produce better text for some packages)
+      if (summary.length > groups[idx].summary.length) groups[idx].summary = summary;
+    } else {
+      keyToIdx.set(key, groups.length);
+      groups.push({ packages: [pkg], cves, summary });
+    }
+  }
+  return groups;
+}
+
 function formatServerMessage(
   label: string,
   packages: PackageInfo[],
@@ -110,16 +145,20 @@ function formatServerMessage(
 
   if (security.length > 0) {
     lines.push(`🔒 *Security (${security.length}):*`);
-    for (const pkg of security) {
-      const ver = abbreviateVersion(pkg.oldVersion, pkg.newVersion);
-      const pkgLink = `[${pkg.name}](https://launchpad.net/ubuntu/+source/${pkg.name}/+changelog)`;
-      const { cves, summary } = mergeSummary(pkg.name, regexParsed, aiSummaries);
-      lines.push(`• ${pkgLink} ${ver}`);
-      if (cves.length > 0 || summary) {
-        const cveStr = cves.length > 0
-          ? cves.map((c) => `[${c}](https://nvd.nist.gov/vuln/detail/${c})`).join(", ")
+    const groups = groupByCves(security, regexParsed, aiSummaries);
+    for (const group of groups) {
+      // Package names as links, each with its own version
+      const pkgParts = group.packages.map((pkg) => {
+        const ver = abbreviateVersion(pkg.oldVersion, pkg.newVersion);
+        const link = `[${pkg.name}](https://launchpad.net/ubuntu/+source/${pkg.name}/+changelog)`;
+        return `${link} ${ver}`;
+      });
+      lines.push(`• ${pkgParts.join(", ")}`);
+      if (group.cves.length > 0 || group.summary) {
+        const cveStr = group.cves.length > 0
+          ? group.cves.map((c) => `[${c}](https://nvd.nist.gov/vuln/detail/${c})`).join(", ")
           : "";
-        const parts = [cveStr, summary].filter(Boolean);
+        const parts = [cveStr, group.summary].filter(Boolean);
         lines.push(`  ${parts.join(": ")}`);
       }
     }
@@ -217,7 +256,7 @@ async function processServer(
       const msg = formatFallbackMessage(label, status.updatesAvailable, status.updatesTotalAvailable);
       if (msg && shouldFire(stateKey)) {
         queries.upsertAlertState(stateKey, "fired", JSON.stringify({ hash: "fallback", message: msg }));
-        await sendMessages(bot, [msg]);
+        await sendMessages(bot, label, [msg]);
       }
     } catch (err) {
       logger.error(`Fallback also failed for ${label}`, err);
@@ -227,12 +266,15 @@ async function processServer(
 
   // No updates pending — clear state and done
   if (packages.length === 0) {
+    logger.info(`${label}: no updates pending`);
     const state = queries.getAlertState(stateKey);
     if (state?.status === "fired") {
       queries.upsertAlertState(stateKey, "clear");
     }
     return;
   }
+
+  logger.info(`${label}: ${packages.length} updates (${packages.filter((p) => p.isSecurity).length} security)`);
 
   // Step 2: Compute hash, check cache
   const hash = computeHash(packages);
@@ -242,7 +284,7 @@ async function processServer(
     // Package list unchanged — just check cooldown
     if (shouldFire(stateKey)) {
       queries.upsertAlertState(stateKey, "fired", JSON.stringify(cached));
-      await sendMessages(bot, splitMessage(cached.message));
+      await sendMessages(bot, label, splitMessage(cached.message));
     }
     return;
   }
@@ -287,21 +329,24 @@ async function processServer(
 
   if (shouldFire(stateKey)) {
     queries.upsertAlertState(stateKey, "fired", JSON.stringify({ hash, message }));
-    await sendMessages(bot, splitMessage(message));
+    await sendMessages(bot, label, splitMessage(message));
   } else {
     // Still cache the new message even if cooldown hasn't expired
     queries.upsertAlertState(stateKey, "fired", JSON.stringify({ hash, message }));
   }
 }
 
-async function sendMessages(bot: Bot<BotContext>, parts: string[]): Promise<void> {
+async function sendMessages(bot: Bot<BotContext>, label: string, parts: string[]): Promise<void> {
+  let sent = 0;
   for (const part of parts) {
     try {
       await bot.api.sendMessage(env.ADMIN_ID, part, { parse_mode: "Markdown" });
+      sent++;
     } catch (err) {
       logger.error("Send failed", err);
     }
   }
+  logger.info(`${label}: sent ${sent}/${parts.length} message(s)`);
 }
 
 // ── Worker entry point ──────────────────────────────────────────────────────
