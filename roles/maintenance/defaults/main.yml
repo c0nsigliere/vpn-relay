@@ -8,14 +8,10 @@
 do_dist_upgrade: false
 
 # Manage the unattended-upgrades package:
-#   "leave"  - Do not touch existing configuration (default, safe for relay nodes)
-#   "true"   - Ensure unattended-upgrades is installed and enabled
-#   "false"  - Ensure unattended-upgrades is disabled
-#
-# Relay nodes: "leave" or "false" is strongly recommended.
-# Automatic reboots from unattended-upgrades will drop all active VPN tunnels
-# without warning. Use manual scheduled maintenance instead.
-manage_unattended_upgrades: "leave"
+#   "leave"  - Не трогать пакет. Headless hygiene (timers, Prompt=never) всё равно применяется.
+#   "true"   - Установить + включить + деплоить overlay (security-only, no auto-reboot).
+#   "false"  - Отключить. Overlay удаляется.
+manage_unattended_upgrades: "true"
 
 # Reboot the server after maintenance if /var/run/reboot-required exists.
 # Default: true (required for kernel updates to take effect)

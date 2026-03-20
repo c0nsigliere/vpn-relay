@@ -1,0 +1,26 @@
+// /etc/apt/apt.conf.d/99relay-unattended
+// Managed by Ansible (roles/maintenance). DO NOT EDIT MANUALLY.
+//
+// Overlay поверх 50unattended-upgrades. Читается последним (99 > 50).
+// ${distro_id}/${distro_codename} раскрываются демоном unattended-upgrades
+// в runtime, а не APT — поэтому оставляем как переменные.
+
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// Никогда не перезагружаться автоматически.
+// Перезагрузка роняет WireGuard-туннели без предупреждения.
+// Управляется через: ansible-playbook playbooks/reboot-if-needed.yml
+Unattended-Upgrade::Automatic-Reboot "false";
+
+// Писать в syslog: journalctl -u unattended-upgrades
+Unattended-Upgrade::SyslogEnable "true";
+Unattended-Upgrade::SyslogFacility "daemon";
+
+// Удалять старые ядра (безопасно при Automatic-Reboot=false: удаляются файлы,
+// активное ядро продолжает работать до следующей ручной перезагрузки)
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
