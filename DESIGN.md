@@ -283,7 +283,7 @@ relay_servers:
 * **fail2ban:** SSH jail (3 retries / 5 min / 1h ban), `banaction=ufw`
 * **VM tuning:** sysctl swappiness/vfs_cache_pressure/min_free_kbytes tiered by RAM (<1GB aggressive, 1-4GB moderate, >4GB trusts kernel defaults)
 * **apt resource limits:** systemd cgroup MemoryHigh/MemoryMax on `apt-daily-upgrade` (5 tiers: <1GB to >16GB)
-* **systemd DefaultTasksMax:** tiered by RAM (256/<2GB, 512/2-4GB, 2048/>4GB) — fork bomb protection
+* **systemd DefaultTasksMax:** tiered by RAM (256/<2GB, 512/2-4GB, 2048/>4GB) — fork bomb protection (general-purpose non-container baseline; container-heavy hosts may need per-service override)
 * **journald rate limiting:** 200 burst/30s per service unit
 
 ---

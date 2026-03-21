@@ -9,5 +9,7 @@ DefaultTasksMax=256
 {% elif _mem_total_mb | int < 4096 %}
 DefaultTasksMax=512
 {% else %}
+# General-purpose non-container baseline. Container-heavy hosts (Docker, k8s)
+# may need a higher value or a per-service TasksMax= override.
 DefaultTasksMax=2048
 {% endif %}

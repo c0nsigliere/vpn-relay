@@ -1,9 +1,9 @@
 // /etc/apt/apt.conf.d/99relay-unattended
 // Managed by Ansible (roles/maintenance). DO NOT EDIT MANUALLY.
 //
-// Overlay поверх 50unattended-upgrades. Читается последним (99 > 50).
-// ${distro_id}/${distro_codename} раскрываются демоном unattended-upgrades
-// в runtime, а не APT — поэтому оставляем как переменные.
+// Overlay on top of 50unattended-upgrades. Read last (99 > 50).
+// ${distro_id}/${distro_codename} are expanded by the unattended-upgrades
+// daemon at runtime, not by APT — so we keep them as variables.
 
 Unattended-Upgrade::Allowed-Origins {
     "${distro_id}:${distro_codename}-security";
@@ -11,16 +11,16 @@ Unattended-Upgrade::Allowed-Origins {
     "${distro_id}ESM:${distro_codename}-infra-security";
 };
 
-// Никогда не перезагружаться автоматически.
-// Перезагрузка роняет WireGuard-туннели без предупреждения.
-// Управляется через: ansible-playbook playbooks/reboot-if-needed.yml
+// Never reboot automatically.
+// Rebooting drops WireGuard tunnels without warning.
+// Managed via: ansible-playbook playbooks/reboot-if-needed.yml
 Unattended-Upgrade::Automatic-Reboot "false";
 
-// Писать в syslog: journalctl -u unattended-upgrades
+// Log to syslog: journalctl -u unattended-upgrades
 Unattended-Upgrade::SyslogEnable "true";
 Unattended-Upgrade::SyslogFacility "daemon";
 
-// Удалять старые ядра (безопасно при Automatic-Reboot=false: удаляются файлы,
-// активное ядро продолжает работать до следующей ручной перезагрузки)
+// Remove old kernels (safe with Automatic-Reboot=false: files are deleted,
+// the running kernel continues until the next manual reboot)
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
