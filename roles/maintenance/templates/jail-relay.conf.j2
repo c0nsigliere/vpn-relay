@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# fail2ban SSH jail — key-only auth means any password attempt is hostile.
+
+[sshd]
+enabled   = true
+backend   = systemd
+banaction = ufw
+maxretry  = {{ fail2ban_sshd_maxretry }}
+findtime  = {{ fail2ban_sshd_findtime }}
+bantime   = {{ fail2ban_sshd_bantime }}

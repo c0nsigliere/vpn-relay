@@ -146,6 +146,8 @@
           KbdInteractiveAuthentication no
           ChallengeResponseAuthentication no
           PermitRootLogin prohibit-password
+          MaxStartups 3:30:10
+          LoginGraceTime 20
         owner: root
         group: root
         mode: "0600"

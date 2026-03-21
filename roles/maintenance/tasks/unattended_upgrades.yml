@@ -6,12 +6,12 @@
 # "true"   - Install package + enable + deploy security-only overlay.
 # "false"  - Disable package. Overlay removed.
 #
-# Unconditional hygiene (Блок A) always runs regardless of mode:
-#   - desktop update-notifier timers masked (не нужны на сервере, могут вызвать CPU spike)
-#   - release upgrade Prompt=never (предотвращает интерактивные dist-upgrades)
+# Unconditional hygiene (Block A) always runs regardless of mode:
+#   - desktop update-notifier timers masked (not needed on a server, can cause CPU spike)
+#   - release upgrade Prompt=never (prevents interactive dist-upgrades)
 # Tags: unattended, maintenance
 
-# ── Блок A: Unconditional headless hygiene ────────────────────────────────────
+# -- Block A: Unconditional headless hygiene --------------------------------------------------
 
 - name: Mask update-notifier-download.timer (desktop artifact, not needed on server)
   ansible.builtin.systemd:
@@ -19,7 +19,7 @@
     state: stopped
     enabled: false
     masked: true
-  failed_when: false   # таймер может отсутствовать на minimal образах
+  failed_when: false   # timer may be absent on minimal images
   tags:
     - unattended
     - maintenance
@@ -41,13 +41,13 @@
     regexp: '^Prompt='
     line: 'Prompt=never'
     mode: '0644'
-    create: false   # не создавать файл если отсутствует (minimal образы)
+    create: false   # do not create if absent (minimal images)
   failed_when: false
   tags:
     - unattended
     - maintenance
 
-# ── Блок B: "true" mode ───────────────────────────────────────────────────────
+# -- Block B: "true" mode ---------------------------------------------------------------------
 
 - name: Install and enable unattended-upgrades
   when: manage_unattended_upgrades | string == "true"
@@ -84,16 +84,38 @@
         group: root
         mode: '0644'
 
+    # -- Resource limits for apt-daily-upgrade (systemd drop-in) --
+    - name: Read memory info for apt resource limits
+      ansible.builtin.include_tasks: "{{ role_path }}/../wg_cascade/tasks/memory.yml"
+
+    - name: Ensure apt-daily-upgrade.service.d directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/apt-daily-upgrade.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy apt-daily-upgrade resource limit drop-in
+      ansible.builtin.template:
+        src: apt-daily-upgrade-override.conf.j2
+        dest: /etc/systemd/system/apt-daily-upgrade.service.d/override.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload systemd daemon
+
     - name: Confirm unattended-upgrades enabled (security-only, no auto-reboot)
       ansible.builtin.debug:
         msg: >-
           unattended-upgrades ENABLED with security-only overlay deployed.
           Only -security origin packages will be auto-updated.
           Automatic-Reboot=false — server will NOT reboot automatically.
+          apt-daily-upgrade resource limits: MemoryMax tiered by RAM ({{ _mem_total_mb }} MB).
           Pending reboots: ansible-playbook playbooks/maintenance.yml --tags reboot
       changed_when: false
 
-# ── Блок C: "false" mode ──────────────────────────────────────────────────────
+# -- Block C: "false" mode --------------------------------------------------------------------
 
 - name: Disable unattended-upgrades
   when: manage_unattended_upgrades | string == "false"
@@ -123,6 +145,12 @@
         path: /etc/apt/apt.conf.d/99relay-unattended
         state: absent
 
+    - name: Remove apt-daily-upgrade resource limit drop-in
+      ansible.builtin.file:
+        path: /etc/systemd/system/apt-daily-upgrade.service.d
+        state: absent
+      notify: Reload systemd daemon
+
     - name: Confirm unattended-upgrades disabled
       ansible.builtin.debug:
         msg: >-
@@ -133,7 +161,7 @@
           Ensure you schedule regular manual maintenance runs.
       changed_when: false
 
-# ── "leave" mode: log only ────────────────────────────────────────────────────
+# -- "leave" mode: log only -------------------------------------------------------------------
 
 - name: Log unattended-upgrades leave mode
   ansible.builtin.debug:

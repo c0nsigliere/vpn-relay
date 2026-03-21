@@ -1,0 +1,94 @@
+---
+# VM memory tuning, DefaultTasksMax, and journald rate limiting.
+# Deploys sysctl and systemd drop-ins that scale with available RAM.
+#
+# Tags: sysctl, maintenance
+
+# =============================================================================
+# DETECT RAM (reuse wg_cascade/tasks/memory.yml facts)
+# =============================================================================
+
+- name: Gather memory facts for RAM-adaptive tuning
+  ansible.builtin.include_tasks: "{{ role_path }}/../wg_cascade/tasks/memory.yml"
+  tags:
+    - sysctl
+    - maintenance
+
+# =============================================================================
+# VM SYSCTL TUNING
+# =============================================================================
+
+- name: Deploy VM memory tuning sysctl drop-in
+  ansible.builtin.template:
+    src: 99-vm-tuning.conf.j2
+    dest: /etc/sysctl.d/99-vm-tuning.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: _vm_sysctl_deployed
+  tags:
+    - sysctl
+    - maintenance
+
+- name: Apply VM sysctl settings immediately
+  ansible.builtin.command:
+    cmd: sysctl -p /etc/sysctl.d/99-vm-tuning.conf
+  when: _vm_sysctl_deployed is changed
+  changed_when: true
+  tags:
+    - sysctl
+    - maintenance
+
+# =============================================================================
+# SYSTEMD DefaultTasksMax
+# =============================================================================
+
+- name: Ensure systemd system.conf.d directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - sysctl
+    - maintenance
+
+- name: Deploy DefaultTasksMax drop-in
+  ansible.builtin.template:
+    src: 99-tasks-limit.conf.j2
+    dest: /etc/systemd/system.conf.d/99-tasks-limit.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+  tags:
+    - sysctl
+    - maintenance
+
+# =============================================================================
+# JOURNALD RATE LIMITING
+# =============================================================================
+
+- name: Ensure journald.conf.d directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - sysctl
+    - maintenance
+
+- name: Deploy journald rate limit drop-in
+  ansible.builtin.template:
+    src: 99-rate-limit.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-rate-limit.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart systemd-journald
+  tags:
+    - sysctl
+    - maintenance

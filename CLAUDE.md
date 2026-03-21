@@ -50,6 +50,9 @@ You are authorized and explicitly encouraged to act autonomously to diagnose iss
 - Human-in-the-loop for Ansible: DO NOT execute ansible-playbook commands yourself, especially full stack deployments. Instead, formulate the exact CLI command (including any specific --tags, -l, or -e flags) and ask me to run it in my terminal. I must retain full visual control over Ansible's execution logs and state changes.
 - Agent can inspect vpn-bot runtime behaviour via systemd journald using journalctl -u vpn-bot (add -p err for only problems or pipe to grep for filtering by module/level).
 
+## Code rules
+Maintain the current Ansible configuration style or change it thoughtfully, explaining and justifying your actions. Write comments and the code itself in English only.
+
 ## Inventory Groups → Roles → Playbooks
 
 | Group | Hosts | Role | Playbook |

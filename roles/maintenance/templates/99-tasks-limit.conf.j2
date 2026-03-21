@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# Limit default per-unit task (thread/process) count — tiered by RAM ({{ _mem_total_mb }} MB).
+# Prevents fork bombs and runaway processes from exhausting the PID table.
+# Individual services can override with TasksMax= in their own drop-in.
+
+[Manager]
+{% if _mem_total_mb | int < 2048 %}
+DefaultTasksMax=256
+{% elif _mem_total_mb | int < 4096 %}
+DefaultTasksMax=512
+{% else %}
+DefaultTasksMax=2048
+{% endif %}

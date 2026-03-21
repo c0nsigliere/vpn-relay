@@ -3,7 +3,7 @@
 #
 # Runs all subsystems in the correct order:
 #   1. maintenance   — apt update/upgrade, health checks (A + B)
-#   2. swap          — ensure swap exists on cascade hosts (A + B)
+#   2. swap          — ensure swap exists on all hosts (A + B)
 #   3. cascade       — WireGuard cascade VPN (A + B)
 #   4. xray          — XRay VLESS+Reality server (B)
 #   5. relay         — TCP L4 relay (A)
@@ -22,22 +22,22 @@
 #
 # Each imported playbook can still be run standalone.
 
-- name: "Stack [1/6]: Maintenance"
+- name: "Stack [1/8]: Maintenance"
   ansible.builtin.import_playbook: maintenance.yml
 
-- name: "Stack [2/6]: Swap provisioning"
+- name: "Stack [2/8]: Swap provisioning (all hosts)"
   ansible.builtin.import_playbook: maintenance_add_swap.yml
 
-- name: "Stack [3/6]: WireGuard cascade"
+- name: "Stack [3/8]: WireGuard cascade"
   ansible.builtin.import_playbook: wg_cascade.yml
 
-- name: "Stack [4/6]: XRay VLESS+Reality"
+- name: "Stack [4/8]: XRay VLESS+Reality"
   ansible.builtin.import_playbook: xray.yml
 
-- name: "Stack [5/6]: TCP relay"
+- name: "Stack [5/8]: TCP relay"
   ansible.builtin.import_playbook: relay.yml
 
-- name: "Stack [6/7]: Full verification"
+- name: "Stack [6/8]: Full verification"
   ansible.builtin.import_playbook: verify_all.yml
 
 - name: "Stack [7/8]: Telegram bot (optional — requires bot_telegram_token + bot_admin_id)"

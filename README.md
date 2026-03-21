@@ -118,7 +118,7 @@ server_b_public_ip: "YOUR_SERVER_B_PUBLIC_IP"
 ### 4. Optional: add swap on low-RAM servers
 
 ```bash
-ansible-playbook playbooks/maintenance_add_swap.yml
+ansible-playbook playbooks/maintenance_add_swap.yml   # runs on ALL hosts
 ```
 
 ### 5. Deploy
@@ -357,6 +357,10 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `wan_if` | auto-detect | WAN interface override |
 | `do_dist_upgrade` | `false` | Enable dist-upgrade in maintenance |
 | `manage_unattended_upgrades` | `leave` | `true`/`false`/`leave` |
+| `manage_fail2ban` | `true` | `true`/`false`/skip — SSH brute-force protection |
+| `fail2ban_sshd_maxretry` | `3` | Max failures before ban |
+| `fail2ban_sshd_findtime` | `300` | Window (seconds) for maxretry |
+| `fail2ban_sshd_bantime` | `3600` | Ban duration (seconds) |
 | `maintenance_reboot` | `true` | Reboot after maintenance if required |
 
 ### Cascade (`wg_cascade.yml`)
@@ -435,7 +439,7 @@ ansible-playbook playbooks/deploy_bot.yml --ask-vault-pass
 
 ### `maintenance.yml`
 
-`maintenance` `update` `upgrade` `reboot` `health` `unattended`
+`maintenance` `fail2ban` `sysctl` `unattended` `update` `upgrade` `reboot` `health`
 
 ---
 
@@ -594,15 +598,26 @@ vpn-relay/
 │   │   │   └── verify.yml
 │   │   └── templates/
 │   │       └── tma-nginx.conf.j2        # SSL 8444 → proxy to Fastify 3000
-│   └── maintenance/                     # OS update/maintenance role
+│   └── maintenance/                     # OS update/maintenance + hardening role
 │       ├── defaults/main.yml
-│       └── tasks/
-│           ├── main.yml
-│           ├── update.yml
-│           ├── upgrade.yml
-│           ├── reboot.yml
-│           ├── health.yml
-│           └── unattended_upgrades.yml
+│       ├── handlers/main.yml
+│       ├── tasks/
+│       │   ├── main.yml
+│       │   ├── packages.yml
+│       │   ├── fail2ban.yml             # SSH brute-force protection
+│       │   ├── sysctl_vm.yml            # VM tuning + DefaultTasksMax + journald
+│       │   ├── unattended_upgrades.yml  # + systemd resource limits for apt
+│       │   ├── update.yml
+│       │   ├── upgrade.yml
+│       │   ├── reboot.yml
+│       │   └── health.yml
+│       └── templates/
+│           ├── 99relay-unattended.j2
+│           ├── jail-relay.conf.j2           # fail2ban SSH jail
+│           ├── 99-vm-tuning.conf.j2         # sysctl: swappiness, vfs_cache, min_free (tiered by RAM)
+│           ├── 99-tasks-limit.conf.j2       # systemd DefaultTasksMax (tiered by RAM)
+│           ├── 99-rate-limit.conf.j2        # journald rate limiting
+│           └── apt-daily-upgrade-override.conf.j2  # apt memory/IO limits
 └── bot/                                 # Telegram bot + TMA (pnpm monorepo)
     ├── package.json
     ├── pnpm-workspace.yaml

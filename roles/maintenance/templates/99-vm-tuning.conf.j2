@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# VM memory tuning — tiered by detected RAM ({{ _mem_total_mb }} MB).
+#
+{% if _mem_total_mb | int < 1024 %}
+# RAM < 1 GB: aggressive swap + cache eviction to survive OOM pressure
+vm.swappiness = 80
+vm.vfs_cache_pressure = 200
+vm.min_free_kbytes = 32768
+{% elif _mem_total_mb | int < 4096 %}
+# RAM 1-4 GB: moderate swap pressure, keep more dentry/inode caches
+vm.swappiness = 60
+vm.vfs_cache_pressure = 150
+vm.min_free_kbytes = 65536
+{% else %}
+# RAM > 4 GB: prefer keeping pages resident, trust kernel cache defaults
+vm.swappiness = 10
+vm.vfs_cache_pressure = 100
+# min_free_kbytes not set — kernel auto-tunes appropriately for large RAM
+{% endif %}

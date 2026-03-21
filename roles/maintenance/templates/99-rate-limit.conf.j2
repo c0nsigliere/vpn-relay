@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# journald rate limiting — throttle log spam from brute-force or dpkg.
+# 200 messages per 30s per service unit. Suppressed entries get a summary line.
+
+[Journal]
+RateLimitIntervalSec=30
+RateLimitBurst=200

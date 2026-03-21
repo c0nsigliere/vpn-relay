@@ -11,8 +11,8 @@
 #   - Handles fallocate producing sparse files (falls back to dd).
 #   - Idempotent: safe to run repeatedly. Never removes or resizes existing swap.
 
-- name: Add swap to wg_cascade hosts (if missing)
-  hosts: wg_cascade
+- name: Add swap to all hosts (if missing)
+  hosts: all
   become: true
   gather_facts: true
 

@@ -1,0 +1,76 @@
+---
+# Manage fail2ban — SSH brute-force protection.
+# Controlled by: manage_fail2ban ("true" | "false" | any other value → skip)
+#
+# "true"  — install, configure SSH jail, enable service.
+# "false" — stop, disable, remove config.
+# other   — skip entirely (leave current state untouched).
+#
+# Tags: fail2ban, maintenance
+
+# -- Enable mode ("true") ------------------------------------------------------
+
+- name: Install and enable fail2ban
+  when: manage_fail2ban | string == "true"
+  tags:
+    - fail2ban
+    - maintenance
+  block:
+    - name: Install fail2ban package
+      ansible.builtin.package:
+        name: fail2ban
+        state: present
+
+    - name: Deploy SSH jail configuration
+      ansible.builtin.template:
+        src: jail-relay.conf.j2
+        dest: /etc/fail2ban/jail.d/relay.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart fail2ban
+
+    - name: Enable and start fail2ban service
+      ansible.builtin.systemd:
+        name: fail2ban
+        enabled: true
+        state: started
+
+# -- Disable mode ("false") ----------------------------------------------------
+
+- name: Disable fail2ban
+  when: manage_fail2ban | string == "false"
+  tags:
+    - fail2ban
+    - maintenance
+  block:
+    - name: Stop and disable fail2ban service
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove relay jail configuration
+      ansible.builtin.file:
+        path: /etc/fail2ban/jail.d/relay.conf
+        state: absent
+
+    - name: Confirm fail2ban disabled
+      ansible.builtin.debug:
+        msg: "fail2ban has been DISABLED. SSH brute-force protection is inactive."
+      changed_when: false
+
+# -- Skip mode (any other value) -----------------------------------------------
+
+- name: Log fail2ban skip mode
+  ansible.builtin.debug:
+    msg: >-
+      manage_fail2ban='{{ manage_fail2ban }}' — not 'true' or 'false', skipping.
+  changed_when: false
+  when:
+    - manage_fail2ban | string != "true"
+    - manage_fail2ban | string != "false"
+  tags:
+    - fail2ban
+    - maintenance

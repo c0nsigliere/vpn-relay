@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+# Resource limits for apt-daily-upgrade.service.
+# Prevents unattended-upgrades from exhausting RAM on small VPS nodes.
+#
+# MemoryHigh: soft limit — kernel starts reclaiming at this threshold.
+# MemoryMax:  hard limit — OOM-kill apt, not sshd/xray.
+# OOMPolicy=stop: kill the service unit, not random victims.
+
+[Service]
+{% if _mem_total_mb | int < 1024 %}
+# RAM < 1 GB ({{ _mem_total_mb }} MB): tight limits
+MemoryHigh=220M
+MemoryMax=300M
+{% elif _mem_total_mb | int < 2048 %}
+# RAM 1-2 GB ({{ _mem_total_mb }} MB): moderate limits
+MemoryHigh=300M
+MemoryMax=384M
+{% elif _mem_total_mb | int < 4096 %}
+# RAM 2-4 GB ({{ _mem_total_mb }} MB): standard limits
+MemoryHigh=400M
+MemoryMax=512M
+{% elif _mem_total_mb | int < 16384 %}
+# RAM 4-16 GB ({{ _mem_total_mb }} MB): relaxed limits
+MemoryHigh=768M
+MemoryMax=1024M
+{% else %}
+# RAM > 16 GB ({{ _mem_total_mb }} MB): generous limits
+MemoryHigh=1536M
+MemoryMax=2048M
+{% endif %}
+IOSchedulingClass=idle
+Nice=19
+OOMPolicy=stop

@@ -181,3 +181,36 @@
     - health
     - maintenance
 
+# =============================================================================
+# FAIL2BAN STATUS CHECK
+# =============================================================================
+
+- name: Check fail2ban sshd jail status
+  ansible.builtin.command:
+    cmd: fail2ban-client status sshd
+  register: _f2b_status
+  changed_when: false
+  failed_when: false
+  when: manage_fail2ban | string == "true"
+  tags:
+    - verify
+    - health
+    - maintenance
+
+- name: Display fail2ban sshd jail status
+  ansible.builtin.debug:
+    msg: >-
+      {% if _f2b_status.rc | default(1) == 0 %}
+      OK: fail2ban sshd jail is active.
+      {{ _f2b_status.stdout_lines | default([]) | join(' | ') }}
+      {% else %}
+      WARNING: fail2ban sshd jail is not responding.
+      Fix: ansible-playbook playbooks/maintenance.yml --tags fail2ban
+      {% endif %}
+  changed_when: false
+  when: manage_fail2ban | string == "true"
+  tags:
+    - verify
+    - health
+    - maintenance
+

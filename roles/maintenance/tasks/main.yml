@@ -10,6 +10,18 @@
     - packages
     - maintenance
 
+- name: Manage fail2ban SSH protection
+  ansible.builtin.import_tasks: fail2ban.yml
+  tags:
+    - fail2ban
+    - maintenance
+
+- name: Apply VM memory tuning and system limits
+  ansible.builtin.import_tasks: sysctl_vm.yml
+  tags:
+    - sysctl
+    - maintenance
+
 - name: Manage unattended-upgrades package
   ansible.builtin.import_tasks: unattended_upgrades.yml
   tags:

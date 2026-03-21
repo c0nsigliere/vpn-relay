@@ -18,3 +18,12 @@ manage_unattended_upgrades: "true"
 # Set to false to defer reboots to a separate scheduled window.
 # Override at runtime: -e "maintenance_reboot=false"
 maintenance_reboot: true
+
+# Manage fail2ban SSH brute-force protection:
+#   "true"  - Install + configure SSH jail + enable service.
+#   "false" - Stop + disable + remove config.
+#   other   - Skip (leave current state untouched).
+manage_fail2ban: "true"
+fail2ban_sshd_maxretry: 3       # tight: key-only auth → false positive near-impossible
+fail2ban_sshd_findtime: 300     # 5 min window
+fail2ban_sshd_bantime: 3600     # 1 hour ban
