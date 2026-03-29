@@ -52,6 +52,8 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
       serverB,
       serverAIp: isStandalone ? null : env.SERVER_A_HOST || null,
       serverBIp: env.SERVER_B_HOST,
+      serverACountry: isStandalone ? null : env.SERVER_A_COUNTRY || null,
+      serverBCountry: env.SERVER_B_COUNTRY || undefined,
       trafficSparklineB,
       trafficTotal24hB: { rx: totals24hB.totalRx, tx: totals24hB.totalTx },
       standalone: isStandalone,

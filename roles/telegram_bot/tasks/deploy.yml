@@ -61,6 +61,10 @@
   notify: restart vpn-bot
   tags: [deploy, bot]
 
+- name: Resolve server country codes via GeoIP
+  include_tasks: geoip.yml
+  tags: [deploy, bot]
+
 - name: Template .env configuration
   template:
     src: env.j2

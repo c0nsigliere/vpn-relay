@@ -13,6 +13,7 @@ import { Layout } from "../components/Layout";
 import { ServerTrafficChart } from "../components/ServerTrafficChart";
 import { fetchServersStatus, fetchServerTraffic, fetchServerMonthly, fetchServerDaily } from "../api/client";
 import { formatBytesLong, formatMonth, formatDay } from "../utils/format";
+import { countryToFlag, countryName } from "../utils/country";
 import type { ServerId, ServerStatus } from "@vpn-relay/shared";
 
 type Period = "24h" | "7d" | "30d";
@@ -90,6 +91,7 @@ export function ServerDetail() {
 
   const isA = serverId === "a";
   const isStandalone = statusData?.standalone === true;
+  const countryCode = isA ? statusData?.serverACountry : statusData?.serverBCountry;
   const serverLabel = isStandalone ? "Server" : isA ? "Server A (entry)" : "Server B (exit)";
   const rawStatus = isA ? statusData?.serverA : statusData?.serverB;
   const status: ServerStatus | undefined =
@@ -141,9 +143,12 @@ export function ServerDetail() {
         </div>
       ) : status ? (
         <div className="bg-tg-secondary rounded-xl p-4 mb-4 space-y-3">
-          {/* IP + 24h traffic */}
+          {/* IP + Location + 24h traffic */}
           <div className="grid grid-cols-2 gap-2 text-sm pb-1 border-b border-tg">
             <StatRow label="IP" value={ip ?? "—"} />
+            {countryCode && (
+              <StatRow label="Location" value={`${countryToFlag(countryCode)} ${countryName(countryCode)}`} />
+            )}
             <StatRow
               label="24h Traffic"
               value={trafficTotal24h

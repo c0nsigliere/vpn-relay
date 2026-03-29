@@ -400,6 +400,8 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `openai_api_key` | `""` | OpenAI API key for AI-powered update summaries (optional) |
 | `bot_log_level` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
 | `bot_remove_data` | `false` | Also remove `bot_data_dir` (SQLite DB) when removing |
+| `server_a_country` | auto-detect | 2-letter ISO country code for entry node (e.g. `RU`). Auto-resolved from IP via GeoIP if not set |
+| `server_b_country` | auto-detect | 2-letter ISO country code for exit node (e.g. `NL`). Auto-resolved from IP via GeoIP if not set |
 
 Pass credentials as extra vars or store them in an Ansible vault file:
 ```bash
@@ -780,8 +782,11 @@ Data path:
 
 Generate two links per client (both in `artifacts/xray/<name>.vless.txt`):
 
-- **`#name`** — direct to Server B `:8443` — use from non-Russian locations
-- **`#name-via-relay`** — via Server A `:443` — use from Russia
+- **`#name_NL`** — direct to Server B `:8443` — use from non-Russian locations (country code appended if configured)
+- **`#name_RU_NL`** — via Server A `:443` — use from Russia (entry + exit country codes)
+
+Country codes are auto-detected from server IPs at deploy time via GeoIP.
+Falls back to `#name` / `#name-via-relay` if country codes are not available.
 
 ### xray version compatibility
 

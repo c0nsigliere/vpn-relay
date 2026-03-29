@@ -4,6 +4,7 @@ import { Layout } from "../components/Layout";
 import { ServerStatusCard } from "../components/ServerStatusCard";
 import { useTelegram } from "../hooks/useTelegram";
 import { fetchServersStatus } from "../api/client";
+import { countryToFlag } from "../utils/country";
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ export function Dashboard() {
       <div className="space-y-2 mb-5">
         {data?.serverA !== null && data?.serverA !== undefined && (
           <ServerStatusCard
-            title="Server A (entry)"
+            title={`${data?.serverACountry ? countryToFlag(data.serverACountry) + " " : ""}Server A (entry)`}
             serverId="a"
             status={isLoading ? undefined : data?.serverA}
             sparklineData={data?.trafficSparklineA}
@@ -31,7 +32,7 @@ export function Dashboard() {
           />
         )}
         <ServerStatusCard
-          title={data?.standalone ? "Server" : "Server B (exit)"}
+          title={`${data?.serverBCountry ? countryToFlag(data.serverBCountry) + " " : ""}${data?.standalone ? "Server" : "Server B (exit)"}`}
           serverId="b"
           status={isLoading ? undefined : data?.serverB}
           sparklineData={data?.trafficSparklineB}

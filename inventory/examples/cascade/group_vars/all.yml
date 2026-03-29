@@ -16,6 +16,10 @@ server_b_public_ip: "YOUR_EXIT_NODE_PUBLIC_IP"
 # Generate with: python3 -c "import uuid; print(uuid.uuid4())"
 xray_wg_uplink_uuid: "YOUR_UUID_HERE"
 
+# --- Country codes (optional — auto-detected from server IPs via GeoIP at deploy) ---
+# server_a_country: "RU"
+# server_b_country: "NL"
+
 # --- Firewall mode (applies to both nodes) ---
 # "keep"    — UFW stays enabled; NAT rules in /etc/ufw/before.rules
 # "disable" — UFW disabled; rules via iptables-persistent

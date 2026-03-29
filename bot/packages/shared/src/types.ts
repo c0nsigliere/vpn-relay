@@ -95,6 +95,8 @@ export interface ServersStatusResponse {
   serverB: ServerStatus | { error: string };
   serverAIp?: string | null;
   serverBIp?: string;
+  serverACountry?: string | null;  // 2-letter ISO code, null in standalone
+  serverBCountry?: string;         // 2-letter ISO code
   trafficSparklineA?: Array<{ ts: string; rx: number; tx: number }>;
   trafficSparklineB?: Array<{ ts: string; rx: number; tx: number }>;
   trafficTotal24hA?: { rx: number; tx: number };

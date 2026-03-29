@@ -249,6 +249,7 @@ relay_servers:
 ## Shared (group_vars/all.yml) — single source of truth for all ports
 
 * server_b_public_ip
+* server_a_country / server_b_country — 2-letter ISO codes (optional, auto-resolved via GeoIP at deploy)
 * xray_port (8443)
 * port_a_tcp (443)
 * port_b_tcp (derives from xray_port)

@@ -28,6 +28,10 @@ const envSchema = z.object({
   XRAY_FINGERPRINT: z.string().default("chrome"),
   XRAY_FLOW: z.string().default("xtls-rprx-vision"),
 
+  // Server country codes (2-letter ISO, e.g. "RU", "NL" — auto-resolved by Ansible GeoIP)
+  SERVER_A_COUNTRY: z.string().default(""),
+  SERVER_B_COUNTRY: z.string().default(""),
+
   // Server A relay port (TCP relay entry)
   SERVER_A_RELAY_PORT: z.string().transform(Number).pipe(z.number().int()).default("443"),
 

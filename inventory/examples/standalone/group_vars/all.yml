@@ -8,6 +8,9 @@
 # --- REQUIRED: This server's public IP ---
 server_b_public_ip: "YOUR_SERVER_PUBLIC_IP"
 
+# --- Country code (optional — auto-detected from server IP via GeoIP at deploy) ---
+# server_b_country: "NL"
+
 # --- Firewall mode ---
 # "keep"    — UFW stays enabled; NAT rules in /etc/ufw/before.rules
 # "disable" — UFW disabled; rules via iptables-persistent

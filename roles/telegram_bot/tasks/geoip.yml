@@ -1,0 +1,60 @@
+---
+# Resolve server country codes from public IPs via ip-api.com.
+# Runs once at deploy time; results are templated into .env.
+# Manual override: set server_a_country / server_b_country in inventory.
+
+# --- Server B (always present) ---
+
+- name: "GeoIP: use inventory override for Server B"
+  set_fact:
+    _server_b_country: "{{ server_b_country }}"
+  when: server_b_country is defined and server_b_country | length > 0
+  tags: [deploy, bot]
+
+- name: "GeoIP: resolve Server B country from IP"
+  uri:
+    url: "http://ip-api.com/json/{{ server_b_public_ip }}?fields=status,countryCode"
+    return_content: true
+    timeout: 5
+  register: _geoip_b
+  delegate_to: localhost
+  become: false
+  ignore_errors: true
+  when: server_b_country is not defined or server_b_country | length == 0
+  tags: [deploy, bot]
+
+- name: "GeoIP: set Server B country fact"
+  set_fact:
+    _server_b_country: "{{ (_geoip_b.json.countryCode | default('')) if _geoip_b is defined and _geoip_b is not failed and _geoip_b.json is defined else '' }}"
+  when: _server_b_country is not defined
+  tags: [deploy, bot]
+
+# --- Server A (cascade mode only) ---
+
+- name: "GeoIP: use inventory override for Server A"
+  set_fact:
+    _server_a_country: "{{ server_a_country }}"
+  when: >
+    server_a_country is defined and server_a_country | length > 0
+    and groups.get('relay_servers', []) | length > 0
+  tags: [deploy, bot]
+
+- name: "GeoIP: resolve Server A country from IP"
+  uri:
+    url: "http://ip-api.com/json/{{ hostvars[groups['relay_servers'][0]]['ansible_host'] }}?fields=status,countryCode"
+    return_content: true
+    timeout: 5
+  register: _geoip_a
+  delegate_to: localhost
+  become: false
+  ignore_errors: true
+  when: >
+    _server_a_country is not defined
+    and groups.get('relay_servers', []) | length > 0
+  tags: [deploy, bot]
+
+- name: "GeoIP: set Server A country fact"
+  set_fact:
+    _server_a_country: "{{ (_geoip_a.json.countryCode | default('')) if _geoip_a is defined and _geoip_a is not failed and _geoip_a.json is defined else '' }}"
+  when: _server_a_country is not defined
+  tags: [deploy, bot]

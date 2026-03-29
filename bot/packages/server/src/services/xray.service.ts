@@ -105,10 +105,15 @@ class XrayService {
       ...(env.XRAY_FLOW ? [`flow=${env.XRAY_FLOW}`] : []),
     ].join("&");
 
-    const direct = `vless://${uuid}@${env.SERVER_B_HOST}:${env.SERVER_B_XRAY_PORT}?${params}#${name}`;
+    const countryB = env.SERVER_B_COUNTRY;
+    const countryA = env.SERVER_A_COUNTRY;
+    const directTag = countryB ? `${name}_${countryB}` : name;
+    const relayTag = countryA && countryB ? `${name}_${countryA}_${countryB}` : `${name}-via-relay`;
+
+    const direct = `vless://${uuid}@${env.SERVER_B_HOST}:${env.SERVER_B_XRAY_PORT}?${params}#${directTag}`;
     const relay = isStandalone
       ? null
-      : `vless://${uuid}@${env.SERVER_A_HOST}:${env.SERVER_A_RELAY_PORT}?${params}#${name}-via-relay`;
+      : `vless://${uuid}@${env.SERVER_A_HOST}:${env.SERVER_A_RELAY_PORT}?${params}#${relayTag}`;
 
     return { direct, relay };
   }
