@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type React from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { useTelegram } from "../hooks/useTelegram";
 import { createClient } from "../api/client";
@@ -20,7 +21,9 @@ const CLIENT_TYPES: { value: ClientType; label: string; desc: string }[] = [
 ];
 
 export function AddClient() {
-  const { mainButton, haptic, close } = useTelegram();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { mainButton, haptic } = useTelegram();
 
   const [name, setName] = useState("");
   const [type, setType] = useState<ClientType>("xray");
@@ -42,10 +45,10 @@ export function AddClient() {
         dailyQuotaGb: dailyQuotaGb ? parseFloat(dailyQuotaGb) : undefined,
         monthlyQuotaGb: monthlyQuotaGb ? parseFloat(monthlyQuotaGb) : undefined,
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       haptic.notification("success");
-      // Killer feature: close Web App — config arrives in Telegram chat
-      close();
+      void queryClient.invalidateQueries({ queryKey: ["clients"] });
+      navigate(`/client/${data.client.id}`, { state: { justCreated: true } });
     },
     onError: (err: Error) => {
       submittedRef.current = false;

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart,
@@ -48,8 +48,12 @@ function clientStatus(isActive: boolean, lastSeenAt: string | null, suspendReaso
 export function ClientDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { haptic } = useTelegram();
   const queryClient = useQueryClient();
+  const [createdToast, setCreatedToast] = useState(
+    () => !!(location.state as { justCreated?: boolean })?.justCreated
+  );
   const [period, setPeriod] = useState<Period>("24h");
   const [volumeTab, setVolumeTab] = useState<VolumeTab>("daily");
   const [renaming, setRenaming] = useState(false);
@@ -59,6 +63,15 @@ export function ClientDetail() {
   const [quotaMonthly, setQuotaMonthly] = useState<string>("");
   const [editingExpiry, setEditingExpiry] = useState(false);
   const [expiryDate, setExpiryDate] = useState<string>("");
+
+  // Auto-dismiss "just created" toast & clear location state
+  useEffect(() => {
+    if (!createdToast) return;
+    // Clear state so back-navigation won't re-show the toast
+    window.history.replaceState({}, "");
+    const timer = setTimeout(() => setCreatedToast(false), 4000);
+    return () => clearTimeout(timer);
+  }, [createdToast]);
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ["client", id],
@@ -249,6 +262,14 @@ export function ClientDetail() {
 
   return (
     <Layout backTo="/clients" title={client.name}>
+      {/* Created toast */}
+      {createdToast && (
+        <div className="mb-3 px-4 py-2 rounded-lg text-sm font-medium"
+          style={{ backgroundColor: "#a6e3a120", color: "#a6e3a1" }}>
+          Client created — config sent to chat
+        </div>
+      )}
+
       {/* Rename inline */}
       {renaming && (
         <div className="bg-tg-secondary rounded-xl p-3 mb-4 flex gap-2 items-start">
