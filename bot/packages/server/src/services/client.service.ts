@@ -13,6 +13,7 @@ import { queries } from "../db/queries";
 import { xrayService } from "./xray.service";
 import { wgService } from "./wg.service";
 import { qrService } from "./qr.service";
+import { isStandalone } from "../config/standalone";
 import { createLogger } from "../utils/logger";
 import type { BotContext } from "../bot/context";
 import type { Client, ClientType } from "@vpn-relay/shared";
@@ -22,7 +23,7 @@ const logger = createLogger("client");
 export interface CreateClientResult {
   client: Client;
   wgConf?: string;           // WG .conf file text (only at creation time)
-  xrayUris?: { direct: string; relay: string };
+  xrayUris?: { direct: string; relay: string | null };
 }
 
 export async function createClient(
@@ -37,11 +38,15 @@ export async function createClient(
   let wgPubkey: string | null = null;
   let wgConf: string | undefined;
   let xrayUuid: string | null = null;
-  let xrayUris: { direct: string; relay: string } | undefined;
+  let xrayUris: { direct: string; relay: string | null } | undefined;
 
   const expiresAt = ttlDays
     ? new Date(Date.now() + ttlDays * 86_400_000).toISOString()
     : null;
+
+  if (isStandalone && (type === "wg" || type === "both")) {
+    throw new Error("WireGuard clients are not available in standalone mode — use 'xray' type");
+  }
 
   if (type === "wg" || type === "both") {
     const wgResult = await wgService.addClient(name);
@@ -216,24 +221,29 @@ export async function sendConfigToChat(
 
   if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
     const uris = xrayService.generateVlessUris(client.name, client.xray_uuid);
-    const text = [
-      `⚡ *VLESS Config for ${client.name}*\n`,
-      `*Direct:*\n\`${uris.direct}\`\n`,
-      `*Via Relay:*\n\`${uris.relay}\`\n`,
-      `_Import with Hiddify or Streisand app._`,
-    ].join("\n");
+    const lines = [`⚡ *VLESS Config for ${client.name}*\n`];
+    if (uris.relay) {
+      lines.push(`*Direct:*\n\`${uris.direct}\`\n`);
+      lines.push(`*Via Relay:*\n\`${uris.relay}\`\n`);
+    } else {
+      lines.push(`\`${uris.direct}\`\n`);
+    }
+    lines.push(`_Import with Hiddify or Streisand app._`);
 
-    await bot.api.sendMessage(chatId, text, { parse_mode: "Markdown" });
+    await bot.api.sendMessage(chatId, lines.join("\n"), { parse_mode: "Markdown" });
 
-    const [directQr, relayQr] = await Promise.all([
-      qrService.generate(uris.direct),
-      qrService.generate(uris.relay),
-    ]);
-    await bot.api.sendPhoto(chatId, new InputFile(directQr, "direct-qr.png"), {
-      caption: `QR: ${client.name} (Direct)`,
-    });
-    await bot.api.sendPhoto(chatId, new InputFile(relayQr, "relay-qr.png"), {
-      caption: `QR: ${client.name} (Via Relay)`,
-    });
+    await bot.api.sendPhoto(
+      chatId,
+      new InputFile(await qrService.generate(uris.direct), "direct-qr.png"),
+      { caption: `QR: ${client.name}${uris.relay ? " (Direct)" : ""}` }
+    );
+
+    if (uris.relay) {
+      await bot.api.sendPhoto(
+        chatId,
+        new InputFile(await qrService.generate(uris.relay), "relay-qr.png"),
+        { caption: `QR: ${client.name} (Via Relay)` }
+      );
+    }
   }
 }

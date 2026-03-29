@@ -14,6 +14,7 @@
 
 import * as fs from "fs";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
 
 const ACCESS_LOG = "/var/log/xray/access.log";
 
@@ -52,7 +53,7 @@ class XrayLogService {
     const lines = content.split("\n");
     const tail = lines.slice(-5000);
 
-    const serverAIp = env.SERVER_A_HOST;
+    const serverAIp = isStandalone ? null : env.SERVER_A_HOST;
 
     // Track the LAST log entry per client (later lines = more recent = current connection mode).
     // A single client can have both relay and direct entries in the 5000-line window if they
@@ -68,7 +69,9 @@ class XrayLogService {
       // Skip WG cascade uplink (not a real client)
       if (name === "wg-clients") continue;
 
-      lastEntry.set(name, { relay: ip === serverAIp, ip, port: parseInt(port, 10) });
+      // In standalone mode: all connections are direct (no relay possible)
+      const isRelay = serverAIp ? ip === serverAIp : false;
+      lastEntry.set(name, { relay: isRelay, ip, port: parseInt(port, 10) });
     }
 
     for (const [name, entry] of lastEntry) {

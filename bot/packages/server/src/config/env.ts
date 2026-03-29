@@ -8,8 +8,8 @@ const envSchema = z.object({
   // Database
   DB_PATH: z.string().default("/var/lib/vpn-bot/data.db"),
 
-  // Server A (WireGuard, SSH access)
-  SERVER_A_HOST: z.string().min(1),
+  // Server A (cascade mode only — empty or unset = standalone mode)
+  SERVER_A_HOST: z.string().default(""),
   SERVER_A_SSH_PORT: z.string().transform(Number).pipe(z.number().int()).default("22"),
   SERVER_A_SSH_USER: z.string().default("root"),
   SERVER_A_SSH_KEY_PATH: z.string().default("/var/lib/vpn-bot/.ssh/id_ed25519"),
@@ -58,3 +58,6 @@ function loadEnv() {
 
 export const env = loadEnv();
 export type Env = typeof env;
+
+/** Standalone mode: no entry node (Server A), XRay-only deployment */
+export const isStandalone = !env.SERVER_A_HOST;

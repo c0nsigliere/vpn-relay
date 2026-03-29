@@ -107,13 +107,15 @@
       ignore_errors: true
       tags: [install, bot]
 
-    - name: Revoke bot SSH key from Server A
+    - name: Revoke bot SSH key from entry node (cascade mode only)
       authorized_key:
         user: "{{ hostvars[groups['server_a'][0]]['ansible_user'] | default('root') }}"
         key: "{{ _bot_pubkey.content | b64decode }}"
         state: absent
       delegate_to: "{{ groups['server_a'][0] }}"
-      when: _bot_pubkey is not failed
+      when:
+        - _bot_pubkey is not failed
+        - groups.get('server_a', []) | length > 0
       tags: [install, bot]
 
     - name: Remove bot app directory

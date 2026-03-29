@@ -12,6 +12,7 @@
 
 import { execSync } from "child_process";
 import { sshPool } from "./ssh";
+import { isStandalone } from "../config/standalone";
 
 export interface PackageInfo {
   name: string;
@@ -55,6 +56,7 @@ function parseAptList(raw: string): PackageInfo[] {
 }
 
 export async function getUpgradablePackages(server: "a" | "b"): Promise<PackageInfo[]> {
+  if (server === "a" && isStandalone) return [];
   const raw = server === "a"
     ? await sshPool.exec(APT_LIST_CMD)
     : execSync(APT_LIST_CMD, { encoding: "utf8", timeout: 30_000 });
@@ -76,7 +78,9 @@ export async function getChangelogs(
   const cmd = `for pkg in ${pkgList}; do echo "===PKG:$pkg==="; apt-get changelog "$pkg" 2>/dev/null | head -40; done`;
 
   let raw: string;
-  if (server === "a") {
+  if (server === "a" && isStandalone) {
+    return new Map();
+  } else if (server === "a") {
     raw = await sshPool.exec(cmd, 120_000);
   } else {
     raw = execSync(cmd, { encoding: "utf8", timeout: 120_000 });

@@ -1,0 +1,17 @@
+# =============================================================================
+# VPN Relay — Standalone Deployment (Single Server)
+# =============================================================================
+# One-server setup: XRay VLESS+Reality + Telegram Bot + TMA on a single VPS.
+# No entry node, no WireGuard cascade, no relay — clients connect directly.
+#
+# Quick start:
+#   1. cp -r inventory/examples/standalone inventory/my-server
+#   2. Fill in your real IP and credentials in group_vars/all.yml
+#   3. ansible-playbook playbooks/stack.yml -i inventory/my-server/
+
+[xray_servers]
+my-server  ansible_host=YOUR_SERVER_IP  ansible_user=root  ansible_python_interpreter=/usr/bin/python3
+
+# --- Leave these empty for standalone mode ---
+[relay_servers]
+[wg_cascade]

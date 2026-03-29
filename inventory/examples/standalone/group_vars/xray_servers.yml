@@ -1,0 +1,10 @@
+---
+# XRay VLESS+Reality settings
+# Override here only if this host needs different values.
+
+xray_reality_dest: "www.googletagmanager.com:443"
+xray_reality_server_names:
+  - "www.googletagmanager.com"
+xray_reality_fingerprint: "chrome"
+
+xray_vless_flow: "xtls-rprx-vision"

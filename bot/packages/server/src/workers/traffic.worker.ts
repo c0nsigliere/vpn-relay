@@ -8,6 +8,7 @@ import { sshPool } from "../services/ssh";
 import { xrayLogService } from "../services/xray-log.service";
 import { ipInfoService } from "../services/ip-info.service";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
 import { createLogger, logOnError } from "../utils/logger";
 
 const logger = createLogger("traffic");
@@ -93,23 +94,25 @@ async function collectServerEth0(): Promise<void> {
     // ignore — iface may not exist in dev
   }
 
-  // Server A (remote — SSH)
-  try {
-    const out = await sshPool.exec(
-      "IFACE=$(ls /sys/class/net | grep -v '^lo$' | head -1); cat /sys/class/net/$IFACE/statistics/rx_bytes /sys/class/net/$IFACE/statistics/tx_bytes"
-    );
-    const lines = out.trim().split("\n");
-    const rx = parseInt(lines[0], 10);
-    const tx = parseInt(lines[1], 10);
-    if (!isNaN(rx) && !isNaN(tx)) {
-      const prev = lastEth0.get("a");
-      if (prev !== undefined && rx >= prev.rx && tx >= prev.tx) {
-        queries.insertServerTrafficSnapshot("a", rx - prev.rx, tx - prev.tx);
+  // Server A (remote — SSH, cascade mode only)
+  if (!isStandalone) {
+    try {
+      const out = await sshPool.exec(
+        "IFACE=$(ls /sys/class/net | grep -v '^lo$' | head -1); cat /sys/class/net/$IFACE/statistics/rx_bytes /sys/class/net/$IFACE/statistics/tx_bytes"
+      );
+      const lines = out.trim().split("\n");
+      const rx = parseInt(lines[0], 10);
+      const tx = parseInt(lines[1], 10);
+      if (!isNaN(rx) && !isNaN(tx)) {
+        const prev = lastEth0.get("a");
+        if (prev !== undefined && rx >= prev.rx && tx >= prev.tx) {
+          queries.insertServerTrafficSnapshot("a", rx - prev.rx, tx - prev.tx);
+        }
+        lastEth0.set("a", { rx, tx });
       }
-      lastEth0.set("a", { rx, tx });
+    } catch {
+      // Server A unreachable
     }
-  } catch {
-    // Server A unreachable
   }
 }
 
@@ -179,7 +182,7 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
           // If any clients connected via relay, resolve real IPs via conntrack on Server A
           let conntrackMap = new Map<number, string>();
           let relayConnectedIps = new Set<string>();
-          if (relayPorts.size > 0) {
+          if (relayPorts.size > 0 && !isStandalone) {
             const ct = await getRelayConntrackData();
             conntrackMap = ct.masqToIp;
             relayConnectedIps = ct.connectedIps;

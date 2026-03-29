@@ -1,30 +1,14 @@
 ---
 # Deploy TMA (Telegram Mini App) infrastructure on Server B.
 # Requires: tma_domain, tma_certbot_email must be set.
+# Requires: deploy_bot.yml must have run first (web SPA is built during bot deploy).
 #
 # Usage:
 #   ansible-playbook playbooks/deploy_tma.yml \
 #     -e "tma_domain=vpn.example.com tma_certbot_email=admin@example.com"
-#
-# This playbook:
-#   1. Installs nginx + certbot + obtains SSL certificate
-#   2. Re-deploys the bot (pnpm build includes web SPA)
 
 - name: Deploy TMA nginx infrastructure
   hosts: xray_servers
   become: true
   roles:
     - role: nginx_tma
-
-- name: Re-deploy Telegram bot (rebuilds with web SPA)
-  hosts: xray_servers
-  become: true
-  tasks:
-    - import_role:
-        name: telegram_bot
-        tasks_from: deploy
-      tags: [deploy, bot]
-    - import_role:
-        name: telegram_bot
-        tasks_from: service
-      tags: [service, bot]

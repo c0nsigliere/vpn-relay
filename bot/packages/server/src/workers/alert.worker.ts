@@ -26,6 +26,8 @@ import { queries } from "../db/queries";
 import { suspendClient } from "../services/client.service";
 import { metricsCache } from "../services/metrics.cache";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
+import type { ServerStatus } from "../services/system.service";
 import { createLogger } from "../utils/logger";
 
 const logger = createLogger("alert");
@@ -106,10 +108,37 @@ function evalSustained(sustainKey: string, conditionTrue: boolean, durationMs: n
   }
 }
 
+/**
+ * Fetch metrics from both servers via metricsCache, then build a per-server
+ * check list. In standalone mode Server A is skipped entirely (no fetch, no check entry).
+ */
+async function fetchBothServersAndBuildChecks<T>(
+  extract: (status: ServerStatus) => T
+): Promise<Array<{ key: string; label: string; data: T | undefined }>> {
+  const [resultA, resultB] = await Promise.allSettled([
+    isStandalone ? Promise.reject("standalone") : metricsCache.getStatusA(),
+    metricsCache.getStatusB(),
+  ]);
+  const checks: Array<{ key: string; label: string; data: T | undefined }> = [];
+  if (!isStandalone) {
+    checks.push({
+      key: "a",
+      label: "Server A",
+      data: resultA.status === "fulfilled" ? extract(resultA.value) : undefined,
+    });
+  }
+  checks.push({
+    key: "b",
+    label: "Server B",
+    data: resultB.status === "fulfilled" ? extract(resultB.value) : undefined,
+  });
+  return checks;
+}
+
 // ── Check functions ───────────────────────────────────────────────────────────
 
 async function checkCascadeDown(bot: Bot<BotContext>): Promise<void> {
-  if (!isEnabled("cascade_down")) return;
+  if (isStandalone || !isEnabled("cascade_down")) return;
   const threshold = getThreshold("cascade_down", "threshold", 100);
   const durationMin = getThreshold("cascade_down", "threshold2", 2);
 
@@ -130,7 +159,7 @@ async function checkCascadeDown(bot: Bot<BotContext>): Promise<void> {
 }
 
 async function checkCascadeDegradation(bot: Bot<BotContext>): Promise<void> {
-  if (!isEnabled("cascade_degradation")) return;
+  if (isStandalone || !isEnabled("cascade_degradation")) return;
   const threshold = getThreshold("cascade_degradation", "threshold", 30);
   const durationMin = getThreshold("cascade_degradation", "threshold2", 5);
 
@@ -171,7 +200,7 @@ async function checkServiceDeadXray(bot: Bot<BotContext>): Promise<void> {
 }
 
 async function checkServiceDeadWg(bot: Bot<BotContext>): Promise<void> {
-  if (!isEnabled("service_dead_wg")) return;
+  if (isStandalone || !isEnabled("service_dead_wg")) return;
 
   let wgRunning = false;
   try {
@@ -194,34 +223,19 @@ async function checkDiskFull(bot: Bot<BotContext>): Promise<void> {
   if (!isEnabled("disk_full")) return;
   const threshold = getThreshold("disk_full", "threshold", 90);
 
-  const [resultA, resultB] = await Promise.allSettled([
-    metricsCache.getStatusA(),
-    metricsCache.getStatusB(),
-  ]);
+  const servers = await fetchBothServersAndBuildChecks((s) => ({
+    usedGb: s.diskUsedGb, totalGb: s.diskTotalGb,
+  }));
 
-  const checks: Array<{ key: string; label: string; usedGb?: number; totalGb?: number }> = [
-    {
-      key: "disk_full:a",
-      label: "Server A",
-      usedGb: resultA.status === "fulfilled" ? resultA.value.diskUsedGb : undefined,
-      totalGb: resultA.status === "fulfilled" ? resultA.value.diskTotalGb : undefined,
-    },
-    {
-      key: "disk_full:b",
-      label: "Server B",
-      usedGb: resultB.status === "fulfilled" ? resultB.value.diskUsedGb : undefined,
-      totalGb: resultB.status === "fulfilled" ? resultB.value.diskTotalGb : undefined,
-    },
-  ];
-
-  for (const { key, label, usedGb, totalGb } of checks) {
-    if (usedGb === undefined || totalGb === undefined || totalGb === 0) continue;
-    const usagePercent = (usedGb / totalGb) * 100;
+  for (const { key: serverId, label, data } of servers) {
+    if (!data?.usedGb || !data?.totalGb || data.totalGb === 0) continue;
+    const key = `disk_full:${serverId}`;
+    const usagePercent = (data.usedGb / data.totalGb) * 100;
     const state = queries.getAlertState(key);
     if (usagePercent >= threshold && shouldFire(key)) {
       await fireAlert(
         key,
-        `💾 *Disk full* on ${label}\n${usedGb.toFixed(1)} / ${totalGb.toFixed(1)} GB (${usagePercent.toFixed(0)}%)`,
+        `💾 *Disk full* on ${label}\n${data.usedGb.toFixed(1)} / ${data.totalGb.toFixed(1)} GB (${usagePercent.toFixed(0)}%)`,
         bot
       );
     } else if (usagePercent < threshold && state?.status === "fired") {
@@ -236,29 +250,14 @@ async function checkNetworkSaturation(bot: Bot<BotContext>): Promise<void> {
   const durationMin = getThreshold("network_saturation", "threshold2", 15);
   const channelMbps = getThreshold("channel_capacity", "threshold", 100);
 
-  const [resultA, resultB] = await Promise.allSettled([
-    metricsCache.getStatusA(),
-    metricsCache.getStatusB(),
-  ]);
+  const servers = await fetchBothServersAndBuildChecks((s) => ({
+    rxMbps: s.throughputRxMbps ?? 0, txMbps: s.throughputTxMbps ?? 0,
+  }));
 
-  const checks = [
-    {
-      key: "network_saturation:a",
-      label: "Server A",
-      rxMbps: resultA.status === "fulfilled" ? (resultA.value.throughputRxMbps ?? 0) : undefined,
-      txMbps: resultA.status === "fulfilled" ? (resultA.value.throughputTxMbps ?? 0) : undefined,
-    },
-    {
-      key: "network_saturation:b",
-      label: "Server B",
-      rxMbps: resultB.status === "fulfilled" ? (resultB.value.throughputRxMbps ?? 0) : undefined,
-      txMbps: resultB.status === "fulfilled" ? (resultB.value.throughputTxMbps ?? 0) : undefined,
-    },
-  ];
-
-  for (const { key, label, rxMbps, txMbps } of checks) {
-    if (rxMbps === undefined || txMbps === undefined) continue;
-    const maxMbps = Math.max(rxMbps, txMbps);
+  for (const { key: serverId, label, data } of servers) {
+    if (!data) continue;
+    const key = `network_saturation:${serverId}`;
+    const maxMbps = Math.max(data.rxMbps, data.txMbps);
     const usagePercent = (maxMbps / channelMbps) * 100;
     const conditionTrue = usagePercent >= threshold;
     const sustained = evalSustained(key, conditionTrue, durationMin * 60_000);
@@ -267,7 +266,7 @@ async function checkNetworkSaturation(bot: Bot<BotContext>): Promise<void> {
     if (sustained && shouldFire(key)) {
       await fireAlert(
         key,
-        `📶 *Network saturated* on ${label}\n↑${txMbps.toFixed(1)} / ↓${rxMbps.toFixed(1)} Mbps (${usagePercent.toFixed(0)}% of ${channelMbps} Mbps) for ${durationMin}+ min`,
+        `📶 *Network saturated* on ${label}\n↑${data.txMbps.toFixed(1)} / ↓${data.rxMbps.toFixed(1)} Mbps (${usagePercent.toFixed(0)}% of ${channelMbps} Mbps) for ${durationMin}+ min`,
         bot
       );
     } else if (!conditionTrue && state?.status === "fired") {
@@ -281,26 +280,11 @@ async function checkCpuOverload(bot: Bot<BotContext>): Promise<void> {
   const threshold = getThreshold("cpu_overload", "threshold", 95);
   const durationMin = getThreshold("cpu_overload", "threshold2", 10);
 
-  const [resultA, resultB] = await Promise.allSettled([
-    metricsCache.getStatusA(),
-    metricsCache.getStatusB(),
-  ]);
+  const servers = await fetchBothServersAndBuildChecks((s) => s.cpuPercent);
 
-  const checks = [
-    {
-      key: "cpu_overload:a",
-      label: "Server A",
-      cpu: resultA.status === "fulfilled" ? resultA.value.cpuPercent : undefined,
-    },
-    {
-      key: "cpu_overload:b",
-      label: "Server B",
-      cpu: resultB.status === "fulfilled" ? resultB.value.cpuPercent : undefined,
-    },
-  ];
-
-  for (const { key, label, cpu } of checks) {
+  for (const { key: serverId, label, data: cpu } of servers) {
     if (cpu === undefined) continue;
+    const key = `cpu_overload:${serverId}`;
     const conditionTrue = cpu >= threshold;
     const sustained = evalSustained(key, conditionTrue, durationMin * 60_000);
     const state = queries.getAlertState(key);
@@ -426,48 +410,35 @@ async function checkRebootDetected(bot: Bot<BotContext>): Promise<void> {
     await clearAlert("reboot_detected:b", `✅ *Server B* uptime stable`, bot);
   }
 
-  // Server A (remote)
-  try {
-    const rawUptime = await sshPool.exec("cat /proc/uptime");
-    const uptimeASec = parseFloat(rawUptime.trim().split(" ")[0]);
-    const stateA = queries.getAlertState("reboot_detected:a");
-    if (uptimeASec < thresholdMin * 60 && shouldFire("reboot_detected:a")) {
-      await fireAlert(
-        "reboot_detected:a",
-        `🔄 *Server A rebooted*\nCurrent uptime: ${Math.floor(uptimeASec / 60)}m`,
-        bot
-      );
-    } else if (uptimeASec >= thresholdMin * 60 && stateA?.status === "fired") {
-      await clearAlert("reboot_detected:a", `✅ *Server A* uptime stable`, bot);
+  // Server A (remote, cascade mode only)
+  if (!isStandalone) {
+    try {
+      const rawUptime = await sshPool.exec("cat /proc/uptime");
+      const uptimeASec = parseFloat(rawUptime.trim().split(" ")[0]);
+      const stateA = queries.getAlertState("reboot_detected:a");
+      if (uptimeASec < thresholdMin * 60 && shouldFire("reboot_detected:a")) {
+        await fireAlert(
+          "reboot_detected:a",
+          `🔄 *Server A rebooted*\nCurrent uptime: ${Math.floor(uptimeASec / 60)}m`,
+          bot
+        );
+      } else if (uptimeASec >= thresholdMin * 60 && stateA?.status === "fired") {
+        await clearAlert("reboot_detected:a", `✅ *Server A* uptime stable`, bot);
+      }
+    } catch {
+      // SSH unreachable — cascade_down handles that
     }
-  } catch {
-    // SSH unreachable — cascade_down handles that
   }
 }
 
 async function checkRebootRequired(bot: Bot<BotContext>): Promise<void> {
   if (!isEnabled("reboot_required")) return;
 
-  const [resultA, resultB] = await Promise.allSettled([
-    metricsCache.getStatusA(),
-    metricsCache.getStatusB(),
-  ]);
+  const servers = await fetchBothServersAndBuildChecks((s) => s.rebootRequired);
 
-  const checks = [
-    {
-      key: "reboot_required:a",
-      label: "Server A",
-      required: resultA.status === "fulfilled" ? resultA.value.rebootRequired : undefined,
-    },
-    {
-      key: "reboot_required:b",
-      label: "Server B",
-      required: resultB.status === "fulfilled" ? resultB.value.rebootRequired : undefined,
-    },
-  ];
-
-  for (const { key, label, required } of checks) {
+  for (const { key: serverId, label, data: required } of servers) {
     if (required === undefined) continue;
+    const key = `reboot_required:${serverId}`;
     const state = queries.getAlertState(key);
     if (required && shouldFire(key)) {
       await fireAlert(key, `🔄 *Reboot required* on ${label}`, bot);

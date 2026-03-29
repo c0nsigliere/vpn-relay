@@ -11,6 +11,7 @@
 - name: Sync bot source code
   shell: >
     rsync -az --delete
+    --rsync-path="sudo rsync"
     --exclude=node_modules
     --exclude=dist
     --exclude='*.tsbuildinfo'

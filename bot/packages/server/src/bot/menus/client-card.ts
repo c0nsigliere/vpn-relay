@@ -121,26 +121,28 @@ async function sendConfig(ctx: BotContext, client: Client): Promise<void> {
     if (!client.xray_uuid) return;
     const uris = xrayService.generateVlessUris(client.name, client.xray_uuid);
 
-    const text = [
-      `*VLESS Config for ${client.name}*\n`,
-      `*Direct (Server B):*`,
-      `\`${uris.direct}\`\n`,
-      `*Via Relay (Server A):*`,
-      `\`${uris.relay}\`\n`,
-      `_Use Hiddify or Streisand app to import._`,
-    ].join("\n");
+    const lines = [`*VLESS Config for ${client.name}*\n`];
+    if (uris.relay) {
+      lines.push(`*Direct:*`, `\`${uris.direct}\`\n`);
+      lines.push(`*Via Relay:*`, `\`${uris.relay}\`\n`);
+    } else {
+      lines.push(`\`${uris.direct}\`\n`);
+    }
+    lines.push(`_Use Hiddify or Streisand app to import._`);
 
-    await ctx.reply(text, { parse_mode: "Markdown" });
+    await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
 
     // Send QR codes
-    const directQr = await qrService.generate(uris.direct);
-    const relayQr = await qrService.generate(uris.relay);
-    await ctx.replyWithPhoto(new InputFile(directQr, "direct-qr.png"), {
-      caption: `QR: ${client.name} (Direct)`,
-    });
-    await ctx.replyWithPhoto(new InputFile(relayQr, "relay-qr.png"), {
-      caption: `QR: ${client.name} (Via Relay)`,
-    });
+    await ctx.replyWithPhoto(
+      new InputFile(await qrService.generate(uris.direct), "direct-qr.png"),
+      { caption: `QR: ${client.name}${uris.relay ? " (Direct)" : ""}` }
+    );
+    if (uris.relay) {
+      await ctx.replyWithPhoto(
+        new InputFile(await qrService.generate(uris.relay), "relay-qr.png"),
+        { caption: `QR: ${client.name} (Via Relay)` }
+      );
+    }
   }
 }
 

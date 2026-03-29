@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import { sshPool } from "./ssh";
+import { requireCascade } from "../config/standalone";
 
 export interface ServerStatus {
   cpuPercent: number;
@@ -310,6 +311,7 @@ class SystemService {
   private lastNet: Map<"a" | "b", { ts: number; rx: number; tx: number }> = new Map();
 
   async getStatusA(): Promise<ServerStatus> {
+    requireCascade("Server A status");
     return parseRemoteStatus(this.lastNet);
   }
 

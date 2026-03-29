@@ -1,0 +1,48 @@
+# =============================================================================
+# VPN Relay — Cascade Deployment (Entry Node + Exit Node)
+# =============================================================================
+# Two-server setup: an entry node in one country relays traffic to an exit
+# node abroad via XRay VLESS+Reality.  WireGuard clients terminate on the
+# entry node; TPROXY + XRay tunnel their traffic to the exit node.
+#
+# Quick start:
+#   1. cp -r inventory/examples/cascade inventory/my-cascade
+#   2. Fill in real IPs below and in group_vars/all.yml
+#   3. ansible-playbook playbooks/stack.yml -i inventory/my-cascade/
+
+# --- Host definitions (fill in your real IPs) ---
+[server_a]
+entry-node  ansible_host=YOUR_ENTRY_NODE_IP
+
+[server_b]
+exit-node   ansible_host=YOUR_EXIT_NODE_IP
+
+# --- WireGuard Cascade: entry node only ---
+# Terminates WireGuard clients and tunnels traffic via XRay TPROXY.
+# Playbooks: wg_cascade.yml, verify_wg_cascade.yml, rollback_wg_cascade.yml
+[wg_cascade:children]
+server_a
+
+[wg_cascade:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=root
+
+# --- XRay L4 Relay (TCP): entry node only ---
+# Blindly forwards VLESS TCP traffic to the exit node (no protocol awareness).
+# Playbooks: relay.yml, rollback.yml
+[relay_servers:children]
+server_a
+
+[relay_servers:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=root
+
+# --- XRay VLESS+Reality Server: exit node only ---
+# Handles all decryption and internet routing.
+# Playbooks: xray.yml, verify_xray.yml, rollback_xray.yml
+[xray_servers:children]
+server_b
+
+[xray_servers:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=root

@@ -4,13 +4,19 @@ import { useQuery } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { ClientRow } from "../components/ClientRow";
 import { useTelegram } from "../hooks/useTelegram";
-import { fetchClientsWithTraffic } from "../api/client";
+import { fetchClientsWithTraffic, fetchServersStatus } from "../api/client";
 
 type FilterStatus = "all" | "active" | "suspended" | "quota_exceeded";
 
 export function ClientList() {
   const navigate = useNavigate();
   const { mainButton, haptic } = useTelegram();
+  const { data: statusData } = useQuery({
+    queryKey: ["servers-status"],
+    queryFn: fetchServersStatus,
+    staleTime: 60_000,
+  });
+  const isStandalone = statusData?.standalone === true;
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
@@ -110,6 +116,7 @@ export function ClientList() {
               totalRx={(c.traffic?.wgRx ?? 0) + (c.traffic?.xrayRx ?? 0)}
               totalTx={(c.traffic?.wgTx ?? 0) + (c.traffic?.xrayTx ?? 0)}
               quota={c.quota}
+              standalone={isStandalone}
             />
           ))}
         </div>

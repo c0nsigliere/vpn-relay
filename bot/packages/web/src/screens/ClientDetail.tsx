@@ -15,6 +15,7 @@ import { useTelegram } from "../hooks/useTelegram";
 import {
   fetchClient, patchClient, deleteClient, sendConfig, renameClient,
   fetchTrafficHistory, fetchClientMonthly, fetchClientDaily, updateQuota, updateExpiry,
+  fetchServersStatus,
 } from "../api/client";
 import { QuotaProgressBar } from "../components/QuotaProgressBar";
 import { formatBytesLong, formatMonth, formatDay, formatRelativeTime } from "../utils/format";
@@ -63,6 +64,12 @@ export function ClientDetail() {
   const [quotaMonthly, setQuotaMonthly] = useState<string>("");
   const [editingExpiry, setEditingExpiry] = useState(false);
   const [expiryDate, setExpiryDate] = useState<string>("");
+  const { data: statusData } = useQuery({
+    queryKey: ["servers-status"],
+    queryFn: fetchServersStatus,
+    staleTime: 60_000,
+  });
+  const isStandalone = statusData?.standalone === true;
 
   // Auto-dismiss "just created" toast & clear location state
   useEffect(() => {
@@ -324,7 +331,7 @@ export function ClientDetail() {
             </>
           )}
 
-          {client.last_connection_route && (client.type === "xray" || client.type === "both") && (
+          {!isStandalone && client.last_connection_route && (client.type === "xray" || client.type === "both") && (
             <>
               <div className="text-tg-hint">Route</div>
               <div>

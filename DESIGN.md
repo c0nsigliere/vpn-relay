@@ -1,24 +1,32 @@
-# 🧱 Проект: VPN Stack (WireGuard Cascade + XRay Reality via Relay)
+# VPN Stack — XRay VLESS+Reality with Optional WireGuard Cascade
 
-## 🎯 Цель проекта
+## Project Goal
 
-Развернуть управляемый через Ansible VPN-стек из двух серверов:
+Ansible-managed VPN stack supporting two deployment modes from the same codebase:
 
-* **Server A (в РФ)** — входная точка
-* **Server B (вне РФ)** — реальный выход в интернет
+| Mode | Servers | Use case |
+|------|---------|----------|
+| **Standalone** | 1 VPS | Direct VLESS+Reality connection. Simplest setup. |
+| **Cascade** | 2 VPS (entry + exit) | WireGuard cascade + TCP relay through an entry node in a censored region. Bypasses DPI/UDP blocking. |
 
-Система должна:
+Both modes share the same Ansible roles, Telegram bot, and TMA web app.
 
-1. Работать при блокировках (к B напрямую подключиться нельзя).
-2. Поддерживать:
+### Standalone Mode
 
-   * WireGuard VPN (через каскад A→B)
-   * XRay VLESS + Reality (через TCP relay на A к B)
-3. Быть полностью управляемой через Ansible.
-4. Быть легко переносимой (замена A или B не должна ломать архитектуру).
-5. Позволять автоматическую генерацию клиентских конфигов.
-6. Иметь проверку памяти/Swap.
-7. Иметь один “Golden Path” для установки.
+Single server running XRay VLESS+Reality + bot + TMA. Clients connect directly.
+
+### Cascade Mode
+
+Two servers:
+* **Entry node** — in a censored region. Runs WireGuard + XRay TPROXY + TCP relay.
+* **Exit node** — abroad. Runs XRay VLESS+Reality, bot, TMA.
+
+The system:
+1. Bypasses DPI and UDP blocking (TPROXY wraps WG traffic in VLESS+Reality).
+2. Supports WireGuard VPN (cascade entry→exit) and direct VLESS (relay or direct).
+3. Is fully managed via Ansible with optional Telegram bot and web admin.
+4. Is portable (replacing either node doesn't break the architecture).
+5. Auto-generates client configs (WG .conf, VLESS URIs + QR codes).
 
 ---
 

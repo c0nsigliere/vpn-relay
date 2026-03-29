@@ -3,6 +3,7 @@ import { BotContext } from "../bot/context";
 import { sshPool } from "../services/ssh";
 import { setPing } from "../services/ping.store";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
 import { execSync } from "child_process";
 import { createLogger } from "../utils/logger";
 
@@ -17,6 +18,10 @@ export function healthWorker(bot: Bot<BotContext>): { stop: () => void } {
   let wasReachable = false;
 
   const run = async () => {
+    if (isStandalone) {
+      setPing({ ms: 0, lossPercent: 0 });
+      return;
+    }
     try {
       const ok = await sshPool.ping();
       if (ok) {

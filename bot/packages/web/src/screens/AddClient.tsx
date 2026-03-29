@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import type React from "react";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { useTelegram } from "../hooks/useTelegram";
-import { createClient } from "../api/client";
+import { createClient, fetchServersStatus } from "../api/client";
 import type { ClientType } from "@vpn-relay/shared";
 
 const NAME_RE = /^[a-zA-Z0-9_]{1,32}$/;
@@ -14,7 +14,7 @@ const inputStyle: React.CSSProperties = {
   WebkitTextFillColor: "var(--tg-text)",
 };
 
-const CLIENT_TYPES: { value: ClientType; label: string; desc: string }[] = [
+const ALL_CLIENT_TYPES: { value: ClientType; label: string; desc: string }[] = [
   { value: "xray", label: "XRay (VLESS)", desc: "VLESS+Reality — best for censored regions" },
   { value: "wg", label: "WireGuard", desc: "Fast UDP tunnel — works everywhere" },
   { value: "both", label: "Both", desc: "WireGuard + XRay in one" },
@@ -24,6 +24,16 @@ export function AddClient() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { mainButton, haptic } = useTelegram();
+
+  const { data: statusData } = useQuery({
+    queryKey: ["servers-status"],
+    queryFn: fetchServersStatus,
+    staleTime: 60_000,
+  });
+  const isStandalone = statusData?.standalone === true;
+  const CLIENT_TYPES = isStandalone
+    ? ALL_CLIENT_TYPES.filter((ct) => ct.value === "xray")
+    : ALL_CLIENT_TYPES;
 
   const [name, setName] = useState("");
   const [type, setType] = useState<ClientType>("xray");

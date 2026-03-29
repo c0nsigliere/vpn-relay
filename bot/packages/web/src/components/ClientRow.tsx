@@ -33,9 +33,10 @@ interface ClientRowProps {
   totalRx?: number;
   totalTx?: number;
   quota?: ClientQuotaUsage;
+  standalone?: boolean;
 }
 
-export function ClientRow({ client, totalRx = 0, totalTx = 0, quota }: ClientRowProps) {
+export function ClientRow({ client, totalRx = 0, totalTx = 0, quota, standalone }: ClientRowProps) {
   const navigate = useNavigate();
   const { dot, label } = getStatusInfo(client);
 
@@ -57,7 +58,7 @@ export function ClientRow({ client, totalRx = 0, totalTx = 0, quota }: ClientRow
           <span className="text-xs text-tg-hint bg-tg-secondary px-1.5 py-0.5 rounded">
             {typeLabel}
           </span>
-          {client.last_connection_route && (client.type === "xray" || client.type === "both") && (
+          {!standalone && client.last_connection_route && (client.type === "xray" || client.type === "both") && (
             <span
               className="text-xs px-1.5 py-0.5 rounded"
               style={{

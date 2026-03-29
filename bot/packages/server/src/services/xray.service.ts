@@ -12,6 +12,7 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { execSync } from "child_process";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
 import { queries } from "../db/queries";
 import { createLogger } from "../utils/logger";
 
@@ -21,7 +22,7 @@ const XRAY_BIN = "/usr/local/bin/xray";
 
 export interface VlessUris {
   direct: string;
-  relay: string;
+  relay: string | null;
 }
 
 export interface ClientStats {
@@ -105,7 +106,9 @@ class XrayService {
     ].join("&");
 
     const direct = `vless://${uuid}@${env.SERVER_B_HOST}:${env.SERVER_B_XRAY_PORT}?${params}#${name}`;
-    const relay = `vless://${uuid}@${env.SERVER_A_HOST}:${env.SERVER_A_RELAY_PORT}?${params}#${name}-via-relay`;
+    const relay = isStandalone
+      ? null
+      : `vless://${uuid}@${env.SERVER_A_HOST}:${env.SERVER_A_RELAY_PORT}?${params}#${name}-via-relay`;
 
     return { direct, relay };
   }

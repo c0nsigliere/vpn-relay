@@ -1,10 +1,21 @@
 import { InlineKeyboard } from "grammy";
 import { BotContext } from "../context";
-import { showMainMenu } from "./main";
+import { isStandalone } from "../../config/standalone";
 
-export const addClientMenu = new InlineKeyboard()
-  .text("🔐 WireGuard", "add:wg").text("⚡ XRay", "add:xray").text("🔗 Both", "add:both").row()
-  .text("« Back", "menu:main");
+function buildAddClientMenu(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (!isStandalone) {
+    kb.text("🔐 WireGuard", "add:wg");
+  }
+  kb.text("⚡ XRay", "add:xray");
+  if (!isStandalone) {
+    kb.text("🔗 Both", "add:both");
+  }
+  kb.row().text("« Back", "menu:main");
+  return kb;
+}
+
+export const addClientMenu = buildAddClientMenu();
 
 export async function handleAddClientCallback(ctx: BotContext): Promise<void> {
   const data = ctx.callbackQuery?.data;

@@ -1,0 +1,57 @@
+---
+# =============================================================================
+# Cascade Deployment — Shared Variables (all hosts)
+# =============================================================================
+# Copy this directory to inventory/<your-deployment>/ and fill in real values.
+#
+# Role-specific overrides go in their own files:
+#   wg_cascade.yml   — WireGuard cascade settings
+#   relay_servers.yml — relay settings
+#   xray_servers.yml  — XRay VLESS+Reality settings
+
+# --- REQUIRED: Exit node public IP (used by cascade, relay, and bot) ---
+server_b_public_ip: "YOUR_EXIT_NODE_PUBLIC_IP"
+
+# --- REQUIRED: UUID authenticating the entry node's XRay to the exit node ---
+# Generate with: python3 -c "import uuid; print(uuid.uuid4())"
+xray_wg_uplink_uuid: "YOUR_UUID_HERE"
+
+# --- Firewall mode (applies to both nodes) ---
+# "keep"    — UFW stays enabled; NAT rules in /etc/ufw/before.rules
+# "disable" — UFW disabled; rules via iptables-persistent
+manage_ufw: "keep"
+
+# --- WAN interface override (comment out for auto-detection) ---
+# wan_if: "eth0"
+
+# --- Maintenance ---
+do_dist_upgrade: false
+manage_unattended_upgrades: "leave"
+maintenance_reboot: true
+
+# --- Telegram Bot (optional — deploy with deploy_bot.yml) ---
+# Create a bot via @BotFather; get your admin chat ID from @userinfobot
+# bot_telegram_token: "YOUR_BOT_TOKEN"
+# bot_admin_id: "YOUR_TELEGRAM_USER_ID"
+
+# --- Telegram Mini App (optional — deploy with deploy_tma.yml) ---
+# tma_domain: "tma.example.com"
+# tma_certbot_email: "you@example.com"
+tma_https_port: 8444
+tma_backend_port: 3000
+
+# --- Ports ---
+# DPI evasion: both entry and exit use 443 to look like normal HTTPS
+xray_port: 443
+port_a_tcp: 443
+port_b_tcp: "{{ xray_port }}"
+
+# WireGuard client-facing port on entry node
+wg_clients_port: 51888
+
+# TPROXY port for WireGuard traffic interception on entry node
+xray_tproxy_port: 12345
+xray_tproxy_table: 100
+
+# --- XRay version ---
+xray_version: "26.2.6"

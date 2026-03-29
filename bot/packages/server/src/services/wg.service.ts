@@ -1,5 +1,6 @@
 import { sshPool } from "./ssh";
 import { env } from "../config/env";
+import { isStandalone, requireCascade } from "../config/standalone";
 
 const WG_IFACE = "wg-clients";
 const WG_CONF = `/etc/wireguard/${WG_IFACE}.conf`;
@@ -28,6 +29,7 @@ export interface WgPeerStats {
 
 class WgService {
   async addClient(name: string): Promise<WgClientConfig> {
+    requireCascade("WireGuard");
     let result!: WgClientConfig;
     // Serialize through mutex to prevent duplicate IP assignment
     ipMutex = ipMutex.then(async () => {
@@ -98,6 +100,7 @@ class WgService {
   }
 
   async removeClient(name: string, pubkey: string): Promise<void> {
+    requireCascade("WireGuard");
     // Remove from live WG
     await sshPool.exec(`wg set ${WG_IFACE} peer ${pubkey} remove`);
 
@@ -113,6 +116,7 @@ class WgService {
   }
 
   async renameClient(oldName: string, newName: string): Promise<void> {
+    requireCascade("WireGuard");
     // Update comment markers in wg-clients.conf: BEGIN/END and inline comment
     // No live WG change needed — pubkey and IP stay the same
     await sshPool.exec(
@@ -121,17 +125,20 @@ class WgService {
   }
 
   async suspendClient(pubkey: string): Promise<void> {
+    requireCascade("WireGuard");
     // Remove from live WG (config block stays for resume)
     await sshPool.exec(`wg set ${WG_IFACE} peer ${pubkey} remove`);
   }
 
   async resumeClient(pubkey: string, ip: string): Promise<void> {
+    requireCascade("WireGuard");
     await sshPool.exec(
       `wg set ${WG_IFACE} peer ${pubkey} allowed-ips ${ip}/32`
     );
   }
 
   async getStats(): Promise<WgPeerStats[]> {
+    if (isStandalone) return [];
     const output = await sshPool.exec(`wg show ${WG_IFACE} dump`);
     const lines = output.trim().split("\n").slice(1); // skip interface line
     return lines

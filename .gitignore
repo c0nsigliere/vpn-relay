@@ -1,12 +1,6 @@
-# Ansible inventory with real server addresses
-inventory/inventory.ini
-inventory/host_vars/
-
-# Local variable overrides with real IPs and credentials
-inventory/group_vars/all.yml
-inventory/group_vars/wg_cascade.yml
-inventory/group_vars/relay_servers.yml
-inventory/group_vars/xray_servers.yml
+# All user deployments are private — only examples/ is tracked in git
+inventory/*
+!inventory/examples/
 
 # Ansible runtime files
 *.retry

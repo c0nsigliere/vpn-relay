@@ -84,11 +84,12 @@
   register: _bot_ssh_key
   tags: [install, bot]
 
-- name: Authorize bot SSH key on Server A
+- name: Authorize bot SSH key on entry node (cascade mode only)
   authorized_key:
-    user: "{{ hostvars[groups['server_a'][0]]['ansible_user'] | default('root') }}"
+    user: "{{ hostvars[groups['relay_servers'][0]]['ansible_user'] | default('root') }}"
     key: "{{ _bot_ssh_key.public_key }}"
     state: present
     comment: "vpn-bot@{{ inventory_hostname }}"
-  delegate_to: "{{ groups['server_a'][0] }}"
+  delegate_to: "{{ groups['relay_servers'][0] }}"
+  when: groups.get('relay_servers', []) | length > 0
   tags: [install, bot]

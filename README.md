@@ -1,15 +1,15 @@
-# VPN Relay & WireGuard Cascade — Ansible
+# VPN Relay — Ansible-Managed XRay VLESS+Reality Stack
 
-Production-ready Ansible repository for Ubuntu 22.04/24.04 supporting two VPN forwarding modes:
+Production-ready Ansible repository for Ubuntu 22.04/24.04. Supports two deployment modes from the same codebase:
 
-| Mode | Playbook | Purpose |
-|------|----------|---------|
-| **WireGuard cascade** | `playbooks/wg_cascade.yml` | Client → A → B → Internet (AWG/plain WireGuard) |
-| **XRay L4 relay** | `playbooks/relay.yml` | Transparent TCP forward A → B (XRay/VLESS) |
-| **XRay VLESS+Reality** | `playbooks/xray.yml` | Native XRay server on B (VLESS+Reality :8443) |
-| **Full stack** | `playbooks/stack.yml` | Single entrypoint: maintenance → swap → cascade → xray → relay → verify → bot (optional) |
+| Mode | What you get | Servers needed |
+|------|-------------|----------------|
+| **Standalone** | XRay VLESS+Reality + Telegram bot + TMA | 1 VPS |
+| **Cascade** | WireGuard + XRay relay + VLESS+Reality | 2 VPS (entry + exit) |
 
-All can run simultaneously. The XRay relay on A forwards TCP to B where the native XRay server handles VLESS+Reality.
+Includes a Telegram bot with a Mini App (TMA) for admin — manage clients, monitor traffic, get alerts.
+
+Both modes use the same `stack.yml` playbook. The inventory determines what gets deployed.
 
 ---
 
@@ -54,25 +54,38 @@ All can run simultaneously. The XRay relay on A forwards TCP to B where the nati
 
 ---
 
-## Golden Path: Fresh Install (Cascade + Relay)
+## Quick Start
 
 ### 1. Install dependencies
 
 ```bash
 # On Ubuntu/Debian (control node)
-sudo apt install ansible sshpass wireguard-tools -y
+sudo apt install ansible sshpass -y
+
+# For cascade mode only:
+sudo apt install wireguard-tools -y
 
 # Install Ansible collections
 ansible-galaxy collection install -r requirements.yml
 ```
 
-### 2. Copy and edit inventory
+### 2. Choose your deployment mode and create inventory
 
+**Standalone** (single server):
 ```bash
-cp inventory/inventory.ini.example inventory/inventory.ini
+cp -r inventory/examples/standalone inventory/my-server
+vim inventory/my-server/group_vars/all.yml   # Fill in your server IP + bot token
+vim inventory/my-server/inventory.ini        # Fill in your server IP
 ```
 
-Fill in real IPs for `server-a` and `server-b`.
+**Cascade** (entry + exit nodes):
+```bash
+cp -r inventory/examples/cascade inventory/my-cascade
+vim inventory/my-cascade/group_vars/all.yml  # Fill in IPs + UUIDs + bot token
+vim inventory/my-cascade/inventory.ini       # Fill in both server IPs
+```
+
+You can have multiple deployments side by side (e.g., `inventory/my-cascade/` + `inventory/my-standalone/`). Everything in `inventory/` except `examples/` is gitignored.
 
 ### 2a. Bootstrap SSH keys (first-time setup from root password)
 
@@ -80,63 +93,38 @@ If your servers currently use root password login, run this once to switch to ke
 
 ```bash
 # Step 1: push your SSH public key (uses ansible_password from inventory)
-ansible-playbook playbooks/bootstrap_ssh.yml --tags push_key \
-  -e "ssh_public_key_file=~/.ssh/id_rsa.pub"
+ansible-playbook playbooks/bootstrap_ssh.yml -i inventory/my-server/ \
+  --tags push_key -e "ssh_public_key_file=~/.ssh/id_rsa.pub"
 
 # Verify key login works manually:
-ssh root@<server-a-ip>
-ssh root@<server-b-ip>
+ssh root@<server-ip>
 
-# Step 2: disable password authentication on both servers
-ansible-playbook playbooks/bootstrap_ssh.yml --tags harden
+# Step 2: disable password authentication
+ansible-playbook playbooks/bootstrap_ssh.yml -i inventory/my-server/ --tags harden
 ```
 
-After step 2 succeeds, **remove `ansible_password` lines from `inventory/inventory.ini`**.
-The servers will reject password logins going forward.
+After step 2 succeeds, **remove `ansible_password` lines from your inventory.ini**.
 
-### 3. Copy and edit group_vars
+### 3. Optional: add swap on low-RAM servers
 
 ```bash
-# Shared vars (REQUIRED — set server_b_public_ip here)
-cp inventory/group_vars/all.yml.example inventory/group_vars/all.yml
-
-# Cascade vars (review defaults — usually fine as-is)
-cp inventory/group_vars/wg_cascade.yml.example inventory/group_vars/wg_cascade.yml
-
-# Relay vars (review ports — usually fine as-is)
-cp inventory/group_vars/relay_servers.yml.example inventory/group_vars/relay_servers.yml
-
-# XRay server vars (review Reality settings — usually fine as-is)
-cp inventory/group_vars/xray_servers.yml.example inventory/group_vars/xray_servers.yml
+ansible-playbook playbooks/maintenance_add_swap.yml -i inventory/my-server/
 ```
 
-Edit `all.yml` — the **one required field**:
-```yaml
-server_b_public_ip: "YOUR_SERVER_B_PUBLIC_IP"
-```
-
-### 4. Optional: add swap on low-RAM servers
-
-```bash
-ansible-playbook playbooks/maintenance_add_swap.yml   # runs on ALL hosts
-```
-
-### 5. Deploy
+### 4. Deploy
 
 ```bash
 # Full stack (recommended — runs everything in correct order):
-ansible-playbook playbooks/stack.yml
+ansible-playbook playbooks/stack.yml -i inventory/my-server/
 
-# Or deploy individual subsystems:
-ansible-playbook playbooks/wg_cascade.yml    # WireGuard cascade (A + B)
-ansible-playbook playbooks/xray.yml          # XRay VLESS+Reality (B)
-ansible-playbook playbooks/relay.yml         # TCP relay (A)
+# In standalone mode, cascade/relay steps are automatically skipped.
+# In cascade mode, all steps run.
 ```
 
-### 6. Verify
+### 5. Verify
 
 ```bash
-ansible-playbook playbooks/verify_all.yml
+ansible-playbook playbooks/verify_all.yml -i inventory/my-server/
 ```
 
 Note: `stack.yml` already includes verification as the final step.
@@ -153,23 +141,23 @@ WireGuard peers are added via SSH to Server A.
 
 See step 8 (bot) or step 9 (TMA) below to set up the admin interface.
 
-### 8. Deploy Telegram bot (recommended)
+### 7. Deploy Telegram bot (recommended)
 
-The bot runs on Server B and provides a Telegram-based admin panel for real-time client management.
+The bot runs on the XRay server and provides a Telegram-based admin panel for client management.
 
 ```bash
-# Deploy with bot credentials:
-ansible-playbook playbooks/deploy_bot.yml \
+# Deploy with bot credentials (set in group_vars/all.yml or as -e):
+ansible-playbook playbooks/deploy_bot.yml -i inventory/my-server/ \
   -e "bot_telegram_token=123456:ABC bot_admin_id=987654321"
 
 # Or include in full stack (bot step only runs when bot_telegram_token is set):
-ansible-playbook playbooks/stack.yml \
+ansible-playbook playbooks/stack.yml -i inventory/my-server/ \
   -e "bot_telegram_token=123456:ABC bot_admin_id=987654321"
 ```
 
 **Bot features:**
-- Add/remove/suspend WireGuard and XRay clients from Telegram
-- Send client configs (WG `.conf` file, VLESS URIs + QR codes) directly in chat
+- Add/remove/suspend XRay clients from Telegram (+ WireGuard in cascade mode)
+- Send client configs (VLESS URIs + QR codes, WG `.conf` in cascade mode) directly in chat
 - Traffic graphs (chartjs PNG) per client
 - Server status (CPU/RAM/uptime for A and B)
 - Auto-suspend expired clients (TTL support)
@@ -266,13 +254,21 @@ All existing client configs continue working after restore (same keys, same UUID
 
 ---
 
-## Alternative: Cascade Only
+## Multiple Deployments
 
-Skip step 3 relay_servers.yml copy. Skip `relay.yml` deploy. Trim `[relay_servers]` from inventory (or leave it — unused groups are harmless).
+You can manage multiple independent deployments from one repo:
 
-## Alternative: Relay Only
+```
+inventory/
+  examples/         # Templates (tracked in git)
+    cascade/         # Two-server example
+    standalone/      # Single-server example
+  my-cascade/        # Your production cascade (gitignored)
+  my-server-de/      # Standalone in Germany (gitignored)
+  my-server-jp/      # Standalone in Japan (gitignored)
+```
 
-Skip step 3 wg_cascade.yml copy. Skip `wg_cascade.yml` deploy. You still need `server_b_public_ip` in `all.yml`.
+Each deployment is fully isolated — different IPs, bot tokens, keys. Deploy each with its own `-i` flag.
 
 ---
 
@@ -476,16 +472,20 @@ vpn-relay/
 ├── DESIGN.md                            # Architecture & target state diagrams
 ├── TODO.md                              # Roadmap & task tracking
 ├── inventory/
-│   ├── inventory.ini                    # (gitignored — copy from .example)
-│   ├── inventory.ini.example
-│   └── group_vars/
-│       ├── all.yml                      # (gitignored) shared vars
-│       ├── all.yml.example
-│       ├── wg_cascade.yml.example       # (gitignored) cascade vars
-│       ├── relay_servers.yml.example    # (gitignored) relay vars
-│       ├── xray_servers.yml.example     # (gitignored) XRay server vars
-│       ├── server_a.yml                 # Per-host overrides for Server A
-│       └── server_b.yml                 # Per-host overrides for Server B
+│   ├── examples/                        # Template inventories (tracked in git)
+│   │   ├── cascade/                     # Two-server cascade example
+│   │   │   ├── inventory.ini
+│   │   │   └── group_vars/
+│   │   │       ├── all.yml
+│   │   │       ├── wg_cascade.yml
+│   │   │       ├── relay_servers.yml
+│   │   │       └── xray_servers.yml
+│   │   └── standalone/                  # Single-server example
+│   │       ├── inventory.ini
+│   │       └── group_vars/
+│   │           ├── all.yml
+│   │           └── xray_servers.yml
+│   └── my-deployment/                   # Your configs (gitignored — copy from examples/)
 ├── artifacts/
 │   ├── backup/                          # Server state backups (gitignored)
 │   ├── clients/                         # Generated client .conf files (gitignored)

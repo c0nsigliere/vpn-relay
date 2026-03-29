@@ -89,7 +89,8 @@ export function ServerDetail() {
   });
 
   const isA = serverId === "a";
-  const serverLabel = isA ? "Server A (entry)" : "Server B (exit)";
+  const isStandalone = statusData?.standalone === true;
+  const serverLabel = isStandalone ? "Server" : isA ? "Server A (entry)" : "Server B (exit)";
   const rawStatus = isA ? statusData?.serverA : statusData?.serverB;
   const status: ServerStatus | undefined =
     rawStatus && !("error" in rawStatus) ? rawStatus : undefined;
@@ -115,22 +116,24 @@ export function ServerDetail() {
 
   return (
     <Layout backTo="/" title={serverLabel}>
-      {/* A / B tab bar */}
-      <div className="flex rounded-lg bg-tg-secondary p-0.5 mb-4 gap-0.5">
-        {(["a", "b"] as ServerId[]).map((sid) => (
-          <button
-            key={sid}
-            onClick={() => navigate(`/server/${sid}`, { replace: true })}
-            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
-              serverId === sid
-                ? "bg-tg-button text-tg-button"
-                : "text-tg-hint"
-            }`}
-          >
-            {sid === "a" ? "Server A (entry)" : "Server B (exit)"}
-          </button>
-        ))}
-      </div>
+      {/* A / B tab bar (cascade mode only) */}
+      {!isStandalone && (
+        <div className="flex rounded-lg bg-tg-secondary p-0.5 mb-4 gap-0.5">
+          {(["a", "b"] as ServerId[]).map((sid) => (
+            <button
+              key={sid}
+              onClick={() => navigate(`/server/${sid}`, { replace: true })}
+              className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                serverId === sid
+                  ? "bg-tg-button text-tg-button"
+                  : "text-tg-hint"
+              }`}
+            >
+              {sid === "a" ? "Server A (entry)" : "Server B (exit)"}
+            </button>
+          ))}
+        </div>
+      )}
 
       {statusError ? (
         <div className="bg-tg-secondary rounded-xl p-4 mb-4">

@@ -1,5 +1,6 @@
 ---
-# Configure root SSH admin access from server-b to server-a
+# Configure root SSH admin access from exit node to entry node (cascade mode only).
+# Skipped entirely in standalone mode (no entry node).
 
 - name: Ensure root .ssh directory exists
   ansible.builtin.file:
@@ -9,24 +10,26 @@
     group: root
     mode: "0700"
   tags: [install]
+  when: groups.get('relay_servers', []) | length > 0
 
-- name: Generate root SSH keypair on server-b (if absent)
+- name: Generate root SSH keypair on exit node (if absent)
   community.crypto.openssh_keypair:
     path: /root/.ssh/id_ed25519
     type: ed25519
-    comment: "root@server-b"
+    comment: "root@exit-node"
     mode: "0600"
-  register: _serverb_keypair
+  register: _exitnode_keypair
   tags: [install]
+  when: groups.get('relay_servers', []) | length > 0
 
-- name: Create root SSH config with server-a alias
+- name: Create root SSH config with entry-node alias
   ansible.builtin.blockinfile:
     path: /root/.ssh/config
     create: yes
     owner: root
     group: root
     mode: "0600"
-    marker: "# {mark} ANSIBLE MANAGED - server-a alias"
+    marker: "# {mark} ANSIBLE MANAGED - entry-node alias"
     block: |
       Host server-a
           HostName {{ hostvars[groups['relay_servers'][0]]['ansible_host'] }}
@@ -34,20 +37,23 @@
           Port 22
           StrictHostKeyChecking yes
   tags: [install]
+  when: groups.get('relay_servers', []) | length > 0
 
-- name: Add server-a host key to root known_hosts
+- name: Add entry-node host key to root known_hosts
   ansible.builtin.known_hosts:
     path: /root/.ssh/known_hosts
     name: "{{ hostvars[groups['relay_servers'][0]]['ansible_host'] }}"
     key: "{{ lookup('pipe', 'ssh-keyscan -t ed25519 ' + hostvars[groups['relay_servers'][0]]['ansible_host'] + ' 2>/dev/null') }}"
     state: present
   tags: [install]
+  when: groups.get('relay_servers', []) | length > 0
 
-- name: Authorize server-b root key on server-a
+- name: Authorize exit-node root key on entry node
   ansible.posix.authorized_key:
     user: root
-    key: "{{ _serverb_keypair.public_key }}"
+    key: "{{ _exitnode_keypair.public_key }}"
     state: present
-    comment: "root@server-b (admin access)"
+    comment: "root@exit-node (admin access)"
   delegate_to: "{{ groups['relay_servers'][0] }}"
   tags: [install]
+  when: groups.get('relay_servers', []) | length > 0

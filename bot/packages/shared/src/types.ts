@@ -91,14 +91,16 @@ export interface ServerStatus {
 }
 
 export interface ServersStatusResponse {
-  serverA: ServerStatus | { error: string };
+  serverA?: ServerStatus | { error: string } | null;  // null = standalone mode
   serverB: ServerStatus | { error: string };
-  serverAIp?: string;
+  serverAIp?: string | null;
   serverBIp?: string;
   trafficSparklineA?: Array<{ ts: string; rx: number; tx: number }>;
   trafficSparklineB?: Array<{ ts: string; rx: number; tx: number }>;
   trafficTotal24hA?: { rx: number; tx: number };
   trafficTotal24hB?: { rx: number; tx: number };
+  /** Deployment mode: true = single server, no entry node */
+  standalone?: boolean;
 }
 
 export type ServerId = "a" | "b";

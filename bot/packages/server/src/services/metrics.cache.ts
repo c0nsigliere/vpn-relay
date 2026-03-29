@@ -12,6 +12,7 @@
  */
 
 import { systemService, ServerStatus } from "./system.service";
+import { requireCascade } from "../config/standalone";
 
 const CACHE_TTL_MS = 20_000;
 
@@ -27,6 +28,7 @@ class MetricsCache {
   private fetchingB: Promise<ServerStatus> | null = null;
 
   async getStatusA(): Promise<ServerStatus> {
+    requireCascade("Server A metrics");
     if (this.cacheA && Date.now() - this.cacheA.fetchedAt < CACHE_TTL_MS) {
       return this.cacheA.value;
     }

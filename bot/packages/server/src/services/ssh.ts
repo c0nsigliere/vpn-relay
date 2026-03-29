@@ -1,6 +1,7 @@
 import { Client as SSH2Client, ConnectConfig } from "ssh2";
 import * as fs from "fs";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
 import { createLogger, logOnError } from "../utils/logger";
 
 const logger = createLogger("ssh");
@@ -29,6 +30,9 @@ class SshPool {
   }
 
   private connect(): Promise<SSH2Client> {
+    if (isStandalone) {
+      return Promise.reject(new Error("SSH unavailable in standalone mode (no entry node)"));
+    }
     return new Promise((resolve, reject) => {
       if (this.client) {
         resolve(this.client);
@@ -102,6 +106,7 @@ class SshPool {
 
   // Ping check — returns true if reachable
   async ping(): Promise<boolean> {
+    if (isStandalone) return false;
     try {
       await this.connect();
       await this.exec("echo ok");

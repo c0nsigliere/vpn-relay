@@ -18,6 +18,7 @@ import { getUpgradablePackages, getChangelogs, parseChangelog, type PackageInfo,
 import { summarizeUpdates, type PackageSummary } from "../services/openai.service";
 import { queries } from "../db/queries";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
 import { createLogger, logOnError } from "../utils/logger";
 
 const logger = createLogger("updates");
@@ -358,7 +359,7 @@ export function updatesWorker(bot: Bot<BotContext>): { stop: () => void } {
 
     try {
       const results = await Promise.allSettled([
-        processServer("a", "Server A", bot),
+        ...(isStandalone ? [] : [processServer("a", "Server A", bot)]),
         processServer("b", "Server B", bot),
       ]);
 

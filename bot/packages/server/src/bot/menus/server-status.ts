@@ -1,6 +1,23 @@
 import { InlineKeyboard } from "grammy";
 import { BotContext } from "../context";
 import { systemService } from "../../services/system.service";
+import { isStandalone } from "../../config/standalone";
+
+function formatStatus(status: PromiseSettledResult<import("../../services/system.service").ServerStatus>, errorPrefix = "Error"): string {
+  return status.status === "fulfilled"
+    ? [
+        `CPU: ${status.value.cpuPercent.toFixed(1)}%`,
+        `RAM: ${status.value.ramUsedMb}/${status.value.ramTotalMb} MB`,
+        `Uptime: ${status.value.uptime}`,
+        status.value.updatesAvailable > 0
+          ? `⚠️ ${status.value.updatesAvailable} updates pending`
+          : "✅ Up to date",
+        status.value.rebootRequired ? "🔄 Reboot required" : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : `❌ ${errorPrefix}: ${status.reason?.message ?? "unknown"}`;
+}
 
 export async function showServerStatus(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery?.();
@@ -9,49 +26,19 @@ export async function showServerStatus(ctx: BotContext): Promise<void> {
   });
 
   try {
-    const [statusA, statusB] = await Promise.allSettled([
-      systemService.getStatusA(),
-      systemService.getStatusB(),
-    ]);
+    const statusB = await Promise.allSettled([systemService.getStatusB()]);
+    const fmtB = formatStatus(statusB[0]);
 
-    const fmtA =
-      statusA.status === "fulfilled"
-        ? [
-            `CPU: ${statusA.value.cpuPercent.toFixed(1)}%`,
-            `RAM: ${statusA.value.ramUsedMb}/${statusA.value.ramTotalMb} MB`,
-            `Uptime: ${statusA.value.uptime}`,
-            statusA.value.updatesAvailable > 0
-              ? `⚠️ ${statusA.value.updatesAvailable} updates pending`
-              : "✅ Up to date",
-            statusA.value.rebootRequired ? "🔄 Reboot required" : "",
-          ]
-            .filter(Boolean)
-            .join("\n")
-        : `❌ Unreachable: ${statusA.reason?.message ?? "unknown"}`;
+    const sections = ["📊 *Server Status*\n"];
 
-    const fmtB =
-      statusB.status === "fulfilled"
-        ? [
-            `CPU: ${statusB.value.cpuPercent.toFixed(1)}%`,
-            `RAM: ${statusB.value.ramUsedMb}/${statusB.value.ramTotalMb} MB`,
-            `Uptime: ${statusB.value.uptime}`,
-            statusB.value.updatesAvailable > 0
-              ? `⚠️ ${statusB.value.updatesAvailable} updates pending`
-              : "✅ Up to date",
-            statusB.value.rebootRequired ? "🔄 Reboot required" : "",
-          ]
-            .filter(Boolean)
-            .join("\n")
-        : `❌ Error: ${statusB.reason?.message ?? "unknown"}`;
+    if (!isStandalone) {
+      const statusA = await Promise.allSettled([systemService.getStatusA()]);
+      sections.push(`*Server A (entry)*\n${formatStatus(statusA[0], "Unreachable")}`, "");
+    }
 
-    const text = [
-      "📊 *Server Status*\n",
-      `*Server A (Russia — entry)*\n${fmtA}`,
-      "",
-      `*Server B (exit — this host)*\n${fmtB}`,
-    ].join("\n");
+    sections.push(`*Server${isStandalone ? "" : " B"} (exit — this host)*\n${fmtB}`);
 
-    await ctx.editMessageText(text, {
+    await ctx.editMessageText(sections.join("\n"), {
       parse_mode: "Markdown",
       reply_markup: new InlineKeyboard()
         .text("🔄 Refresh", "menu:server_status")
