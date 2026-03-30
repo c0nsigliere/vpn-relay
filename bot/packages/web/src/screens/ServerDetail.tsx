@@ -219,7 +219,7 @@ export function ServerDetail() {
           )}
 
           {/* Ping */}
-          {status.pingMs !== undefined && status.pingLossPercent !== undefined && (
+          {!isStandalone && status.pingMs !== undefined && status.pingLossPercent !== undefined && (
             <div className="flex items-center gap-2 text-sm pt-1">
               <span
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"

@@ -39,7 +39,10 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
         : { error: resultA.reason?.message ?? "unreachable" };
 
     const serverB = resultB.status === "fulfilled"
-      ? { ...resultB.value, pingMs: ping?.ms, pingLossPercent: ping?.lossPercent }
+      ? {
+          ...resultB.value,
+          ...(isStandalone ? {} : { pingMs: ping?.ms, pingLossPercent: ping?.lossPercent }),
+        }
       : { error: resultB.reason?.message ?? "unreachable" };
 
     // Per-server sparklines: last 144 points downsampled to 24

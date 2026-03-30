@@ -19,8 +19,7 @@ export function healthWorker(bot: Bot<BotContext>): { stop: () => void } {
 
   const run = async () => {
     if (isStandalone) {
-      setPing({ ms: 0, lossPercent: 0 });
-      return;
+      return; // no A↔B link to monitor
     }
     try {
       const ok = await sshPool.ping();
