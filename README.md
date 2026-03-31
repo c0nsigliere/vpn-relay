@@ -374,6 +374,12 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `xray_wg_uplink_uuid` | **required** | UUID authenticating Server A's XRay to Server B (set in `all.yml`) |
+| `relay_socks5_enabled` | `false` | Enable authenticated SOCKS5 proxy on Server A's XRay |
+| `relay_socks5_listen` | `0.0.0.0` | Bind address (narrow to internal IP if possible) |
+| `relay_socks5_port` | `9080` | SOCKS5 listen port |
+| `relay_socks5_user` | `""` | SOCKS5 username (required when enabled) |
+| `relay_socks5_pass` | `""` | SOCKS5 password (required when enabled) |
+| `relay_socks5_allowed_sources` | `[]` | IPs allowed to connect (UFW allowlist, required when enabled) |
 
 ### XRay Server (`xray_servers.yml`)
 

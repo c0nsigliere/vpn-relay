@@ -84,3 +84,14 @@
 - name: Display final WAN interface
   ansible.builtin.debug:
     msg: "Using WAN interface: {{ wan_if_final }}"
+
+- name: Validate SOCKS5 proxy settings
+  ansible.builtin.assert:
+    that:
+      - relay_socks5_user | length > 0
+      - relay_socks5_pass | length > 0
+      - relay_socks5_allowed_sources | length > 0
+    fail_msg: "SOCKS5 enabled but user/pass/allowed_sources not set"
+    success_msg: "SOCKS5 proxy settings are valid (port {{ relay_socks5_port }}, {{ relay_socks5_allowed_sources | length }} allowed source(s))"
+  when: relay_socks5_enabled | default(false) | bool
+  tags: [validate, relay]

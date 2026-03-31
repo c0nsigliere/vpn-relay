@@ -78,7 +78,7 @@ Client → Server A :443/tcp (TCP relay DNAT)
 ### Server A:
 
 * TCP relay: DNAT 443/tcp → B:8443/tcp
-* Роль `relay` — только DNAT + MASQUERADE + XRay uplink client
+* Роль `relay` — DNAT + MASQUERADE + XRay uplink client + optional SOCKS5 proxy
 * Reality private key никогда не попадает на A
 
 ### Server B:
@@ -88,6 +88,36 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * Reality private key хранится только на B (`/etc/xray/keys/`)
 * Клиенты хранятся в SQLite DB бота (`/var/lib/vpn-bot/data.db`); `config.json` перегенерируется из БД
 * wg-uplink peer (`wg-clients@xray`) — единственная статическая запись в `config.json` (UUID из env)
+
+---
+
+## 2½ SOCKS5 Proxy (opt-in, relay plane)
+
+```
+Trusted device (e.g. router)
+    → SOCKS5 auth (XRay on A, port 9080)
+    → VLESS+Reality (A → B, existing tunnel)
+    → freedom (B → api.telegram.org / any destination)
+```
+
+General-purpose authenticated SOCKS5 entry on Server A, intended primarily for
+bot/API traffic from trusted devices (e.g. a router running a Telegram bot in
+a censored region). Technically it can proxy any TCP traffic from an allowed
+client — this is by design.
+
+**Security layers:**
+1. XRay SOCKS5 username/password authentication
+2. UFW source IP allowlist (`relay_socks5_allowed_sources`)
+3. Traffic exits through the existing VLESS+Reality tunnel (DPI-resistant)
+
+**Why on Server A, not B:** The SOCKS5 connection from the trusted device to
+Server A is domestic traffic (both in Russia). DPI is less likely to inspect or
+block domestic SOCKS5 compared to international SOCKS5 to a foreign IP. The
+actual tunnel to Server B uses VLESS+Reality which is already DPI-proven.
+
+**Config:** `relay_socks5_enabled: false` by default. Enable + set credentials
+and allowed sources in `group_vars/all.yml`. Self-protecting template: if
+enabled but creds are empty, the SOCKS5 inbound is not rendered.
 
 ---
 
@@ -143,6 +173,10 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * **XRay TPROXY client** — устанавливает XRay binary, пишет config из шаблона
   `xray-uplink-client.json.j2` (TPROXY inbound + VLESS+Reality outbound)
   Читает Reality pubkey с Server B через delegate_to
+* **SOCKS5 proxy (opt-in)** — дополнительный XRay socks inbound для внешних
+  устройств (например, роутер с Telegram-ботом). Трафик уходит через тот же
+  VLESS+Reality outbound на Server B. Включается через `relay_socks5_enabled: true`.
+  Защита: auth (user/pass) + UFW source IP allowlist.
 * Verify
 
 ### roles/maintenance

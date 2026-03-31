@@ -14,6 +14,25 @@
         "sockopt": { "tproxy": "tproxy" }
       }
     }
+{% if relay_socks5_enabled | default(false) | bool and relay_socks5_user and relay_socks5_pass %}
+    ,{
+      "tag": "socks5-in",
+      "listen": "{{ relay_socks5_listen }}",
+      "port": {{ relay_socks5_port }},
+      "protocol": "socks",
+      "settings": {
+        "auth": "password",
+        "accounts": [
+          { "user": "{{ relay_socks5_user }}", "pass": "{{ relay_socks5_pass }}" }
+        ],
+        "udp": false
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"]
+      }
+    }
+{% endif %}
   ],
   "outbounds": [
     {
@@ -64,6 +83,13 @@
         "inboundTag": ["tproxy-wg-clients"],
         "outboundTag": "proxy-out"
       }
+{% if relay_socks5_enabled | default(false) | bool and relay_socks5_user and relay_socks5_pass %}
+      ,{
+        "type": "field",
+        "inboundTag": ["socks5-in"],
+        "outboundTag": "proxy-out"
+      }
+{% endif %}
     ]
   }
 }

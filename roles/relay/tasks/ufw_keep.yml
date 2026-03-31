@@ -79,6 +79,18 @@
     state: present
   notify: reload ufw
 
+- name: Allow SOCKS5 proxy from trusted sources
+  community.general.ufw:
+    rule: allow
+    port: "{{ relay_socks5_port }}"
+    proto: tcp
+    from_ip: "{{ item }}"
+    comment: "SOCKS5 proxy for {{ item }}"
+  loop: "{{ relay_socks5_allowed_sources }}"
+  when: relay_socks5_enabled | default(false) | bool
+  notify: reload ufw
+  tags: [firewall, relay]
+
 - name: Inject FORWARD rules into ufw-before-forward chain
   ansible.builtin.blockinfile:
     path: /etc/ufw/before.rules

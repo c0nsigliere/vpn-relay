@@ -37,3 +37,19 @@ xray_reality_fingerprint: "chrome"
 xray_wg_uplink_uuid: ""
 
 # xray_tproxy_port: 12345  -- set in group_vars/all.yml
+
+# =============================================================================
+# SOCKS5 proxy (opt-in — for routing bot/API traffic through relay)
+# =============================================================================
+# General-purpose authenticated SOCKS5 entry on Server A. Traffic exits through
+# the existing VLESS+Reality tunnel to Server B. Access restricted by credentials
+# and UFW source IP allowlist. Intended primarily for bot/API traffic from
+# trusted devices (e.g. a router running a Telegram bot).
+#
+# Enable and configure in your inventory group_vars/all.yml.
+relay_socks5_enabled: false
+relay_socks5_listen: "0.0.0.0"    # bind address; narrow to WG/internal IP if possible
+relay_socks5_port: 9080
+relay_socks5_user: ""
+relay_socks5_pass: ""
+relay_socks5_allowed_sources: []   # IPs allowed in UFW, e.g. ["1.2.3.4"]
