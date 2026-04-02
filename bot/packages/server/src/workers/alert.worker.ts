@@ -69,7 +69,8 @@ function shouldFire(stateKey: string): boolean {
   const baseKey = stateKey.split(":")[0];
   const cooldownMin = getCooldown(baseKey, 30);
   if (!state.fired_at) return true;
-  const firedAt = new Date(state.fired_at).getTime();
+  // SQLite datetime('now') returns UTC without suffix; append "Z" so JS parses as UTC
+  const firedAt = new Date(state.fired_at + "Z").getTime();
   return (Date.now() - firedAt) >= cooldownMin * 60_000;
 }
 

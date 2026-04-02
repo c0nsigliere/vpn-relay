@@ -212,7 +212,8 @@ function shouldFire(stateKey: string): boolean {
   const s = queries.getAlertSetting("updates_pending");
   const cooldownMin = s?.cooldown_min ?? 720;
   if (!state.fired_at) return true;
-  const firedAt = new Date(state.fired_at).getTime();
+  // SQLite datetime('now') returns UTC without suffix; append "Z" so JS parses as UTC
+  const firedAt = new Date(state.fired_at + "Z").getTime();
   return (Date.now() - firedAt) >= cooldownMin * 60_000;
 }
 
