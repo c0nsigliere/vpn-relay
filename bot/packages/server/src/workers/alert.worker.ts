@@ -29,6 +29,7 @@ import { env } from "../config/env";
 import { isStandalone } from "../config/standalone";
 import type { ServerStatus } from "../services/system.service";
 import { createLogger } from "../utils/logger";
+import { escapeMarkdown, sendMarkdown } from "../utils/telegram";
 
 const logger = createLogger("alert");
 
@@ -78,7 +79,7 @@ async function fireAlert(stateKey: string, msg: string, bot: Bot<BotContext>, co
   logger.warn(`Alert fired: ${stateKey}`);
   queries.upsertAlertState(stateKey, "fired", context);
   try {
-    await bot.api.sendMessage(env.ADMIN_ID, msg, { parse_mode: "Markdown" });
+    await sendMarkdown(bot.api, env.ADMIN_ID, msg);
   } catch (err) {
     logger.error(`Send failed for ${stateKey}`, err);
   }
@@ -88,7 +89,7 @@ async function clearAlert(stateKey: string, msg: string, bot: Bot<BotContext>): 
   logger.info(`Alert cleared: ${stateKey}`);
   queries.upsertAlertState(stateKey, "clear");
   try {
-    await bot.api.sendMessage(env.ADMIN_ID, msg, { parse_mode: "Markdown" });
+    await sendMarkdown(bot.api, env.ADMIN_ID, msg);
   } catch (err) {
     logger.error(`Recovery send failed for ${stateKey}`, err);
   }
@@ -321,7 +322,7 @@ async function checkAbnormalTraffic(bot: Bot<BotContext>): Promise<void> {
       }
       await fireAlert(
         stateKey,
-        `🚨 *Abnormal traffic* — *${client.name}* suspended\n${usedGb.toFixed(1)} GB in last hour (limit: ${thresholdGb} GB/hr)`,
+        `🚨 *Abnormal traffic* — *${escapeMarkdown(client.name)}* suspended\n${usedGb.toFixed(1)} GB in last hour (limit: ${thresholdGb} GB/hr)`,
         bot
       );
     }
@@ -351,11 +352,11 @@ async function checkQuotaWarning(bot: Bot<BotContext>): Promise<void> {
     if (usagePercent >= threshold && shouldFire(stateKey)) {
       await fireAlert(
         stateKey,
-        `⚠️ *Quota warning* — *${client.name}*\n${usagePercent.toFixed(0)}% of ${client.monthly_quota_gb} GB monthly quota used`,
+        `⚠️ *Quota warning* — *${escapeMarkdown(client.name)}*\n${usagePercent.toFixed(0)}% of ${client.monthly_quota_gb} GB monthly quota used`,
         bot
       );
     } else if (usagePercent < threshold && queries.getAlertState(stateKey)?.status === "fired") {
-      await clearAlert(stateKey, `✅ *Quota warning* for *${client.name}* cleared`, bot);
+      await clearAlert(stateKey, `✅ *Quota warning* for *${escapeMarkdown(client.name)}* cleared`, bot);
     }
   }
 }

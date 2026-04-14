@@ -4,6 +4,7 @@ import { queries } from "../db/queries";
 import { suspendClient } from "../services/client.service";
 import { env } from "../config/env";
 import { createLogger, logOnError } from "../utils/logger";
+import { escapeMarkdown, sendMarkdown } from "../utils/telegram";
 
 const logger = createLogger("ttl");
 
@@ -17,10 +18,10 @@ export function ttlWorker(bot: Bot<BotContext>): { stop: () => void } {
         try {
           await suspendClient(client, "expired");
 
-          await bot.api.sendMessage(
+          await sendMarkdown(
+            bot.api,
             env.ADMIN_ID,
-            `Client *${client.name}* expired and has been suspended.`,
-            { parse_mode: "Markdown" }
+            `Client *${escapeMarkdown(client.name)}* expired and has been suspended.`,
           );
         } catch (err) {
           logger.error(`Failed to suspend ${client.name}`, err);

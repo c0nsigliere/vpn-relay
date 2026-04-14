@@ -35,9 +35,11 @@
         mode: '0644'
       register: _xray_download
 
-    - name: Ensure unzip is installed
+    - name: Ensure required packages are installed
       ansible.builtin.apt:
-        name: unzip
+        name:
+          - unzip
+          - jq
         state: present
         update_cache: true
         cache_valid_time: 3600

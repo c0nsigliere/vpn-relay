@@ -4,6 +4,7 @@ import { queries } from "../db/queries";
 import { suspendClient, resumeClient } from "../services/client.service";
 import { env } from "../config/env";
 import { createLogger, logOnError } from "../utils/logger";
+import { escapeMarkdown, sendMarkdown } from "../utils/telegram";
 
 const logger = createLogger("quota");
 
@@ -28,7 +29,7 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
   let lastMonth = currentMonthKey();
 
   const notify = (msg: string) =>
-    bot.api.sendMessage(env.ADMIN_ID, msg, { parse_mode: "Markdown" }).catch(logOnError(logger, "notify"));
+    sendMarkdown(bot.api, env.ADMIN_ID, msg).catch(logOnError(logger, "notify"));
 
   const run = async () => {
     try {
@@ -48,12 +49,12 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
                 // Upgrade to monthly suspension
                 logger.info(`Upgrading "${client.name}" suspension: daily_quota → monthly_quota`);
                 queries.setClientActive(client.id, false, "monthly_quota");
-                await notify(`📅 *${client.name}*: daily quota reset but monthly quota still exceeded — kept suspended.`);
+                await notify(`📅 *${escapeMarkdown(client.name)}*: daily quota reset but monthly quota still exceeded — kept suspended.`);
                 continue;
               }
             }
             await resumeClient(client);
-            await notify(`✅ *${client.name}*: daily quota reset — client resumed.`);
+            await notify(`✅ *${escapeMarkdown(client.name)}*: daily quota reset — client resumed.`);
           } catch (err) {
             logger.error(`Daily reset failed for ${client.name}`, err);
           }
@@ -68,7 +69,7 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
         for (const client of monthlySuspended) {
           try {
             await resumeClient(client);
-            await notify(`✅ *${client.name}*: monthly quota reset — client resumed.`);
+            await notify(`✅ *${escapeMarkdown(client.name)}*: monthly quota reset — client resumed.`);
           } catch (err) {
             logger.error(`Monthly reset failed for ${client.name}`, err);
           }
@@ -91,7 +92,7 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
             await suspendClient(client, "monthly_quota");
             const usedGb = (monthlyUsed / GB).toFixed(2);
             const limitGb = client.monthly_quota_gb.toFixed(2);
-            await notify(`🚫 *${client.name}* suspended: monthly quota exceeded (${usedGb} / ${limitGb} GB)`);
+            await notify(`🚫 *${escapeMarkdown(client.name)}* suspended: monthly quota exceeded (${usedGb} / ${limitGb} GB)`);
             continue;
           }
 
@@ -99,7 +100,7 @@ export function quotaWorker(bot: Bot<BotContext>): { stop: () => void } {
             await suspendClient(client, "daily_quota");
             const usedGb = (dailyUsed / GB).toFixed(2);
             const limitGb = client.daily_quota_gb.toFixed(2);
-            await notify(`🚫 *${client.name}* suspended: daily quota exceeded (${usedGb} / ${limitGb} GB)`);
+            await notify(`🚫 *${escapeMarkdown(client.name)}* suspended: daily quota exceeded (${usedGb} / ${limitGb} GB)`);
           }
         } catch (err) {
           logger.error(`Enforcement failed for ${client.name}`, err);

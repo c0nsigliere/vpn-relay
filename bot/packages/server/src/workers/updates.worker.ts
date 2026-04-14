@@ -20,6 +20,7 @@ import { queries } from "../db/queries";
 import { env } from "../config/env";
 import { isStandalone } from "../config/standalone";
 import { createLogger, logOnError } from "../utils/logger";
+import { escapeMarkdown, sendMarkdown } from "../utils/telegram";
 
 const logger = createLogger("updates");
 
@@ -151,7 +152,7 @@ function formatServerMessage(
       // Package names as links, each with its own version
       const pkgParts = group.packages.map((pkg) => {
         const ver = abbreviateVersion(pkg.oldVersion, pkg.newVersion);
-        const link = `[${pkg.name}](https://launchpad.net/ubuntu/+source/${pkg.name}/+changelog)`;
+        const link = `[${escapeMarkdown(pkg.name)}](https://launchpad.net/ubuntu/+source/${pkg.name}/+changelog)`;
         return `${link} ${ver}`;
       });
       lines.push(`• ${pkgParts.join(", ")}`);
@@ -159,7 +160,7 @@ function formatServerMessage(
         const cveStr = group.cves.length > 0
           ? group.cves.map((c) => `[${c}](https://nvd.nist.gov/vuln/detail/${c})`).join(", ")
           : "";
-        const parts = [cveStr, group.summary].filter(Boolean);
+        const parts = [cveStr, group.summary ? escapeMarkdown(group.summary) : ""].filter(Boolean);
         lines.push(`  ${parts.join(": ")}`);
       }
     }
@@ -171,10 +172,10 @@ function formatServerMessage(
     const shown = regular.slice(0, MAX_REGULAR_SHOWN);
     for (const pkg of shown) {
       const ver = abbreviateVersion(pkg.oldVersion, pkg.newVersion);
-      const pkgLink = `[${pkg.name}](https://launchpad.net/ubuntu/+source/${pkg.name}/+changelog)`;
+      const pkgLink = `[${escapeMarkdown(pkg.name)}](https://launchpad.net/ubuntu/+source/${pkg.name}/+changelog)`;
       const { summary } = mergeSummary(pkg.name, regexParsed, aiSummaries);
       if (summary) {
-        lines.push(`• ${pkgLink} ${ver} — ${summary}`);
+        lines.push(`• ${pkgLink} ${ver} — ${escapeMarkdown(summary)}`);
       } else {
         lines.push(`• ${pkgLink} ${ver}`);
       }
@@ -342,7 +343,7 @@ async function sendMessages(bot: Bot<BotContext>, label: string, parts: string[]
   let sent = 0;
   for (const part of parts) {
     try {
-      await bot.api.sendMessage(env.ADMIN_ID, part, { parse_mode: "Markdown" });
+      await sendMarkdown(bot.api, env.ADMIN_ID, part);
       sent++;
     } catch (err) {
       logger.error("Send failed", err);

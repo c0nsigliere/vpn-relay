@@ -6,6 +6,7 @@ import { env } from "../config/env";
 import { isStandalone } from "../config/standalone";
 import { execSync } from "child_process";
 import { createLogger } from "../utils/logger";
+import { sendMarkdown } from "../utils/telegram";
 
 const logger = createLogger("health");
 
@@ -39,10 +40,10 @@ export function healthWorker(bot: Bot<BotContext>): { stop: () => void } {
         logger.warn(`Server A unreachable (${consecutiveFailures}/${FAILURE_THRESHOLD})`);
         if (consecutiveFailures >= FAILURE_THRESHOLD && !alertSent) {
           alertSent = true;
-          await bot.api.sendMessage(
+          await sendMarkdown(
+            bot.api,
             env.ADMIN_ID,
             `🚨 *Server A unreachable!*\n${consecutiveFailures} consecutive SSH failures. VPN tunnel may be down.`,
-            { parse_mode: "Markdown" }
           );
         }
       }

@@ -15,6 +15,7 @@ import { wgService } from "./wg.service";
 import { qrService } from "./qr.service";
 import { isStandalone } from "../config/standalone";
 import { createLogger } from "../utils/logger";
+import { escapeMarkdown } from "../utils/telegram";
 import type { BotContext } from "../bot/context";
 import type { Client, ClientType } from "@vpn-relay/shared";
 
@@ -213,7 +214,7 @@ export async function sendConfigToChat(
       chatId,
       new InputFile(Buffer.from(wgConf), `${client.name}.conf`),
       {
-        caption: `🔐 WireGuard config for *${client.name}*\n⚠️ Save this — private key won't be shown again.`,
+        caption: `🔐 WireGuard config for *${escapeMarkdown(client.name)}*\n⚠️ Save this — private key won't be shown again.`,
         parse_mode: "Markdown",
       }
     );
@@ -221,7 +222,7 @@ export async function sendConfigToChat(
 
   if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
     const uris = xrayService.generateVlessUris(client.name, client.xray_uuid);
-    const lines = [`⚡ *VLESS Config for ${client.name}*\n`];
+    const lines = [`⚡ *VLESS Config for ${escapeMarkdown(client.name)}*\n`];
     if (uris.relay) {
       lines.push(`*Direct:*\n\`${uris.direct}\`\n`);
       lines.push(`*Via Relay:*\n\`${uris.relay}\`\n`);
