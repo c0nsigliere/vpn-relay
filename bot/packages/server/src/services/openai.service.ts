@@ -16,7 +16,7 @@ export interface PackageSummary {
 }
 
 interface OpenAIResponseItem {
-  pkg: string;
+  idx: number;
   summary: string;
   cves: string[];
 }
@@ -27,21 +27,26 @@ export async function summarizeUpdates(
   if (!env.OPENAI_API_KEY) return null;
   if (packages.length === 0) return new Map();
 
-  // Build a set of real CVEs per package to filter out hallucinated ones
-  const realCves = new Map<string, Set<string>>();
-  for (const p of packages) {
+  // Build a set of real CVEs per package (by index) to filter out hallucinated ones
+  const realCves: Set<string>[] = packages.map((p) => {
     const cves = new Set<string>();
     for (const m of p.changelog.matchAll(/CVE-\d{4}-\d{4,}/g)) cves.add(m[0]);
-    realCves.set(p.name, cves);
-  }
+    return cves;
+  });
 
+  // Tag each package with a stable numeric index. The model is instructed to
+  // echo the same idx back — we ignore any package-name field it returns,
+  // because gpt-4.1-nano tends to copy the source-package name from the
+  // changelog body (e.g. "ubuntu-advantage-tools" for "ubuntu-pro-client-l10n")
+  // instead of the binary name we passed.
   const packageList = packages
-    .map((p) => `### ${p.name} (${p.isSecurity ? "SECURITY" : "regular"})\n${p.changelog}`)
+    .map((p, i) => `### [${i}] ${p.name} (${p.isSecurity ? "SECURITY" : "regular"})\n${p.changelog}`)
     .join("\n\n");
 
-  const systemPrompt = `You summarize Linux package updates for a non-technical audience. Use a light, witty tone — like a sysadmin who's had just the right amount of coffee. Given changelogs, produce a JSON object with a "packages" array. Each element: {"pkg": "name", "summary": "witty plain-English explanation of the impact (max 160 chars)", "cves": ["CVE-XXXX-YYYY", ...]}.
+  const systemPrompt = `You summarize Linux package updates for a non-technical audience. Use a light, witty tone — like a sysadmin who's had just the right amount of coffee. Given changelogs, produce a JSON object with a "packages" array. Each element: {"idx": 0, "summary": "witty plain-English explanation of the impact (max 160 chars)", "cves": ["CVE-XXXX-YYYY", ...]}.
 
 Rules:
+- "idx" MUST be the integer in square brackets from the corresponding "### [N]" header. Return one element per input package.
 - Explain WHY the update matters, not internal code details. E.g. "Plugs a hole that let bad guys crash your VPN — rude!" instead of "Fix NULL-ptr deref in ssl_verify_cb".
 - For security updates: describe the real-world risk (data leak, crash, remote access) with a dash of humor, and extract all CVE IDs.
 - For regular updates: describe the user-visible improvement (faster, uses less memory, new feature) in a fun way.
@@ -88,11 +93,14 @@ Rules:
     const parsed = JSON.parse(content) as { packages: OpenAIResponseItem[] };
     const result = new Map<string, PackageSummary>();
     for (const item of parsed.packages ?? []) {
+      const i = item.idx;
+      if (typeof i !== "number" || i < 0 || i >= packages.length) continue;
       // Filter out hallucinated CVEs — only keep IDs that exist in the original changelog
-      const allowed = realCves.get(item.pkg);
-      const cves = (item.cves ?? []).filter((c) => allowed?.has(c));
-      result.set(item.pkg, { summary: item.summary, cves });
+      const allowed = realCves[i];
+      const cves = (item.cves ?? []).filter((c) => allowed.has(c));
+      result.set(packages[i].name, { summary: item.summary ?? "", cves });
     }
+    logger.info(`summarized ${result.size}/${packages.length} packages`);
     return result;
   } catch (err) {
     logger.warn("Summarization failed", err);
