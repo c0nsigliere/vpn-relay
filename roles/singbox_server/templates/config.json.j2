@@ -1,0 +1,40 @@
+{
+  "log": {
+    "level": "{{ singbox_log_level }}",
+    "output": "/var/log/sing-box/sing-box.log"
+  },
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hy2-in",
+      "listen": "::",
+      "listen_port": {{ hy2_port }},
+      "obfs": {
+        "type": "salamander",
+        "password": "{{ _singbox_obfs_password }}"
+      },
+      "users": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "{{ hy2_domain }}",
+        "certificate_path": "/etc/letsencrypt/live/{{ hy2_domain }}/fullchain.pem",
+        "key_path": "/etc/letsencrypt/live/{{ hy2_domain }}/privkey.pem"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:{{ singbox_v2ray_api_port }}",
+      "stats": {
+        "enabled": true,
+        "users": []
+      }
+    }
+  }
+}

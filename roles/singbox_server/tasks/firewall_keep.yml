@@ -1,0 +1,11 @@
+---
+# UFW keep mode: allow hy2_port/udp (Hysteria 2 / QUIC).
+# XRay's TCP rule is managed by the xray_server role and left untouched.
+
+- name: Allow Hysteria 2 port through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ hy2_port | string }}"
+    proto: udp
+    comment: "Hysteria 2 (sing-box)"
+  notify: reload ufw

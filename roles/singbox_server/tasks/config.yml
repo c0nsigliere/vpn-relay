@@ -1,0 +1,41 @@
+---
+# Template the sing-box config.json (static scaffold — bot clients come from DB).
+#
+# The `users` and experimental.v2ray_api.stats.users lists are templated empty:
+# the bot rebuilds them from the DB on startup and on every client mutation.
+
+- name: Ensure sing-box log directory exists
+  ansible.builtin.file:
+    path: /var/log/sing-box
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  tags: [config, hy2]
+
+- name: Deploy sing-box logrotate config
+  ansible.builtin.template:
+    src: logrotate-sing-box.j2
+    dest: /etc/logrotate.d/sing-box
+    mode: '0644'
+    owner: root
+    group: root
+  tags: [config, hy2]
+
+- name: Ensure sing-box config directory exists
+  ansible.builtin.file:
+    path: "{{ singbox_config_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Template sing-box config.json
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ singbox_config_file }}"
+    mode: '0600'
+    owner: root
+    group: root
+  notify: restart sing-box
+  no_log: true

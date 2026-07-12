@@ -1,0 +1,80 @@
+---
+# Verification tasks for the sing-box (Hysteria 2) server.
+# gRPC stats end-to-end is verified functionally after the bot is deployed.
+
+- name: Validate sing-box config
+  ansible.builtin.command:
+    cmd: "{{ singbox_bin }} check -c {{ singbox_config_file }}"
+  changed_when: false
+  tags: [verify, hy2]
+
+- name: Check sing-box service status
+  ansible.builtin.systemd:
+    name: sing-box
+  register: _singbox_service_status
+  tags: [verify, hy2]
+
+- name: Assert sing-box service is active
+  ansible.builtin.assert:
+    that:
+      - _singbox_service_status.status.ActiveState == "active"
+    fail_msg: "sing-box service is not running (state: {{ _singbox_service_status.status.ActiveState }})"
+    success_msg: "sing-box service is active"
+  tags: [verify, hy2]
+
+- name: Check if hy2_port is listening (UDP)
+  ansible.builtin.shell:
+    cmd: "ss -lunp sport = :{{ hy2_port }}"
+    executable: /bin/bash
+  register: _singbox_port_listen
+  changed_when: false
+  tags: [verify, hy2]
+
+- name: Assert hy2_port is listening
+  ansible.builtin.assert:
+    that:
+      - "(':' ~ hy2_port | string) in _singbox_port_listen.stdout"
+    fail_msg: "UDP port {{ hy2_port }} is not listening"
+    success_msg: "UDP port {{ hy2_port }} is listening"
+  tags: [verify, hy2]
+
+- name: Read sing-box version and tags
+  ansible.builtin.command:
+    cmd: "{{ singbox_bin }} version"
+  register: _singbox_version_out
+  changed_when: false
+  tags: [verify, hy2]
+
+- name: Assert sing-box built with with_v2ray_api
+  ansible.builtin.assert:
+    that:
+      - "'with_v2ray_api' in _singbox_version_out.stdout"
+    fail_msg: "sing-box binary lacks with_v2ray_api — per-user stats will not work"
+    success_msg: "sing-box built with with_v2ray_api"
+  tags: [verify, hy2]
+
+- name: Check Let's Encrypt certificate is readable
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ hy2_domain }}/fullchain.pem"
+  register: _singbox_cert_stat
+  tags: [verify, hy2]
+
+- name: Assert TLS certificate is present
+  ansible.builtin.assert:
+    that:
+      - _singbox_cert_stat.stat.exists
+    fail_msg: "TLS certificate for {{ hy2_domain }} not found"
+    success_msg: "TLS certificate for {{ hy2_domain }} is present"
+  tags: [verify, hy2]
+
+- name: Display sing-box server summary
+  ansible.builtin.debug:
+    msg: |
+      sing-box (Hysteria 2) Configuration:
+        Service: {{ _singbox_service_status.status.ActiveState }}
+        Port: {{ hy2_port }}/udp
+        Domain (SNI): {{ hy2_domain }}
+        v2ray_api: 127.0.0.1:{{ singbox_v2ray_api_port }}
+        Version: {{ _singbox_version_out.stdout_lines[0] | default('?') }}
+  changed_when: false
+  tags: [verify, hy2]

@@ -1,0 +1,40 @@
+---
+# Validation tasks for sing-box (Hysteria 2) server configuration
+
+- name: Validate hy2_port is in valid range
+  ansible.builtin.assert:
+    that:
+      - hy2_port | int >= 1
+      - hy2_port | int <= 65535
+    fail_msg: "hy2_port must be between 1 and 65535"
+    success_msg: "hy2_port is valid: {{ hy2_port }}"
+
+- name: Validate hy2_domain is provided
+  ansible.builtin.assert:
+    that:
+      - hy2_domain | length > 0
+    fail_msg: "hy2_domain must be set when hy2_enabled (SNI + TLS certificate domain)"
+    success_msg: "hy2_domain: {{ hy2_domain }}"
+
+- name: Validate manage_ufw mode
+  ansible.builtin.assert:
+    that:
+      - manage_ufw in ['keep', 'disable']
+    fail_msg: "manage_ufw must be 'keep' or 'disable', got '{{ manage_ufw }}'"
+    success_msg: "manage_ufw mode is valid: {{ manage_ufw }}"
+
+# The certificate is issued by the tls_cert role earlier in stack.yml. sing-box
+# refuses to start without it, so fail fast here with a clear message.
+- name: Check Let's Encrypt certificate for hy2_domain
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ hy2_domain }}/fullchain.pem"
+  register: _hy2_cert_stat
+
+- name: Assert TLS certificate exists
+  ansible.builtin.assert:
+    that:
+      - _hy2_cert_stat.stat.exists
+    fail_msg: >-
+      TLS certificate /etc/letsencrypt/live/{{ hy2_domain }}/fullchain.pem not found.
+      Run the tls_cert role (or stack.yml) before singbox_server.
+    success_msg: "TLS certificate for {{ hy2_domain }} is present"

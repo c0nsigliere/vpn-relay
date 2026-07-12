@@ -1,0 +1,47 @@
+---
+# Generate the salamander obfs password on the exit node.
+# Idempotent: generated once, only if missing — this also preserves a pre-seeded
+# password during live migration (e.g. netcup's existing obfs secret).
+
+- name: Ensure sing-box config directory exists
+  ansible.builtin.file:
+    path: "{{ singbox_config_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Check if obfs password exists
+  ansible.builtin.stat:
+    path: "{{ singbox_obfs_file }}"
+  register: _singbox_obfs_stat
+
+- name: Generate salamander obfs password
+  when: not _singbox_obfs_stat.stat.exists
+  no_log: true
+  block:
+    - name: Generate random obfs password
+      ansible.builtin.shell:
+        cmd: "openssl rand -hex 12"
+        executable: /bin/bash
+      register: _singbox_obfs_output
+      changed_when: true
+
+    - name: Write obfs password file
+      ansible.builtin.copy:
+        content: "{{ _singbox_obfs_output.stdout | trim }}"
+        dest: "{{ singbox_obfs_file }}"
+        mode: '0600'
+        owner: root
+        group: root
+
+- name: Read obfs password into fact
+  ansible.builtin.slurp:
+    src: "{{ singbox_obfs_file }}"
+  register: _singbox_obfs_slurp
+  no_log: true
+
+- name: Set obfs password fact
+  ansible.builtin.set_fact:
+    _singbox_obfs_password: "{{ _singbox_obfs_slurp.content | b64decode | trim }}"
+  no_log: true

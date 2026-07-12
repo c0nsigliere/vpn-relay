@@ -1,0 +1,137 @@
+---
+# Build and install sing-box from source.
+#
+# Official release binaries omit `with_v2ray_api`, which the bot needs for
+# per-user traffic stats. So we pin a Go toolchain and compile the tagged
+# source with the required build tags. Idempotent: rebuild only when the
+# installed binary's version or tags differ.
+
+- name: Check installed sing-box version and tags
+  ansible.builtin.command:
+    cmd: "{{ singbox_bin }} version"
+  register: _singbox_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Determine whether a sing-box (re)build is needed
+  ansible.builtin.set_fact:
+    _singbox_needs_build: >-
+      {{ not (_singbox_version_check.rc == 0
+              and singbox_version in _singbox_version_check.stdout
+              and 'with_v2ray_api' in _singbox_version_check.stdout) }}
+
+- name: Build and install sing-box from source
+  when: _singbox_needs_build | bool
+  block:
+    - name: Ensure build dependencies are present
+      ansible.builtin.apt:
+        name:
+          - git
+          - curl
+          - ca-certificates
+          - tar
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Detect Go architecture
+      ansible.builtin.set_fact:
+        _go_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+    - name: Check installed Go toolchain version
+      ansible.builtin.command:
+        cmd: /usr/local/go/bin/go version
+      register: _go_version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install pinned Go toolchain
+      when: _go_version_check.rc != 0 or singbox_go_version not in _go_version_check.stdout
+      block:
+        - name: Download Go toolchain tarball
+          ansible.builtin.get_url:
+            url: "https://go.dev/dl/go{{ singbox_go_version }}.linux-{{ _go_arch }}.tar.gz"
+            dest: "/tmp/go{{ singbox_go_version }}.tar.gz"
+            mode: '0644'
+
+        - name: Remove any existing Go toolchain
+          ansible.builtin.file:
+            path: /usr/local/go
+            state: absent
+
+        - name: Extract Go toolchain to /usr/local
+          ansible.builtin.unarchive:
+            src: "/tmp/go{{ singbox_go_version }}.tar.gz"
+            dest: /usr/local
+            remote_src: true
+
+    - name: Download sing-box source tarball
+      ansible.builtin.get_url:
+        url: "https://github.com/SagerNet/sing-box/archive/refs/tags/v{{ singbox_version }}.tar.gz"
+        dest: "/tmp/sing-box-{{ singbox_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Create sing-box build directory
+      ansible.builtin.file:
+        path: "/tmp/sing-box-build-{{ singbox_version }}"
+        state: directory
+        mode: '0755'
+
+    - name: Extract sing-box source
+      ansible.builtin.unarchive:
+        src: "/tmp/sing-box-{{ singbox_version }}.tar.gz"
+        dest: "/tmp/sing-box-build-{{ singbox_version }}"
+        remote_src: true
+        extra_opts:
+          - --strip-components=1
+
+    - name: Build sing-box with v2ray_api
+      ansible.builtin.command:
+        cmd: >-
+          /usr/local/go/bin/go build -trimpath
+          -tags {{ singbox_build_tags }}
+          -o /tmp/sing-box-build-{{ singbox_version }}/sing-box
+          ./cmd/sing-box
+        chdir: "/tmp/sing-box-build-{{ singbox_version }}"
+      environment:
+        CGO_ENABLED: "0"
+        GOCACHE: "/tmp/go-cache"
+        GOPATH: "/tmp/go-path"
+        GOFLAGS: "-mod=mod"
+        PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+      changed_when: true
+
+    - name: Install sing-box binary
+      ansible.builtin.copy:
+        src: "/tmp/sing-box-build-{{ singbox_version }}/sing-box"
+        dest: "{{ singbox_bin }}"
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: true
+      notify: restart sing-box
+
+    - name: Read built binary version and tags
+      ansible.builtin.command:
+        cmd: "{{ singbox_bin }} version"
+      register: _singbox_built_version
+      changed_when: false
+
+    - name: Fail fast if binary lacks version or with_v2ray_api
+      ansible.builtin.assert:
+        that:
+          - singbox_version in _singbox_built_version.stdout
+          - "'with_v2ray_api' in _singbox_built_version.stdout"
+        fail_msg: >-
+          Built sing-box does not report {{ singbox_version }} with_v2ray_api:
+          {{ _singbox_built_version.stdout }}
+        success_msg: "sing-box {{ singbox_version }} built with with_v2ray_api"
+
+    - name: Clean up build artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/sing-box-{{ singbox_version }}.tar.gz"
+        - "/tmp/sing-box-build-{{ singbox_version }}"
+        - "/tmp/go{{ singbox_go_version }}.tar.gz"

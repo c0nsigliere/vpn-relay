@@ -1,0 +1,12 @@
+---
+# iptables mode: allow hy2_port/udp INPUT (Hysteria 2 / QUIC).
+# XRay's TCP rule is managed by the xray_server role and left untouched.
+
+- name: Allow Hysteria 2 port in iptables INPUT chain
+  ansible.builtin.iptables:
+    chain: INPUT
+    protocol: udp
+    destination_port: "{{ hy2_port | string }}"
+    jump: ACCEPT
+    comment: "Hysteria 2 (sing-box)"
+  notify: save netfilter rules

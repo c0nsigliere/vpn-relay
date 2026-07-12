@@ -1,0 +1,16 @@
+[Unit]
+Description=sing-box (Hysteria 2) Server
+Documentation=https://sing-box.sagernet.org
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as root: reads the Let's Encrypt private key under /etc/letsencrypt/live.
+ExecStart={{ singbox_bin }} run -c {{ singbox_config_file }}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

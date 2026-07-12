@@ -1,0 +1,6 @@
+#!/bin/sh
+# Certbot deploy-hook: restart sing-box so it picks up the renewed certificate.
+# Only acts when the unit is active (sing-box is absent on non-Hy2 deployments).
+if systemctl is-active --quiet sing-box; then
+    systemctl restart sing-box
+fi

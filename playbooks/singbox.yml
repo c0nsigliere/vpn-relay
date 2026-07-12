@@ -1,0 +1,22 @@
+---
+# Deploy sing-box (Hysteria 2) on the exit node (built from source with v2ray_api).
+#
+# Prerequisites:
+#   - tls_cert.yml already issued the certificate for hy2_domain
+#   - XRay already deployed (co-exists: XRay on 443/tcp, sing-box on 443/udp)
+#
+# Usage:
+#   ansible-playbook playbooks/singbox.yml -i inventory/<deployment>/
+#
+# Run specific tags:
+#   ansible-playbook playbooks/singbox.yml -i inventory/<deployment>/ --tags verify
+
+- name: Deploy sing-box Hysteria 2 Server
+  hosts: xray_servers
+  become: true
+  roles:
+    - role: singbox_server
+      when: hy2_enabled | default(false) | bool
+  tags:
+    - hy2
+    - singbox
