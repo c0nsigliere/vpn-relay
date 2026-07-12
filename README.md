@@ -374,7 +374,7 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `hy2_port` | `443` | Hysteria 2 UDP port on B |
 | `hy2_domain` | `{{ tma_domain }}` | SNI + TLS cert domain for Hy2 (shared with TMA by default) |
 | `hy2_host` | `{{ server_b_public_ip }}` | Host clients dial in the Hy2 URI (IP or domain) |
-| `singbox_version` | `1.13.13` | sing-box source tag (built with `with_v2ray_api`) |
+| `singbox_version` | `1.13.14` | sing-box source tag (built with `with_v2ray_api`; latest stable) |
 | `singbox_v2ray_api_port` | `10086` | Loopback gRPC stats port (bot ↔ sing-box) |
 | `singbox_log_level` | `warn` | sing-box log level (phase 2 IP parsing needs `info`) |
 | `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |

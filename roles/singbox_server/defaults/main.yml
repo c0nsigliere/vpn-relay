@@ -15,10 +15,11 @@ singbox_obfs_file: "/etc/sing-box/obfs.pw"
 # do NOT include with_v2ray_api (needed for per-user stats). with_quic enables Hy2,
 # with_utls the uTLS fingerprinting used by the QUIC/TLS stack.
 singbox_build_tags: "with_quic,with_utls,with_v2ray_api"
-# Go toolchain used for the build. Must be >= the `go`/`toolchain` directive in the
-# pinned sing-box tag's go.mod. GOTOOLCHAIN defaults to `auto`, so a newer required
-# toolchain is fetched automatically if this pin is slightly behind.
-singbox_go_version: "1.24.4"
+# Go toolchain used for the build. Must be >= the `go` directive in the pinned
+# sing-box tag's go.mod (v1.13.14 requires go 1.24.7). GOTOOLCHAIN defaults to
+# `auto`, so a newer required toolchain is still fetched if this pin lags — but we
+# keep it in sync to avoid a surprise mid-build download.
+singbox_go_version: "1.24.7"
 
 # Firewall management mode (shared with other roles)
 # - "keep":    UFW enabled, add allow rule via ufw module
