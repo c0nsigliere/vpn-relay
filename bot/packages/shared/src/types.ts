@@ -1,6 +1,6 @@
 // ─── Domain types ───────────────────────────────────────────────────────────
 
-export type ClientType = "wg" | "xray" | "both";
+export type ClientType = "wg" | "xray" | "both" | "hysteria2";
 
 export interface Client {
   id: string;
@@ -9,6 +9,7 @@ export interface Client {
   wg_ip: string | null;
   wg_pubkey: string | null;
   xray_uuid: string | null;
+  hy2_password: string | null;
   created_at: string;
   expires_at: string | null;
   is_active: number; // 1 = active, 0 = suspended
@@ -18,6 +19,7 @@ export interface Client {
   suspend_reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" | null;
   last_ip: string | null;
   last_ip_isp: string | null;
+  // Hysteria 2 is direct-only in phase 1, so route stays "direct" | null for it.
   last_connection_route: "direct" | "relay" | null;
 }
 
@@ -36,6 +38,8 @@ export interface TrafficSnapshot {
   wg_tx: number;
   xray_rx: number;
   xray_tx: number;
+  hy2_rx: number;
+  hy2_tx: number;
 }
 
 // ─── API request / response types ───────────────────────────────────────────
@@ -147,6 +151,8 @@ export interface TrafficTotals {
   wgTx: number;
   xrayRx: number;
   xrayTx: number;
+  hy2Rx: number;
+  hy2Tx: number;
 }
 
 export interface ClientWithTraffic extends Client {
@@ -172,6 +178,7 @@ export type AlertKey =
   | "cascade_down"
   | "cascade_degradation"
   | "service_dead_xray"
+  | "service_dead_singbox"
   | "service_dead_wg"
   | "disk_full"
   | "network_saturation"

@@ -78,6 +78,79 @@ try { db.exec("ALTER TABLE clients ADD COLUMN last_ip TEXT DEFAULT NULL"); } cat
 try { db.exec("ALTER TABLE clients ADD COLUMN last_ip_isp TEXT DEFAULT NULL"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE clients ADD COLUMN last_connection_route TEXT DEFAULT NULL"); } catch { /* already exists */ }
 
+// Hysteria 2 traffic columns (additive — same idempotent pattern as above).
+try { db.exec("ALTER TABLE traffic_snapshots ADD COLUMN hy2_rx INTEGER DEFAULT 0"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE traffic_snapshots ADD COLUMN hy2_tx INTEGER DEFAULT 0"); } catch { /* already exists */ }
+
+/**
+ * Widen the clients.type CHECK constraint to allow 'hysteria2' and add hy2_password.
+ *
+ * SQLite cannot ALTER a CHECK constraint, so we follow the canonical table-rebuild
+ * recipe (https://sqlite.org/lang_altertable.html#otheralter). This is the first
+ * rebuild migration in the codebase — every prior migration above is an additive
+ * ALTER. It runs AFTER the ALTER block so the source table already carries every
+ * migrated column; we copy those across explicitly and default hy2_password to NULL.
+ */
+function migrateClientsAddHysteria2(): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'clients'")
+    .get() as { sql: string } | undefined;
+  // Fresh table or already-migrated table already lists 'hysteria2' in its CHECK.
+  if (!row || row.sql.includes("hysteria2")) return;
+
+  // foreign_keys can only be toggled OUTSIDE a transaction. It must be OFF so the
+  // DROP TABLE below does not cascade-delete traffic_snapshots (ON DELETE CASCADE).
+  db.pragma("foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      CREATE TABLE clients_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL CHECK(type IN ('wg', 'xray', 'both', 'hysteria2')),
+        wg_ip TEXT,
+        wg_pubkey TEXT,
+        xray_uuid TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME,
+        is_active INTEGER DEFAULT 1,
+        last_seen_at TEXT,
+        daily_quota_gb REAL DEFAULT NULL,
+        monthly_quota_gb REAL DEFAULT NULL,
+        suspend_reason TEXT DEFAULT NULL,
+        last_ip TEXT DEFAULT NULL,
+        last_ip_isp TEXT DEFAULT NULL,
+        last_connection_route TEXT DEFAULT NULL,
+        hy2_password TEXT DEFAULT NULL
+      );
+    `);
+    db.exec(`
+      INSERT INTO clients_new
+        (id, name, type, wg_ip, wg_pubkey, xray_uuid, created_at, expires_at, is_active,
+         last_seen_at, daily_quota_gb, monthly_quota_gb, suspend_reason, last_ip, last_ip_isp,
+         last_connection_route, hy2_password)
+      SELECT
+         id, name, type, wg_ip, wg_pubkey, xray_uuid, created_at, expires_at, is_active,
+         last_seen_at, daily_quota_gb, monthly_quota_gb, suspend_reason, last_ip, last_ip_isp,
+         last_connection_route, NULL
+      FROM clients;
+    `);
+    db.exec("DROP TABLE clients");
+    db.exec("ALTER TABLE clients_new RENAME TO clients");
+    const violations = db.pragma("foreign_key_check") as unknown[];
+    if (violations.length > 0) {
+      throw new Error(`foreign_key_check failed after clients rebuild: ${JSON.stringify(violations)}`);
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    db.pragma("foreign_keys = ON");
+    throw e;
+  }
+  db.pragma("foreign_keys = ON");
+}
+migrateClientsAddHysteria2();
+
 // Alert tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS alert_settings (
@@ -102,6 +175,7 @@ const _alertDefaults = [
   { alert_key: "cascade_down",       enabled: 1, threshold: 100, threshold2: 2,    cooldown_min: 30 },
   { alert_key: "cascade_degradation",enabled: 1, threshold: 30,  threshold2: 5,    cooldown_min: 15 },
   { alert_key: "service_dead_xray",  enabled: 1, threshold: null, threshold2: null, cooldown_min: 30 },
+  { alert_key: "service_dead_singbox", enabled: 1, threshold: null, threshold2: null, cooldown_min: 30 },
   { alert_key: "service_dead_wg",    enabled: 1, threshold: null, threshold2: null, cooldown_min: 30 },
   { alert_key: "disk_full",          enabled: 1, threshold: 90,  threshold2: null, cooldown_min: 60 },
   { alert_key: "network_saturation", enabled: 1, threshold: 80,  threshold2: 15,   cooldown_min: 30 },

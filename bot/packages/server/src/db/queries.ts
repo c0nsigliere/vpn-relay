@@ -33,8 +33,8 @@ export const queries = {
 
   insertClient(client: Omit<Client, "created_at" | "last_seen_at" | "last_ip" | "last_ip_isp" | "last_connection_route">): void {
     db.prepare(`
-      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, expires_at, is_active, daily_quota_gb, monthly_quota_gb)
-      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb)
+      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, hy2_password, expires_at, is_active, daily_quota_gb, monthly_quota_gb)
+      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @hy2_password, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb)
     `).run(client);
   },
 
@@ -64,8 +64,8 @@ export const queries = {
 
   insertTrafficSnapshot(snapshot: Omit<TrafficSnapshot, "id" | "ts">): void {
     db.prepare(`
-      INSERT INTO traffic_snapshots (client_id, wg_rx, wg_tx, xray_rx, xray_tx)
-      VALUES (@client_id, @wg_rx, @wg_tx, @xray_rx, @xray_tx)
+      INSERT INTO traffic_snapshots (client_id, wg_rx, wg_tx, xray_rx, xray_tx, hy2_rx, hy2_tx)
+      VALUES (@client_id, @wg_rx, @wg_tx, @xray_rx, @xray_tx, @hy2_rx, @hy2_tx)
     `).run(snapshot);
   },
 
@@ -117,15 +117,17 @@ export const queries = {
              SUM(wg_rx) AS wgRx,
              SUM(wg_tx) AS wgTx,
              SUM(xray_rx) AS xrayRx,
-             SUM(xray_tx) AS xrayTx
+             SUM(xray_tx) AS xrayTx,
+             SUM(hy2_rx) AS hy2Rx,
+             SUM(hy2_tx) AS hy2Tx
       FROM traffic_snapshots
       WHERE client_id IN (${placeholders})
         AND ts >= datetime('now', '-24 hours')
       GROUP BY client_id
-    `).all(...clientIds) as Array<{ client_id: string; wgRx: number; wgTx: number; xrayRx: number; xrayTx: number }>;
+    `).all(...clientIds) as Array<{ client_id: string; wgRx: number; wgTx: number; xrayRx: number; xrayTx: number; hy2Rx: number; hy2Tx: number }>;
     const map = new Map<string, TrafficTotals>();
     for (const row of rows) {
-      map.set(row.client_id, { wgRx: row.wgRx, wgTx: row.wgTx, xrayRx: row.xrayRx, xrayTx: row.xrayTx });
+      map.set(row.client_id, { wgRx: row.wgRx, wgTx: row.wgTx, xrayRx: row.xrayRx, xrayTx: row.xrayTx, hy2Rx: row.hy2Rx, hy2Tx: row.hy2Tx });
     }
     return map;
   },
@@ -201,8 +203,8 @@ export const queries = {
       const rows = db.prepare(`
         SELECT client_id,
                strftime('%Y-%m', ts) AS month,
-               SUM(wg_rx + xray_rx)  AS rx_total,
-               SUM(wg_tx + xray_tx)  AS tx_total
+               SUM(wg_rx + xray_rx + hy2_rx)  AS rx_total,
+               SUM(wg_tx + xray_tx + hy2_tx)  AS tx_total
         FROM traffic_snapshots
         WHERE ts < datetime('now', '-30 days')
         GROUP BY client_id, month
@@ -283,8 +285,8 @@ export const queries = {
     const mod = tzModifier();
     return db.prepare(`
       SELECT date(ts, '${mod}') AS day,
-             SUM(wg_rx + xray_rx) AS rx_total,
-             SUM(wg_tx + xray_tx) AS tx_total
+             SUM(wg_rx + xray_rx + hy2_rx) AS rx_total,
+             SUM(wg_tx + xray_tx + hy2_tx) AS tx_total
       FROM traffic_snapshots
       WHERE client_id = ? AND ts >= datetime('now', '-30 days')
       GROUP BY date(ts, '${mod}')
@@ -329,7 +331,7 @@ export const queries = {
   getClientDailyUsageBytes(clientId: string): number {
     const mod = tzModifier();
     const row = db.prepare(`
-      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx), 0) AS used_bytes
+      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx + hy2_rx + hy2_tx), 0) AS used_bytes
       FROM traffic_snapshots
       WHERE client_id = ?
         AND date(ts, '${mod}') = date('now', '${mod}')
@@ -340,7 +342,7 @@ export const queries = {
   getClientMonthlyUsageBytes(clientId: string): number {
     const mod = tzModifier();
     const row = db.prepare(`
-      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx), 0) AS used_bytes
+      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx + hy2_rx + hy2_tx), 0) AS used_bytes
       FROM traffic_snapshots
       WHERE client_id = ?
         AND strftime('%Y-%m', ts, '${mod}') = strftime('%Y-%m', 'now', '${mod}')
@@ -355,9 +357,9 @@ export const queries = {
     const rows = db.prepare(`
       SELECT client_id,
              COALESCE(SUM(CASE WHEN date(ts, '${mod}') = date('now', '${mod}')
-               THEN wg_rx + wg_tx + xray_rx + xray_tx ELSE 0 END), 0) AS daily_used_bytes,
+               THEN wg_rx + wg_tx + xray_rx + xray_tx + hy2_rx + hy2_tx ELSE 0 END), 0) AS daily_used_bytes,
              COALESCE(SUM(CASE WHEN strftime('%Y-%m', ts, '${mod}') = strftime('%Y-%m', 'now', '${mod}')
-               THEN wg_rx + wg_tx + xray_rx + xray_tx ELSE 0 END), 0) AS monthly_used_bytes
+               THEN wg_rx + wg_tx + xray_rx + xray_tx + hy2_rx + hy2_tx ELSE 0 END), 0) AS monthly_used_bytes
       FROM traffic_snapshots
       WHERE client_id IN (${placeholders})
         AND strftime('%Y-%m', ts, '${mod}') = strftime('%Y-%m', 'now', '${mod}')
@@ -416,7 +418,7 @@ export const queries = {
 
   getClientTrafficLastHour(clientId: string): number {
     const row = db.prepare(`
-      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx), 0) AS used_bytes
+      SELECT COALESCE(SUM(wg_rx + wg_tx + xray_rx + xray_tx + hy2_rx + hy2_tx), 0) AS used_bytes
       FROM traffic_snapshots
       WHERE client_id = ?
         AND ts >= datetime('now', '-1 hour')
@@ -427,7 +429,7 @@ export const queries = {
   searchClients(
     search: string,
     filter: "all" | "active" | "suspended" | "quota_exceeded",
-    type: "all" | "wg" | "xray" | "both",
+    type: "all" | "wg" | "xray" | "both" | "hysteria2",
     page: number,
     pageSize = 20
   ): { clients: Client[]; total: number } {
