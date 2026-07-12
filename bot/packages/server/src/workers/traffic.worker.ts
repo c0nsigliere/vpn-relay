@@ -7,6 +7,7 @@ import { hysteriaService } from "../services/hysteria.service";
 import { wgService } from "../services/wg.service";
 import { sshPool } from "../services/ssh";
 import { xrayLogService } from "../services/xray-log.service";
+import { singboxLogService } from "../services/singbox-log.service";
 import { ipInfoService } from "../services/ip-info.service";
 import { env } from "../config/env";
 import { isStandalone } from "../config/standalone";
@@ -192,6 +193,11 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
           // XRay access log: direct IPs + relay masqueraded ports
           const { directIps, relayPorts } = xrayLogService.getRecentClientIps();
 
+          // sing-box log: Hysteria 2 source IPs (direct-only). Requires log.level=info.
+          const hy2Ips = env.HY2_ENABLED
+            ? singboxLogService.getRecentClientIps()
+            : new Map<string, string>();
+
           // If any clients connected via relay, resolve real IPs via conntrack on Server A
           let conntrackMap = new Map<number, string>();
           let relayConnectedIps = new Set<string>();
@@ -244,6 +250,12 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
                 && client.last_ip && relayConnectedIps.has(client.last_ip)) {
               ip = client.last_ip;
               route = "relay";
+            }
+
+            // Hysteria 2 — direct-only source IP from the sing-box log
+            if (!ip && client.type === "hysteria2") {
+              ip = hy2Ips.get(client.name);
+              if (ip) route = "direct";
             }
 
             // Also update route even if IP didn't change (client may switch direct↔relay)

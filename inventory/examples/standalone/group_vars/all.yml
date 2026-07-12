@@ -55,5 +55,7 @@ hy2_host: "{{ server_b_public_ip }}"
 # Pinned sing-box tag — latest STABLE (the 1.14.0 line is alpha-only). Bump deliberately.
 singbox_version: "1.13.14"
 singbox_v2ray_api_port: 10086
-singbox_log_level: "warn"
+# "info" lets the bot parse Hy2 client source IPs from the log (phase 2). Use
+# "warn" to cut log volume at the cost of no IP/ISP for Hy2 clients.
+singbox_log_level: "info"
 # hy2_uplink_password: ""   # phase 3 (WG-over-Hy2 cascade) only; empty in phase 1

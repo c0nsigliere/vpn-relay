@@ -13,6 +13,16 @@
     group: root
   tags: [config, hy2]
 
+- name: Grant vpn-bot read access to sing-box log (Hy2 client IP extraction, phase 2)
+  ansible.builtin.acl:
+    path: /var/log/sing-box/sing-box.log
+    entity: "{{ bot_user | default('vpn-bot') }}"
+    etype: user
+    permissions: r
+    state: present
+  failed_when: false  # log file may not exist yet on fresh install
+  tags: [config, hy2]
+
 - name: Deploy sing-box logrotate config
   ansible.builtin.template:
     src: logrotate-sing-box.j2
