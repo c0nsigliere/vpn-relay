@@ -32,9 +32,12 @@ class ChartsService {
     const wgTx = snapshots.map((s) => toMb(s.wg_tx));
     const xrayRx = snapshots.map((s) => toMb(s.xray_rx));
     const xrayTx = snapshots.map((s) => toMb(s.xray_tx));
+    const hy2Rx = snapshots.map((s) => toMb(s.hy2_rx));
+    const hy2Tx = snapshots.map((s) => toMb(s.hy2_tx));
 
     const hasWg = wgRx.some((v) => v > 0) || wgTx.some((v) => v > 0);
     const hasXray = xrayRx.some((v) => v > 0) || xrayTx.some((v) => v > 0);
+    const hasHy2 = hy2Rx.some((v) => v > 0) || hy2Tx.some((v) => v > 0);
 
     const datasets = [
       ...(hasWg
@@ -47,6 +50,12 @@ class ChartsService {
         ? [
             { label: "XRay ↓", data: xrayRx, borderColor: "#a6e3a1", backgroundColor: "transparent" },
             { label: "XRay ↑", data: xrayTx, borderColor: "#94e2d5", backgroundColor: "transparent" },
+          ]
+        : []),
+      ...(hasHy2
+        ? [
+            { label: "Hy2 ↓", data: hy2Rx, borderColor: "#f9e2af", backgroundColor: "transparent" },
+            { label: "Hy2 ↑", data: hy2Tx, borderColor: "#fab387", backgroundColor: "transparent" },
           ]
         : []),
     ];

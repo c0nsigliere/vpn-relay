@@ -1,9 +1,17 @@
 packages:
   - packages/*
 
-onlyBuiltDependencies:
-  - better-sqlite3
-  - canvas
-  - cpu-features
-  - esbuild
-  - ssh2
+# pnpm 11 replaced onlyBuiltDependencies/ignoredBuiltDependencies with allowBuilds
+# (a map of package -> bool). These native deps must run their install scripts to
+# fetch/compile bindings; protobufjs's script is unnecessary for our usage.
+allowBuilds:
+  better-sqlite3: true
+  canvas: true
+  cpu-features: true
+  esbuild: true
+  ssh2: true
+  protobufjs: false
+
+# Ansible deploys run pnpm without a TTY; don't prompt before recreating a
+# node_modules dir left by a different pnpm major.
+confirmModulesPurge: false

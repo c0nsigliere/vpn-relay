@@ -35,9 +35,13 @@
   when: _node_installed_major.stdout != node_major_version | string
   tags: [install, bot]
 
-- name: Install pnpm globally via npm
+# Pin pnpm to a tested version. Installing "latest" is non-deterministic and pnpm
+# majors change the native-build approval model (11 uses the allowBuilds map in
+# pnpm-workspace.yaml). Pinning keeps installs reproducible across deploys.
+- name: Install pnpm globally via npm (pinned)
   npm:
     name: pnpm
+    version: "{{ pnpm_version }}"
     global: true
     state: present
   tags: [install, bot]
