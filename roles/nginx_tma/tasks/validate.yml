@@ -10,3 +10,19 @@
     that:
       - tma_certbot_email | length > 0
     fail_msg: "tma_certbot_email must be set for Let's Encrypt registration"
+
+# nginx_tma is now a pure consumer of the certificate issued by the tls_cert role
+# earlier in stack.yml. Fail fast with a clear message if it is missing.
+- name: Check TLS certificate for tma_domain exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ tma_domain }}/fullchain.pem"
+  register: _tma_cert_stat
+
+- name: Assert TLS certificate is present (issued by tls_cert role)
+  ansible.builtin.assert:
+    that:
+      - _tma_cert_stat.stat.exists
+    fail_msg: >-
+      TLS certificate /etc/letsencrypt/live/{{ tma_domain }}/fullchain.pem not found.
+      Run the tls_cert role (or stack.yml) before nginx_tma.
+    success_msg: "TLS certificate for {{ tma_domain }} is present"

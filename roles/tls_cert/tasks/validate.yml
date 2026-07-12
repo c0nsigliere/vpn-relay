@@ -1,0 +1,27 @@
+---
+# Validation for tls_cert role
+
+- name: Build certificate domain list (deduped union of tma_domain + hy2_domain)
+  ansible.builtin.set_fact:
+    _tls_cert_domains: "{{ [tma_domain, hy2_domain] | reject('equalto', '') | unique | list }}"
+
+- name: Assert at least one domain is requested
+  ansible.builtin.assert:
+    that:
+      - _tls_cert_domains | length > 0
+    fail_msg: "tls_cert requires at least one of tma_domain / hy2_domain to be set"
+    success_msg: "Certificate domains: {{ _tls_cert_domains | join(', ') }}"
+
+- name: Assert certbot email is set
+  ansible.builtin.assert:
+    that:
+      - tma_certbot_email | length > 0
+    fail_msg: "tma_certbot_email must be set for Let's Encrypt registration"
+    success_msg: "certbot email is set"
+
+- name: Assert manage_ufw mode
+  ansible.builtin.assert:
+    that:
+      - manage_ufw in ['keep', 'disable']
+    fail_msg: "manage_ufw must be 'keep' or 'disable', got '{{ manage_ufw }}'"
+    success_msg: "manage_ufw mode is valid: {{ manage_ufw }}"

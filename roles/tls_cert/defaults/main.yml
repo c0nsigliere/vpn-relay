@@ -1,0 +1,11 @@
+---
+# tls_cert role — issues Let's Encrypt certificates via certbot --standalone
+# (HTTP-01 on port 80). Domains are the deduped union of tma_domain and
+# hy2_domain, so a shared domain yields a single certificate.
+
+tma_domain: ""
+hy2_domain: ""
+tma_certbot_email: ""
+
+# Firewall management mode (shared with other roles)
+manage_ufw: "keep"

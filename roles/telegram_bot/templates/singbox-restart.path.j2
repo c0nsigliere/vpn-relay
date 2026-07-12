@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for sing-box restart trigger from VPN bot
+
+[Path]
+PathExists=/run/vpn-bot/singbox-restart
+Unit=singbox-restart.service
+
+[Install]
+WantedBy=multi-user.target

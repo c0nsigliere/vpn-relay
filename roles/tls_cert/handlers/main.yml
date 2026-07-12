@@ -1,0 +1,12 @@
+---
+# Handlers for tls_cert role
+
+- name: reload ufw
+  ansible.builtin.command:
+    cmd: ufw reload
+  when: manage_ufw == "keep"
+
+- name: save netfilter rules
+  ansible.builtin.command:
+    cmd: netfilter-persistent save
+  when: manage_ufw == "disable"

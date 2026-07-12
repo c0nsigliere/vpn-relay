@@ -1,0 +1,55 @@
+---
+# Issue Let's Encrypt certificates with certbot --standalone (HTTP-01).
+#
+# Standalone runs certbot's own ephemeral web server on :80, so nothing may
+# permanently bind :80 (enforced in verify.yml). This is the reference path for
+# fresh installs; existing live servers keep their nginx-authenticator renewal.
+
+- name: Install certbot
+  ansible.builtin.apt:
+    name:
+      - certbot
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Open port 80/tcp through UFW (certbot HTTP-01)
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    comment: "certbot HTTP-01 (standalone)"
+  when: manage_ufw == "keep"
+  notify: reload ufw
+
+- name: Open port 80/tcp in iptables INPUT chain (certbot HTTP-01)
+  ansible.builtin.iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "80"
+    jump: ACCEPT
+    comment: "certbot HTTP-01 (standalone)"
+  when: manage_ufw == "disable"
+  notify: save netfilter rules
+
+- name: Flush handlers so port 80 is open before issuing
+  ansible.builtin.meta: flush_handlers
+
+- name: Check which certificates already exist
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ item }}/fullchain.pem"
+  register: _tls_existing
+  loop: "{{ _tls_cert_domains }}"
+
+- name: Issue Let's Encrypt certificates via standalone HTTP-01
+  ansible.builtin.command: >
+    certbot certonly --standalone
+    -d {{ item.item }}
+    --email {{ tma_certbot_email }}
+    --agree-tos
+    --non-interactive
+  loop: "{{ _tls_existing.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists
+  changed_when: true

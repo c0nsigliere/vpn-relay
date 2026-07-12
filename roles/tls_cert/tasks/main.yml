@@ -1,0 +1,17 @@
+---
+# Main task orchestrator for tls_cert role.
+
+- name: Import validation tasks
+  ansible.builtin.import_tasks: validate.yml
+  tags:
+    - validate
+
+- name: Import certificate issuance tasks
+  ansible.builtin.import_tasks: certbot.yml
+  tags:
+    - certbot
+
+- name: Import verification tasks
+  ansible.builtin.import_tasks: verify.yml
+  tags:
+    - verify

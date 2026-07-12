@@ -22,6 +22,14 @@ xray_config_dir: "/etc/xray"
 xray_keys_dir: "/etc/xray/keys"
 xray_api_port: 10085
 
+# sing-box / Hysteria 2 (must match singbox_server role). hy2_enabled gates all
+# Hy2 wiring: ACLs, ReadWritePaths, the restart path unit and the env block.
+hy2_enabled: false
+singbox_config_dir: "/etc/sing-box"
+singbox_config_file: "/etc/sing-box/config.json"
+singbox_obfs_file: "/etc/sing-box/obfs.pw"
+singbox_v2ray_api_port: 10086
+
 # Bot Telegram credentials — MUST be overridden in vault or extra vars
 bot_telegram_token: ""
 bot_admin_id: ""

@@ -114,3 +114,46 @@
     permissions: rw
     state: present
   tags: [deploy, bot]
+
+# Hysteria 2 (sing-box) ACLs — mirror the XRay block above so the bot can rebuild
+# /etc/sing-box/config.json atomically. Gated on hy2_enabled: on non-Hy2 hosts the
+# directory does not exist and ProtectSystem=strict would refuse the ReadWritePath.
+- name: Set ACL — vpn-bot execute on sing-box config dir (traverse to read files)
+  acl:
+    path: "{{ singbox_config_dir }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: x
+    state: present
+  when: hy2_enabled | default(false) | bool
+  tags: [deploy, bot]
+
+- name: Set ACL — vpn-bot reads sing-box obfs password
+  acl:
+    path: "{{ singbox_obfs_file }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: r
+    state: present
+  when: hy2_enabled | default(false) | bool
+  tags: [deploy, bot]
+
+- name: Set ACL — vpn-bot write-execute on sing-box config dir (needed to create temp files)
+  acl:
+    path: "{{ singbox_config_dir }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: wx
+    state: present
+  when: hy2_enabled | default(false) | bool
+  tags: [deploy, bot]
+
+- name: Set ACL — vpn-bot reads/writes sing-box config.json
+  acl:
+    path: "{{ singbox_config_file }}"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: rw
+    state: present
+  when: hy2_enabled | default(false) | bool
+  tags: [deploy, bot]

@@ -39,6 +39,38 @@
     daemon_reload: true
   tags: [service, bot]
 
+# sing-box restart path unit — mirror of the XRay one, gated on hy2_enabled.
+- name: Install singbox-restart.service (triggered by path unit)
+  template:
+    src: singbox-restart.service.j2
+    dest: /etc/systemd/system/singbox-restart.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: hy2_enabled | default(false) | bool
+  notify: reload systemd
+  tags: [service, bot]
+
+- name: Install singbox-restart.path (watches /run/vpn-bot/singbox-restart)
+  template:
+    src: singbox-restart.path.j2
+    dest: /etc/systemd/system/singbox-restart.path
+    owner: root
+    group: root
+    mode: "0644"
+  when: hy2_enabled | default(false) | bool
+  notify: reload systemd
+  tags: [service, bot]
+
+- name: Enable and start singbox-restart.path
+  systemd:
+    name: singbox-restart.path
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: hy2_enabled | default(false) | bool
+  tags: [service, bot]
+
 - name: Enable and start vpn-bot service
   systemd:
     name: vpn-bot

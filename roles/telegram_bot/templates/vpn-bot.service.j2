@@ -23,7 +23,7 @@ ProtectSystem=strict
 # Allow ICMP ping without setuid (AmbientCapabilities work with NoNewPrivileges=true)
 AmbientCapabilities=CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_RAW
-ReadWritePaths={{ bot_data_dir }} {{ xray_config_dir }}
+ReadWritePaths={{ bot_data_dir }} {{ xray_config_dir }}{% if hy2_enabled | default(false) %} {{ singbox_config_dir }}{% endif %}
 RuntimeDirectory=vpn-bot
 RuntimeDirectoryMode=0755
 

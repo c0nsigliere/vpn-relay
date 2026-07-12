@@ -8,8 +8,5 @@
 - import_tasks: configure.yml
   tags: [configure, tma]
 
-- import_tasks: certbot.yml
-  tags: [certbot, tma]
-
 - import_tasks: verify.yml
   tags: [verify, tma]

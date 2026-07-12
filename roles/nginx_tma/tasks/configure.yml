@@ -37,5 +37,5 @@
     state: absent
   notify: reload nginx
 
-- name: Flush handlers (nginx reload before certbot)
+- name: Flush handlers (apply nginx SSL config)
   ansible.builtin.meta: flush_handlers

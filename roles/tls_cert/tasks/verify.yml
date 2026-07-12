@@ -1,0 +1,38 @@
+---
+# Verification for tls_cert role
+
+- name: Verify each certificate exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ item }}/fullchain.pem"
+  register: _tls_verify
+  loop: "{{ _tls_cert_domains }}"
+
+- name: Assert all certificates were issued
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    fail_msg: "Certificate for {{ item.item }} was not issued"
+    success_msg: "Certificate for {{ item.item }} is present"
+  loop: "{{ _tls_verify.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# certbot --standalone renewal binds :80 itself. A permanent listener there
+# (e.g. a stray nginx server block) would make renewal fail silently.
+- name: Check nothing permanently binds :80
+  ansible.builtin.shell:
+    cmd: "ss -ltnp sport = :80 | tail -n +2"
+    executable: /bin/bash
+  register: _tls_port80
+  changed_when: false
+  failed_when: false
+
+- name: Assert port 80 is free for standalone renewal
+  ansible.builtin.assert:
+    that:
+      - _tls_port80.stdout | trim | length == 0
+    fail_msg: >-
+      A process is listening on :80, which blocks certbot --standalone renewal:
+      {{ _tls_port80.stdout }}
+      Ensure nginx listens only on tma_https_port.
+    success_msg: "Port 80 is free for standalone renewal"

@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart sing-box after VPN bot trigger
+After=sing-box.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart sing-box
+ExecStartPost=/bin/rm -f /run/vpn-bot/singbox-restart
