@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // node16 replaces the deprecated "Node"/node10 resolution (removed in TS 7.0).
+    // Still emits CommonJS for this tsc->node package (no "type":"module").
+    "module": "node16",
+    "moduleResolution": "node16",
     "lib": ["ES2022"],
     "outDir": "./dist",
     "rootDir": "./src",
