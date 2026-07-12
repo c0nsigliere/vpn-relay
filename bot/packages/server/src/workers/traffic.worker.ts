@@ -3,6 +3,7 @@ import { Bot } from "grammy";
 import { BotContext } from "../bot/context";
 import { queries } from "../db/queries";
 import { xrayService } from "../services/xray.service";
+import { hysteriaService } from "../services/hysteria.service";
 import { wgService } from "../services/wg.service";
 import { sshPool } from "../services/ssh";
 import { xrayLogService } from "../services/xray-log.service";
@@ -125,6 +126,11 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
         // Fetch XRay stats (reset=true for delta)
         const xrayStats = await xrayService.queryAllStats(true);
 
+        // Fetch Hysteria 2 stats (reset=true for delta) — direct-only, local gRPC
+        const hy2Stats = env.HY2_ENABLED
+          ? await hysteriaService.queryAllStats(true)
+          : new Map<string, { uplinkBytes: bigint; downlinkBytes: bigint }>();
+
         // Fetch WG stats
         let wgStats: Awaited<ReturnType<typeof wgService.getStats>> = [];
         try {
@@ -152,19 +158,26 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
           const xrayRx = Number(xray?.downlinkBytes ?? 0);
           const xrayTx = Number(xray?.uplinkBytes ?? 0);
 
+          // Hy2 stats key by client name (matches "<name>@hy2" stripped in the service).
+          const hy2 = client.type === "hysteria2" ? hy2Stats.get(client.name) : undefined;
+          const hy2Rx = Number(hy2?.downlinkBytes ?? 0);
+          const hy2Tx = Number(hy2?.uplinkBytes ?? 0);
+
           // Convention: rx = client download, tx = client upload.
           // WireGuard server counters are inverted: server rx = client upload, server tx = client download.
-          // XRay counters already match: downlinkBytes = client download, uplinkBytes = client upload.
+          // XRay and Hysteria 2 counters already match: downlink = client download, uplink = client upload.
           queries.insertTrafficSnapshot({
             client_id: client.id,
             wg_rx: wgTxDelta,  // server tx = data sent to client = client download
             wg_tx: wgRxDelta,  // server rx = data received from client = client upload
             xray_rx: xrayRx,
             xray_tx: xrayTx,
+            hy2_rx: hy2Rx,
+            hy2_tx: hy2Tx,
           });
 
           // Update last_seen_at if there's any traffic or recent WG handshake
-          if (wgRxDelta > 0 || wgTxDelta > 0 || xrayRx > 0 || xrayTx > 0) {
+          if (wgRxDelta > 0 || wgTxDelta > 0 || xrayRx > 0 || xrayTx > 0 || hy2Rx > 0 || hy2Tx > 0) {
             queries.updateLastSeen(client.id);
           } else if (wg && wg.latestHandshake > 0) {
             const handshakeAge = Date.now() / 1000 - wg.latestHandshake;

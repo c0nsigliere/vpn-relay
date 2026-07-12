@@ -201,6 +201,25 @@ async function checkServiceDeadXray(bot: Bot<BotContext>): Promise<void> {
   }
 }
 
+async function checkServiceDeadSingbox(bot: Bot<BotContext>): Promise<void> {
+  if (!env.HY2_ENABLED || !isEnabled("service_dead_singbox")) return;
+
+  let singboxRunning = false;
+  try {
+    execSync("systemctl is-active sing-box", { timeout: 5000, stdio: "pipe" });
+    singboxRunning = true;
+  } catch {
+    singboxRunning = false;
+  }
+
+  const state = queries.getAlertState("service_dead_singbox");
+  if (!singboxRunning && shouldFire("service_dead_singbox")) {
+    await fireAlert("service_dead_singbox", `🔴 *sing-box (Hysteria 2) service DOWN*`, bot);
+  } else if (singboxRunning && state?.status === "fired") {
+    await clearAlert("service_dead_singbox", `✅ *sing-box service* restored`, bot);
+  }
+}
+
 async function checkServiceDeadWg(bot: Bot<BotContext>): Promise<void> {
   if (isStandalone || !isEnabled("service_dead_wg")) return;
 
@@ -363,35 +382,41 @@ async function checkQuotaWarning(bot: Bot<BotContext>): Promise<void> {
 
 async function checkCertExpiry(bot: Bot<BotContext>): Promise<void> {
   if (!isEnabled("cert_expiry")) return;
-  if (!env.TMA_DOMAIN) return;
 
   const thresholdDays = getThreshold("cert_expiry", "threshold", 7);
-  const certPath = `/etc/letsencrypt/live/${env.TMA_DOMAIN}/cert.pem`;
+  // TMA and Hy2 may share one cert (typical) or use distinct domains. Dedupe so a
+  // shared domain collapses to a single check; per-domain composite state keys
+  // (cert_expiry:<domain>) give each its own cooldown (mirrors disk_full:a/:b).
+  const domains = [...new Set([env.TMA_DOMAIN, env.HY2_DOMAIN].filter((d): d is string => !!d))];
 
-  if (!fs.existsSync(certPath)) return;
+  for (const domain of domains) {
+    const stateKey = `cert_expiry:${domain}`;
+    const certPath = `/etc/letsencrypt/live/${domain}/cert.pem`;
+    if (!fs.existsSync(certPath)) continue;
 
-  try {
-    const out = execSync(`openssl x509 -enddate -noout -in "${certPath}"`, {
-      encoding: "utf8",
-      timeout: 5000,
-    });
-    const match = out.match(/notAfter=(.+)/);
-    if (!match) return;
-    const expiry = new Date(match[1].trim());
-    const daysLeft = (expiry.getTime() - Date.now()) / 86_400_000;
-    const state = queries.getAlertState("cert_expiry");
+    try {
+      const out = execSync(`openssl x509 -enddate -noout -in "${certPath}"`, {
+        encoding: "utf8",
+        timeout: 5000,
+      });
+      const match = out.match(/notAfter=(.+)/);
+      if (!match) continue;
+      const expiry = new Date(match[1].trim());
+      const daysLeft = (expiry.getTime() - Date.now()) / 86_400_000;
+      const state = queries.getAlertState(stateKey);
 
-    if (daysLeft <= thresholdDays && shouldFire("cert_expiry")) {
-      await fireAlert(
-        "cert_expiry",
-        `🔐 *TLS cert expiring soon*\n${env.TMA_DOMAIN}: ${Math.ceil(daysLeft)} days left`,
-        bot
-      );
-    } else if (daysLeft > thresholdDays && state?.status === "fired") {
-      await clearAlert("cert_expiry", `✅ *TLS cert* renewed for ${env.TMA_DOMAIN}`, bot);
+      if (daysLeft <= thresholdDays && shouldFire(stateKey)) {
+        await fireAlert(
+          stateKey,
+          `🔐 *TLS cert expiring soon*\n${domain}: ${Math.ceil(daysLeft)} days left`,
+          bot
+        );
+      } else if (daysLeft > thresholdDays && state?.status === "fired") {
+        await clearAlert(stateKey, `✅ *TLS cert* renewed for ${domain}`, bot);
+      }
+    } catch (err) {
+      logger.error(`cert_expiry check failed for ${domain}`, err);
     }
-  } catch (err) {
-    logger.error("cert_expiry check failed", err);
   }
 }
 
@@ -463,6 +488,7 @@ export function alertWorker(bot: Bot<BotContext>): { stop: () => void } {
       await checkCascadeDown(bot);
       await checkCascadeDegradation(bot);
       await checkServiceDeadXray(bot);
+      await checkServiceDeadSingbox(bot);
       await checkServiceDeadWg(bot);
       await checkDiskFull(bot);
       await checkNetworkSaturation(bot);
