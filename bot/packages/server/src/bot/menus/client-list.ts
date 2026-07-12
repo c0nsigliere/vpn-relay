@@ -7,6 +7,7 @@ const PAGE_SIZE = 5;
 function typeIcon(type: string): string {
   if (type === "wg") return "🔐";
   if (type === "xray") return "⚡";
+  if (type === "hysteria2") return "🚀";
   return "🔗";
 }
 

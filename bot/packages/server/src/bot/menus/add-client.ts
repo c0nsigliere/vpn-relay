@@ -8,6 +8,7 @@ function buildAddClientMenu(): InlineKeyboard {
     kb.text("🔐 WireGuard", "add:wg");
   }
   kb.text("⚡ XRay", "add:xray");
+  kb.text("🚀 Hysteria 2", "add:hysteria2");
   if (!isStandalone) {
     kb.text("🔗 Both", "add:both");
   }
@@ -31,11 +32,12 @@ export async function handleAddClientCallback(ctx: BotContext): Promise<void> {
   }
 
   if (data.startsWith("add:")) {
-    const type = data.replace("add:", "") as "wg" | "xray" | "both";
+    const type = data.replace("add:", "") as "wg" | "xray" | "both" | "hysteria2";
     ctx.session.step = "awaiting_client_name";
     ctx.session.data.clientType = type;
+    const typeLabel = type === "hysteria2" ? "Hysteria 2" : type.toUpperCase();
     await ctx.editMessageText(
-      `➕ *Add ${type.toUpperCase()} Client*\n\nEnter client name (letters, digits, underscores only):`,
+      `➕ *Add ${typeLabel} Client*\n\nEnter client name (letters, digits, underscores only):`,
       { parse_mode: "Markdown", reply_markup: new InlineKeyboard().text("« Cancel", "menu:main") }
     );
   }

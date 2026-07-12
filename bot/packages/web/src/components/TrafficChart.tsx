@@ -16,6 +16,8 @@ const COLORS = {
   wgTx: "#74c7ec",   // sky
   xrayRx: "#a6e3a1", // green
   xrayTx: "#94e2d5", // teal
+  hy2Rx: "#f9e2af",  // yellow
+  hy2Tx: "#fab387",  // peach
 };
 
 interface TrafficChartProps {
@@ -40,10 +42,13 @@ export function TrafficChart({ snapshots, clientType }: TrafficChartProps) {
       wgTx: toMbps(s.wg_tx),
       xrayRx: toMbps(s.xray_rx),
       xrayTx: toMbps(s.xray_tx),
+      hy2Rx: toMbps(s.hy2_rx),
+      hy2Tx: toMbps(s.hy2_tx),
     }));
 
   const showWg = clientType === "wg" || clientType === "both";
   const showXray = clientType === "xray" || clientType === "both";
+  const showHy2 = clientType === "hysteria2";
 
   return (
     <ResponsiveContainer width="100%" height={240}>
@@ -88,6 +93,12 @@ export function TrafficChart({ snapshots, clientType }: TrafficChartProps) {
           <>
             <Line type="monotone" dataKey="xrayRx" name="XRay ↓" stroke={COLORS.xrayRx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
             <Line type="monotone" dataKey="xrayTx" name="XRay ↑" stroke={COLORS.xrayTx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+          </>
+        )}
+        {showHy2 && (
+          <>
+            <Line type="monotone" dataKey="hy2Rx" name="Hy2 ↓" stroke={COLORS.hy2Rx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+            <Line type="monotone" dataKey="hy2Tx" name="Hy2 ↑" stroke={COLORS.hy2Tx} dot={false} strokeWidth={1.5} isAnimationActive={false} />
           </>
         )}
       </LineChart>

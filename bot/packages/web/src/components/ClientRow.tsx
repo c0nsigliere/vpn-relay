@@ -16,6 +16,13 @@ const SUSPEND_REASON_SHORT: Record<string, string> = {
   expired: "Expired",
 };
 
+const TYPE_LABEL_SHORT: Record<Client["type"], string> = {
+  wg: "WG",
+  xray: "XRAY",
+  both: "WG+XRay",
+  hysteria2: "Hy2",
+};
+
 function getStatusInfo(client: Client): { dot: string; label: string } {
   if (!client.is_active) return { dot: "#f38ba8", label: SUSPEND_REASON_SHORT[client.suspend_reason ?? ""] ?? "Suspended" };
   if (!client.last_seen_at) return { dot: "#6c7086", label: "Offline" };
@@ -43,8 +50,7 @@ export function ClientRow({ client, totalRx = 0, totalTx = 0, quota, standalone 
   const dailyPct = quota?.daily_quota_bytes ? quota.daily_used_bytes / quota.daily_quota_bytes * 100 : 0;
   const monthlyPct = quota?.monthly_quota_bytes ? quota.monthly_used_bytes / quota.monthly_quota_bytes * 100 : 0;
 
-  const typeLabel =
-    client.type === "both" ? "WG+XRay" : client.type.toUpperCase();
+  const typeLabel = TYPE_LABEL_SHORT[client.type];
 
   return (
     <button

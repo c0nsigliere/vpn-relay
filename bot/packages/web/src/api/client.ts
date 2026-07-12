@@ -72,7 +72,7 @@ async function apiFetchBlob(path: string): Promise<{ blob: Blob; filename: strin
 export function fetchClients(params: {
   search?: string;
   filter?: "all" | "active" | "suspended" | "quota_exceeded";
-  type?: "all" | "wg" | "xray" | "both";
+  type?: "all" | "wg" | "xray" | "both" | "hysteria2";
   page?: number;
 }): Promise<ClientsResponse> {
   const q = new URLSearchParams();
@@ -135,7 +135,7 @@ export function sendConfig(id: string): Promise<{ ok: boolean }> {
 export function fetchClientsWithTraffic(params: {
   search?: string;
   filter?: "all" | "active" | "suspended" | "quota_exceeded";
-  type?: "all" | "wg" | "xray" | "both";
+  type?: "all" | "wg" | "xray" | "both" | "hysteria2";
   page?: number;
 }): Promise<ClientsWithTrafficResponse> {
   const q = new URLSearchParams();

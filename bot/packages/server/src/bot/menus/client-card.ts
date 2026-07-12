@@ -2,6 +2,7 @@ import { InlineKeyboard, InputFile } from "grammy";
 import { BotContext } from "../context";
 import { queries, Client } from "../../db/queries";
 import { xrayService } from "../../services/xray.service";
+import { hysteriaService } from "../../services/hysteria.service";
 import {
   suspendClient as doSuspend,
   resumeClient as doResume,
@@ -16,7 +17,13 @@ function clientSummary(c: Client): string {
   const expiry = c.expires_at
     ? `\nExpires: ${c.expires_at.replace("T", " ").slice(0, 16)} UTC`
     : "";
-  const type = c.type === "both" ? "WireGuard + XRay" : c.type.toUpperCase();
+  const TYPE_LABEL: Record<Client["type"], string> = {
+    wg: "WG",
+    xray: "XRAY",
+    both: "WireGuard + XRay",
+    hysteria2: "Hysteria 2",
+  };
+  const type = TYPE_LABEL[c.type];
   return (
     `*${c.name}*\n` +
     `Type: ${type}\n` +
@@ -53,17 +60,24 @@ export async function showClientCard(ctx: BotContext, clientId: string): Promise
 
   // Fetch traffic totals from snapshots
   const snapshots = queries.getTrafficHistory(clientId, 1000);
-  let totalWgRx = 0, totalWgTx = 0, totalXrayRx = 0, totalXrayTx = 0;
+  let totalWgRx = 0, totalWgTx = 0, totalXrayRx = 0, totalXrayTx = 0, totalHy2Rx = 0, totalHy2Tx = 0;
   for (const s of snapshots) {
     totalWgRx += s.wg_rx;
     totalWgTx += s.wg_tx;
     totalXrayRx += s.xray_rx;
     totalXrayTx += s.xray_tx;
+    totalHy2Rx += s.hy2_rx;
+    totalHy2Tx += s.hy2_tx;
   }
 
+  // Positive per-type checks: show exactly the protocol lines a client uses.
+  const showWg = client.type === "wg" || client.type === "both";
+  const showXray = client.type === "xray" || client.type === "both";
+  const showHy2 = client.type === "hysteria2";
   const trafficLine =
-    (client.type !== "xray" ? `WG: ${formatBytes(totalWgRx)} / ${formatBytes(totalWgTx)}\n` : "") +
-    (client.type !== "wg" ? `XRay: ${formatBytes(totalXrayRx)} / ${formatBytes(totalXrayTx)}` : "");
+    (showWg ? `WG: ${formatBytes(totalWgRx)} / ${formatBytes(totalWgTx)}\n` : "") +
+    (showXray ? `XRay: ${formatBytes(totalXrayRx)} / ${formatBytes(totalXrayTx)}` : "") +
+    (showHy2 ? `Hy2: ${formatBytes(totalHy2Rx)} / ${formatBytes(totalHy2Tx)}` : "");
 
   const text = `${clientSummary(client)}\n\nTraffic:\n${trafficLine || "No data yet"}`;
   await ctx.editMessageText(text, {
@@ -143,6 +157,18 @@ async function sendConfig(ctx: BotContext, client: Client): Promise<void> {
         { caption: `QR: ${client.name} (Via Relay)` }
       );
     }
+  }
+
+  if (client.type === "hysteria2" && client.hy2_password) {
+    const uri = hysteriaService.generateUri(client.name, client.hy2_password);
+    await ctx.reply(
+      [`*Hysteria 2 Config for ${client.name}*\n`, `\`${uri}\`\n`, `_Use Hiddify, NekoBox or Streisand app to import._`].join("\n"),
+      { parse_mode: "Markdown" }
+    );
+    await ctx.replyWithPhoto(
+      new InputFile(await qrService.generate(uri), "hy2-qr.png"),
+      { caption: `QR: ${client.name} (Hysteria 2)` }
+    );
   }
 }
 

@@ -16,6 +16,7 @@ const inputStyle: React.CSSProperties = {
 
 const ALL_CLIENT_TYPES: { value: ClientType; label: string; desc: string }[] = [
   { value: "xray", label: "XRay (VLESS)", desc: "VLESS+Reality — best for censored regions" },
+  { value: "hysteria2", label: "Hysteria 2", desc: "UDP/QUIC — best against DPI throttling" },
   { value: "wg", label: "WireGuard", desc: "Fast UDP tunnel — works everywhere" },
   { value: "both", label: "Both", desc: "WireGuard + XRay in one" },
 ];
@@ -31,8 +32,9 @@ export function AddClient() {
     staleTime: 60_000,
   });
   const isStandalone = statusData?.standalone === true;
+  // Standalone has no entry node → no WireGuard; only direct protocols.
   const CLIENT_TYPES = isStandalone
-    ? ALL_CLIENT_TYPES.filter((ct) => ct.value === "xray")
+    ? ALL_CLIENT_TYPES.filter((ct) => ct.value === "xray" || ct.value === "hysteria2")
     : ALL_CLIENT_TYPES;
 
   const [name, setName] = useState("");

@@ -42,8 +42,8 @@ export async function clientsRoutes(
     const search = (q.search ?? "").trim();
     const filter = (["all", "active", "suspended", "quota_exceeded"].includes(q.filter) ? q.filter : "all") as
       "all" | "active" | "suspended" | "quota_exceeded";
-    const type = (["all", "wg", "xray", "both"].includes(q.type) ? q.type : "all") as
-      "all" | "wg" | "xray" | "both";
+    const type = (["all", "wg", "xray", "both", "hysteria2"].includes(q.type) ? q.type : "all") as
+      "all" | "wg" | "xray" | "both" | "hysteria2";
     const page = Math.max(0, parseInt(q.page ?? "0", 10));
     const pageSize = 20;
 
@@ -92,8 +92,8 @@ export async function clientsRoutes(
     if (!name || !/^[a-zA-Z0-9_]{1,32}$/.test(name)) {
       return reply.code(400).send({ error: "Invalid name. Use letters, digits, underscores (max 32)." });
     }
-    if (!["wg", "xray", "both"].includes(type ?? "")) {
-      return reply.code(400).send({ error: "Invalid type. Must be wg, xray, or both." });
+    if (!["wg", "xray", "both", "hysteria2"].includes(type ?? "")) {
+      return reply.code(400).send({ error: "Invalid type. Must be wg, xray, both, or hysteria2." });
     }
     if (queries.getClientByName(name)) {
       return reply.code(409).send({ error: "A client with that name already exists." });
@@ -107,6 +107,7 @@ export async function clientsRoutes(
       return reply.code(201).send({
         client: result.client,
         xrayUris: result.xrayUris,
+        hy2Uri: result.hy2Uri,
       });
     } catch (err) {
       return reply.code(500).send({ error: (err as Error).message });

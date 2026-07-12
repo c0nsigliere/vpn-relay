@@ -1,4 +1,5 @@
 import { Context, SessionFlavor } from "grammy";
+import type { ClientType } from "@vpn-relay/shared";
 
 export interface SessionData {
   step:
@@ -7,7 +8,7 @@ export interface SessionData {
     | "awaiting_client_type"
     | "awaiting_delete_confirm";
   data: {
-    clientType?: "wg" | "xray" | "both";
+    clientType?: ClientType;
     clientId?: string;
     page?: number;
   };

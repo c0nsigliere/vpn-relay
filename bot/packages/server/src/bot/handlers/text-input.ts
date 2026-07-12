@@ -3,6 +3,7 @@ import { BotContext } from "../context";
 import { queries } from "../../db/queries";
 import { createClient } from "../../services/client.service";
 import { xrayService } from "../../services/xray.service";
+import { qrService } from "../../services/qr.service";
 import { InputFile } from "grammy";
 
 const NAME_RE = /^[a-zA-Z0-9_]{1,32}$/;
@@ -28,7 +29,8 @@ export const textInputHandler: MiddlewareFn<BotContext> = async (ctx, next) => {
     ctx.session.step = "idle";
     ctx.session.data = {};
 
-    const statusMsg = await ctx.reply(`Creating *${text}* (${clientType.toUpperCase()})...`, {
+    const typeLabel = clientType === "hysteria2" ? "Hysteria 2" : clientType.toUpperCase();
+    const statusMsg = await ctx.reply(`Creating *${text}* (${typeLabel})...`, {
       parse_mode: "Markdown",
     });
 
@@ -50,6 +52,17 @@ export const textInputHandler: MiddlewareFn<BotContext> = async (ctx, next) => {
           `_Import with Hiddify or Streisand app._`,
         ].join("\n");
         await ctx.reply(uriText, { parse_mode: "Markdown" });
+      }
+
+      if (result.hy2Uri) {
+        await ctx.reply(
+          [`*Hysteria 2 Config for ${text}*\n`, `\`${result.hy2Uri}\`\n`, `_Import with Hiddify, NekoBox or Streisand app._`].join("\n"),
+          { parse_mode: "Markdown" }
+        );
+        await ctx.replyWithPhoto(
+          new InputFile(await qrService.generate(result.hy2Uri), "hy2-qr.png"),
+          { caption: `QR: ${text} (Hysteria 2)` }
+        );
       }
 
       await ctx.api.editMessageText(

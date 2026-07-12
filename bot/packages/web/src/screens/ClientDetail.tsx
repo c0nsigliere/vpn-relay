@@ -194,7 +194,13 @@ export function ClientDetail() {
     return <Layout backTo="/clients" title="Client"><div className="text-tg-destructive py-8 text-center">Client not found.</div></Layout>;
   }
 
-  const typeLabel = client.type === "both" ? "WireGuard + XRay" : client.type.toUpperCase();
+  const TYPE_LABEL: Record<typeof client.type, string> = {
+    wg: "WG",
+    xray: "XRAY",
+    both: "WireGuard + XRay",
+    hysteria2: "Hysteria 2",
+  };
+  const typeLabel = TYPE_LABEL[client.type];
   const isActive = client.is_active === 1;
   const status = clientStatus(isActive, client.last_seen_at, client.suspend_reason);
 
@@ -206,8 +212,10 @@ export function ClientDetail() {
       wgTx: acc.wgTx + s.wg_tx,
       xrayRx: acc.xrayRx + s.xray_rx,
       xrayTx: acc.xrayTx + s.xray_tx,
+      hy2Rx: acc.hy2Rx + s.hy2_rx,
+      hy2Tx: acc.hy2Tx + s.hy2_tx,
     }),
-    { wgRx: 0, wgTx: 0, xrayRx: 0, xrayTx: 0 }
+    { wgRx: 0, wgTx: 0, xrayRx: 0, xrayTx: 0, hy2Rx: 0, hy2Tx: 0 }
   );
 
   const nameValid = /^[a-zA-Z0-9_]{1,32}$/.test(newName);
@@ -383,6 +391,12 @@ export function ClientDetail() {
             <>
               <div className="text-tg-hint">XRay Traffic ({period})</div>
               <div className="text-tg text-xs">↓{formatBytesLong(totals.xrayRx)} ↑{formatBytesLong(totals.xrayTx)}</div>
+            </>
+          )}
+          {client.type === "hysteria2" && (
+            <>
+              <div className="text-tg-hint">Hy2 Traffic ({period})</div>
+              <div className="text-tg text-xs">↓{formatBytesLong(totals.hy2Rx)} ↑{formatBytesLong(totals.hy2Tx)}</div>
             </>
           )}
         </div>
