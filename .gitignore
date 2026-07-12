@@ -9,6 +9,9 @@ inventory/*
 # Claude Code IDE settings
 .claude/
 
+# Working specs and scratch notes (local only)
+spec/
+
 # Generated client WireGuard configs and key material (sensitive)
 artifacts/clients/*.conf
 artifacts/clients/*.key
