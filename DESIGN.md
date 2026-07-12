@@ -91,6 +91,36 @@ Client → Server A :443/tcp (TCP relay DNAT)
 
 ---
 
+## 2️⃣.5 Hysteria 2 Access (Direct QUIC plane)
+
+```
+Client → Server B :443/udp (sing-box Hysteria 2, salamander obfs)
+        → direct outbound → Internet
+```
+
+Second, independent data-plane on the exit node, co-existing with XRay
+(XRay 443/tcp, Hy2 443/udp — TCP and UDP on the same port do not conflict).
+Direct-only in phase 1 (no relay/cascade variant). Strong against DPI
+throughput-shaping because QUIC + salamander obfuscation hides the handshake.
+
+* Service: `sing-box` (systemd), Hysteria 2 inbound, `443/udp`
+* Built **from source** with `with_v2ray_api` (release binaries omit it) — needed
+  for per-user traffic stats. Verified via `sing-box version` → `Tags:`.
+* TLS: real Let's Encrypt certificate (SNI = `hy2_domain`); no `insecure=1` in
+  issued URIs. obfs password in `/etc/sing-box/obfs.pw` (generated once).
+* Clients live in the bot's SQLite DB (`type='hysteria2'`, `hy2_password`);
+  `/etc/sing-box/config.json` `users` + `experimental.v2ray_api.stats.users`
+  are rebuilt from the DB on every mutation and on bot startup.
+* **Stats over gRPC:** sing-box registers the stats service as
+  `v2ray.core.app.stats.command.StatsService` (v2ray v5 name), which the xray
+  CLI cannot reach — so the bot queries it with a native `@grpc/grpc-js` client
+  (`proto/v2ray-stats.proto`). In-memory counters reset on restart (parity with
+  XRay).
+* URI: `hysteria2://<pw>@<host>:443/?sni=<domain>&obfs=salamander&obfs-password=<obfs>#<tag>`
+  (canonical slash before `?`).
+
+---
+
 # 🧠 Протокол XRay
 
 * Протокол: VLESS
@@ -134,6 +164,23 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * Firewall allow 443
 * Verify
 
+### roles/singbox_server
+
+* Только Server B (exit / standalone)
+* **Собирает sing-box из исходников** с `with_v2ray_api` (pinned Go toolchain)
+* Генерирует salamander obfs-пароль (`/etc/sing-box/obfs.pw`, once)
+* `config.json` (Hy2 inbound + v2ray_api; `users` заполняет бот из БД)
+* Firewall allow `hy2_port`/udp
+* systemd service + certbot deploy-hook (рестарт при renewal)
+* Verify (config check, service, udp listen, `with_v2ray_api` tag, cert)
+
+### roles/tls_cert
+
+* Выпуск Let's Encrypt сертификатов через `certbot --standalone` (HTTP-01, :80)
+* Домены — дедуплицированное объединение `tma_domain` + `hy2_domain`
+* Verify ассертит, что ничего не биндит :80 постоянно (иначе renewal сломается)
+* `roles/nginx_tma` теперь только **потребитель** серта (слушает лишь `tma_https_port`)
+
 ### roles/relay
 
 * Только Server A
@@ -172,10 +219,12 @@ Client → Server A :443/tcp (TCP relay DNAT)
 2. swap (all hosts — если нет)
 3. wg_cascade (A+B)
 4. xray_server (B)
-5. relay (A)
-6. verify_all
-7. bot (optional, if `bot_telegram_token` set)
-8. tma (optional, if `tma_domain` set)
+5. tls_cert (optional, if `tma_domain` or `hy2_domain` set)
+6. singbox_server (optional, if `hy2_enabled`)
+7. relay (A)
+8. verify_all
+9. bot (optional, if `bot_telegram_token` set)
+10. tma (optional, if `tma_domain` set)
 
 ---
 
@@ -189,6 +238,7 @@ Client → Server A :443/tcp (TCP relay DNAT)
 * relay DNAT rules
 * xray service active
 * port 443 listening on B
+* sing-box active + udp `hy2_port` listen + `with_v2ray_api` (non-fatal, when `hy2_enabled`)
 * MemAvailable
 * SwapTotal
 * free -h

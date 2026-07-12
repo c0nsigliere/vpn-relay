@@ -54,6 +54,27 @@ Both modes use the same `stack.yml` playbook. The inventory determines what gets
 
 ---
 
+### Hysteria 2 — Direct QUIC (optional, `hy2_enabled`)
+
+```
+┌──────────┐         ┌──────────────────────────────┐
+│  Client  │ ──────> │   Server B (exit/standalone) │ ──────> Internet
+│  Hy2 URI │  QUIC   │   sing-box Hysteria 2         │
+│          │ :443udp │   salamander obfs + LE TLS    │
+└──────────┘         └──────────────────────────────┘
+```
+
+- Direct-only UDP/QUIC protocol, strong against DPI **throughput shaping**
+- Runs alongside XRay on the exit node (XRay 443/tcp, Hy2 443/udp — no conflict)
+- `sing-box` built from source with `with_v2ray_api` for per-user stats
+  (`roles/singbox_server/`); real Let's Encrypt cert via `roles/tls_cert/`
+- Clients created/managed from the bot/TMA like XRay; state in the SQLite DB,
+  `config.json` rebuilt from DB on every change
+- Managed by `playbooks/tls_cert.yml` + `playbooks/singbox.yml` (both fold into
+  `stack.yml` automatically when `tma_domain`/`hy2_domain`/`hy2_enabled` are set)
+
+---
+
 ## Quick Start
 
 ### 1. Install dependencies
@@ -349,6 +370,13 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `xray_tproxy_port` | `12345` | XRay TPROXY inbound port on A |
 | `xray_tproxy_table` | `100` | Routing table for TPROXY fwmark 0x1 |
 | `xray_version` | `26.2.6` | XRay binary version (GitHub release tag) |
+| `hy2_enabled` | `false` | Enable sing-box Hysteria 2 on the exit node |
+| `hy2_port` | `443` | Hysteria 2 UDP port on B |
+| `hy2_domain` | `{{ tma_domain }}` | SNI + TLS cert domain for Hy2 (shared with TMA by default) |
+| `hy2_host` | `{{ server_b_public_ip }}` | Host clients dial in the Hy2 URI (IP or domain) |
+| `singbox_version` | `1.13.13` | sing-box source tag (built with `with_v2ray_api`) |
+| `singbox_v2ray_api_port` | `10086` | Loopback gRPC stats port (bot ↔ sing-box) |
+| `singbox_log_level` | `warn` | sing-box log level (phase 2 IP parsing needs `info`) |
 | `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |
 | `wan_if` | auto-detect | WAN interface override |
 | `do_dist_upgrade` | `false` | Enable dist-upgrade in maintenance |

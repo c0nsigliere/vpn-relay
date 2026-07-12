@@ -5,18 +5,20 @@ Ansible-managed VPN stack across two Ubuntu servers (server A in Russia and serv
 ## Server Roles:
 
 - Server A (Entry / Russia): Acts as the ingress node. Runs WireGuard and a pure L4 TCP port forwarder.
-- Server B (Exit / Abroad): Acts as the egress node. Runs XRay (VLESS+Reality) and handles all actual decryption and internet routing. It contains NO WireGuard installation. Stores XRay keys (`/etc/xray/keys/`). Client state lives in the bot's SQLite DB (`/var/lib/vpn-bot/data.db`); `config.json` is rebuilt from DB on every change.
+- Server B (Exit / Abroad): Acts as the egress node. May carry **two data-plane protocols**: XRay (VLESS+Reality, 443/tcp) and — when `hy2_enabled` — sing-box (Hysteria 2, 443/udp). Handles all actual decryption and internet routing. It contains NO WireGuard installation. Stores XRay keys (`/etc/xray/keys/`) and, if Hy2 is on, the sing-box obfs password (`/etc/sing-box/`). Client state lives in the bot's SQLite DB (`/var/lib/vpn-bot/data.db`); **both** runtime configs (`/etc/xray/config.json`, `/etc/sing-box/config.json`) are rebuilt from the DB on every change and on bot startup.
 
-## The 3 Ways Clients Can Connect:
+## The 4 Ways Clients Can Connect:
 
 - WireGuard Cascade (WG ➔ A ➔ B): Client connects to Server A via WireGuard (UDP). Server A intercepts this traffic via TPROXY and tunnels it to Server B's XRay.
 - XRay Relay (VLESS ➔ A ➔ B): Client connects to Server A via VLESS (TCP). Server A blindly forwards the traffic via DNAT to Server B's XRay.
 - Direct XRay (VLESS ➔ B): Client bypasses Server A entirely and connects directly to Server B's XRay (TCP).
+- Direct Hysteria 2 (Hy2 ➔ B): Client connects directly to Server B's sing-box over UDP/QUIC (salamander obfs). Direct-only in phase 1 — no relay/cascade variant. Strong against DPI throughput shaping.
 
 **Critical invariants:**
 - Strict Secret Isolation: Server A is a "dumb pipe". It NEVER holds XRay configurations, Reality private keys, or client UUIDs. All decryption happens on Server B.
 - Routing Logic: Server A routes WireGuard traffic via TPROXY, and VLESS traffic via pure L4 TCP forwarding (no protocol awareness).
 - Single Source of Truth: ALL port numbers and shared configuration variables must be defined strictly in `group_vars/all.yml`. Do NOT put port definitions in role `defaults/main.yml`.
+- Hysteria 2 stats: sing-box must be built from source with `with_v2ray_api`; the bot reads per-user stats over a native gRPC client (service name `v2ray.core.app.stats.command.StatsService`), NOT via the xray CLI. TLS for Hy2 is a real Let's Encrypt cert (`roles/tls_cert`), never `insecure=1`.
 
 ## Project Scope & Holistic Consistency:
 This is a tightly coupled, multi-tier architecture (GrammY Bot + Fastify API + React TMA + Ansible Infrastructure). Every code change must be evaluated for cross-stack impact. If a new bot feature or API endpoint requires a new OS package, a new open port, a database schema change, or specific file permissions, you MUST ensure those requirements are reflected in the codebase and infrastructure.
@@ -60,6 +62,8 @@ Maintain the current Ansible configuration style or change it thoughtfully, expl
 | `wg_cascade` | A only | `wg_cascade` | `wg_cascade.yml` |
 | `relay_servers` | A | `relay` | `relay.yml` |
 | `xray_servers` | B | `xray_server` | `xray.yml` |
+| `xray_servers` | B | `tls_cert` | `tls_cert.yml` (when `tma_domain`/`hy2_domain`) |
+| `xray_servers` | B | `singbox_server` | `singbox.yml` (when `hy2_enabled`) |
 | (all) | A + B | `maintenance` | `maintenance.yml` |
 
 ## All Playbooks
