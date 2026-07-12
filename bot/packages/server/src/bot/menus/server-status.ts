@@ -1,7 +1,33 @@
 import { InlineKeyboard } from "grammy";
+import { execSync } from "child_process";
 import { BotContext } from "../context";
 import { systemService } from "../../services/system.service";
+import { hysteriaService } from "../../services/hysteria.service";
 import { isStandalone } from "../../config/standalone";
+import { env } from "../../config/env";
+
+function isServiceActive(name: string): boolean {
+  try {
+    execSync(`systemctl is-active ${name}`, { timeout: 4000, stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Local data-plane service health on the exit host (XRay TCP + sing-box Hy2 UDP). */
+async function formatExitServices(): Promise<string> {
+  const lines = [`XRay: ${isServiceActive("xray") ? "✅ active" : "🔴 down"}`];
+  if (env.HY2_ENABLED) {
+    const up = isServiceActive("sing-box");
+    const stats = up ? await hysteriaService.statsApiHealthy() : false;
+    lines.push(
+      `sing-box (Hy2): ${up ? "✅ active" : "🔴 down"}` +
+        (up ? (stats ? " · stats API ✅" : " · stats API ⚠️") : "")
+    );
+  }
+  return lines.join("\n");
+}
 
 function formatStatus(status: PromiseSettledResult<import("../../services/system.service").ServerStatus>, errorPrefix = "Error"): string {
   return status.status === "fulfilled"
@@ -37,6 +63,7 @@ export async function showServerStatus(ctx: BotContext): Promise<void> {
     }
 
     sections.push(`*Server${isStandalone ? "" : " B"} (exit — this host)*\n${fmtB}`);
+    sections.push("", `*Services (exit)*\n${await formatExitServices()}`);
 
     await ctx.editMessageText(sections.join("\n"), {
       parse_mode: "Markdown",

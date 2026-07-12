@@ -110,6 +110,35 @@ class HysteriaService {
     return result;
   }
 
+  /**
+   * Probe the v2ray_api gRPC stats endpoint. Distinguishes "reachable" from the
+   * silent failure where sing-box is systemd-active but its stats API is broken
+   * (which would make traffic accounting return zeros without any error).
+   */
+  async statsApiHealthy(): Promise<boolean> {
+    try {
+      const client = this.getStatsClient() as grpc.Client & {
+        QueryStats: (
+          req: unknown,
+          md: grpc.Metadata,
+          opts: grpc.CallOptions,
+          cb: (err: unknown, res: unknown) => void
+        ) => void;
+      };
+      await new Promise((resolve, reject) => {
+        client.QueryStats(
+          { pattern: ">>>traffic>>>", reset: false },
+          new grpc.Metadata(),
+          { deadline: Date.now() + 3000 },
+          (err, res) => (err ? reject(err) : resolve(res))
+        );
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   close(): void {
     if (this.statsClient) {
       this.statsClient.close();
