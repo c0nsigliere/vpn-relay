@@ -34,6 +34,44 @@
         tasks_from: verify
       tags: [verify, xray]
 
+- name: Verify sing-box Hysteria 2 (Server B — non-fatal)
+  hosts: xray_servers
+  become: true
+  tags: [verify, hy2]
+  tasks:
+    - name: Run non-fatal Hy2 checks
+      when: hy2_enabled | default(false) | bool
+      block:
+        - name: Check sing-box service state
+          ansible.builtin.command:
+            cmd: systemctl is-active sing-box
+          register: _hy2_active
+          changed_when: false
+          failed_when: false
+
+        - name: Check hy2_port UDP listener
+          ansible.builtin.shell:
+            cmd: "ss -lunp sport = :{{ hy2_port }}"
+            executable: /bin/bash
+          register: _hy2_port
+          changed_when: false
+          failed_when: false
+
+        - name: Check sing-box build tags
+          ansible.builtin.command:
+            cmd: "{{ singbox_bin | default('/usr/local/bin/sing-box') }} version"
+          register: _hy2_ver
+          changed_when: false
+          failed_when: false
+
+        - name: Hysteria 2 verification summary (non-fatal)
+          ansible.builtin.debug:
+            msg: |
+              sing-box (Hysteria 2):
+                Service:         {{ 'OK' if (_hy2_active.stdout | trim == 'active') else ('FAIL (' ~ (_hy2_active.stdout | trim) ~ ')') }}
+                UDP {{ hy2_port }} listen: {{ 'OK' if ((':' ~ hy2_port | string) in _hy2_port.stdout) else 'FAIL' }}
+                with_v2ray_api: {{ 'OK' if ('with_v2ray_api' in _hy2_ver.stdout) else 'FAIL' }}
+
 - name: Verify memory and swap (all hosts)
   hosts: all
   become: true

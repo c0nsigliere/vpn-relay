@@ -6,10 +6,15 @@
 #   2. swap          — ensure swap exists on all hosts (A + B)
 #   3. cascade       — WireGuard cascade VPN (A + B)
 #   4. xray          — XRay VLESS+Reality server (B)
-#   5. relay         — TCP L4 relay (A)
-#   6. verify_all    — full verification across all subsystems + memory/swap
-#   7. bot           — Telegram bot (if bot_telegram_token is set)
-#   8. tma           — TMA nginx + HTTPS (if tma_domain is set)
+#   5. tls_cert      — Let's Encrypt certs (if tma_domain or hy2_domain set)
+#   6. singbox       — sing-box Hysteria 2 server (if hy2_enabled)
+#   7. relay         — TCP L4 relay (A)
+#   8. verify_all    — full verification across all subsystems + memory/swap
+#   9. bot           — Telegram bot (if bot_telegram_token is set)
+#  10. tma           — TMA nginx + HTTPS (if tma_domain is set)
+#
+# tls_cert must precede singbox_server (which asserts the cert exists) and
+# nginx_tma (which consumes it); the bot precedes nginx_tma as before.
 #
 # Usage:
 #   ansible-playbook playbooks/stack.yml
@@ -22,28 +27,38 @@
 #
 # Each imported playbook can still be run standalone.
 
-- name: "Stack [1/8]: Maintenance"
+- name: "Stack [1/10]: Maintenance"
   ansible.builtin.import_playbook: maintenance.yml
 
-- name: "Stack [2/8]: Swap provisioning (all hosts)"
+- name: "Stack [2/10]: Swap provisioning (all hosts)"
   ansible.builtin.import_playbook: maintenance_add_swap.yml
 
-- name: "Stack [3/8]: WireGuard cascade"
+- name: "Stack [3/10]: WireGuard cascade"
   ansible.builtin.import_playbook: wg_cascade.yml
 
-- name: "Stack [4/8]: XRay VLESS+Reality"
+- name: "Stack [4/10]: XRay VLESS+Reality"
   ansible.builtin.import_playbook: xray.yml
 
-- name: "Stack [5/8]: TCP relay"
+- name: "Stack [5/10]: TLS certificates (optional — requires tma_domain or hy2_domain)"
+  ansible.builtin.import_playbook: tls_cert.yml
+  when: >-
+    (tma_domain | default('') | length > 0) or
+    (hy2_domain | default('') | length > 0)
+
+- name: "Stack [6/10]: sing-box Hysteria 2 (optional — requires hy2_enabled)"
+  ansible.builtin.import_playbook: singbox.yml
+  when: hy2_enabled | default(false) | bool
+
+- name: "Stack [7/10]: TCP relay"
   ansible.builtin.import_playbook: relay.yml
 
-- name: "Stack [6/8]: Full verification"
+- name: "Stack [8/10]: Full verification"
   ansible.builtin.import_playbook: verify_all.yml
 
-- name: "Stack [7/8]: Telegram bot (optional — requires bot_telegram_token + bot_admin_id)"
+- name: "Stack [9/10]: Telegram bot (optional — requires bot_telegram_token + bot_admin_id)"
   ansible.builtin.import_playbook: deploy_bot.yml
   when: bot_telegram_token | default('') | length > 0
 
-- name: "Stack [8/8]: TMA nginx + HTTPS (optional — requires tma_domain)"
+- name: "Stack [10/10]: TMA nginx + HTTPS (optional — requires tma_domain)"
   ansible.builtin.import_playbook: deploy_tma.yml
   when: tma_domain | default('') | length > 0

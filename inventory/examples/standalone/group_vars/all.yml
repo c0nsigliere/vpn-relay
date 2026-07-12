@@ -41,3 +41,19 @@ xray_port: 443
 
 # --- XRay version ---
 xray_version: "26.2.6"
+
+# --- Hysteria 2 (sing-box) — optional UDP/QUIC protocol, strong vs DPI throttling ---
+# When enabled, sing-box runs alongside XRay (XRay 443/tcp, Hy2 443/udp — no conflict).
+# Requires a real domain (hy2_domain) with an A-record to this server for the TLS cert
+# (Let's Encrypt via the tls_cert role). sing-box is built from source with with_v2ray_api.
+hy2_enabled: false
+hy2_port: 443
+# SNI + certificate domain. Defaults to tma_domain so one cert covers both; override to split.
+hy2_domain: "{{ tma_domain | default('') }}"
+# Public host clients dial (IP or domain). Hy2 validates the cert by sni=, not host.
+hy2_host: "{{ server_b_public_ip }}"
+# Pinned sing-box tag (tested); latest stable may be newer — bump deliberately.
+singbox_version: "1.13.13"
+singbox_v2ray_api_port: 10086
+singbox_log_level: "warn"
+# hy2_uplink_password: ""   # phase 3 (WG-over-Hy2 cascade) only; empty in phase 1
