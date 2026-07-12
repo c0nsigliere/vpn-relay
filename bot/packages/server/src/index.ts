@@ -22,6 +22,7 @@ import { quotaWorker } from "./workers/quota.worker";
 import { alertWorker } from "./workers/alert.worker";
 import { sshPool } from "./services/ssh";
 import { xrayService } from "./services/xray.service";
+import { hysteriaService } from "./services/hysteria.service";
 import { startApiServer } from "./api/server";
 import type { FastifyInstance } from "fastify";
 
@@ -118,6 +119,15 @@ xrayService.syncConfigAndRestart()
   .then(() => logger.info("XRay config synced from DB"))
   .catch(logOnError(logger, "XRay config sync failed"));
 
+// Sync sing-box (Hysteria 2) config.json from DB on startup — same invariant as
+// XRay above, and the mechanism by which migration-imported clients land in the
+// runtime config. Only when Hy2 is enabled for this deployment.
+if (env.HY2_ENABLED) {
+  hysteriaService.syncConfigAndRestart()
+    .then(() => logger.info("sing-box config synced from DB"))
+    .catch(logOnError(logger, "sing-box config sync failed"));
+}
+
 // Workers
 const workers = [
   trafficWorker(bot),
@@ -153,6 +163,7 @@ async function shutdown(signal: string): Promise<void> {
   logger.info("All workers stopped");
   sshPool.close();
   xrayService.close();
+  hysteriaService.close();
   db.close();
   process.exit(0);
 }

@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from "uuid";
 import { InputFile, Bot } from "grammy";
 import { queries } from "../db/queries";
 import { xrayService } from "./xray.service";
+import { hysteriaService } from "./hysteria.service";
 import { wgService } from "./wg.service";
 import { qrService } from "./qr.service";
 import { isStandalone } from "../config/standalone";
@@ -25,6 +26,7 @@ export interface CreateClientResult {
   client: Client;
   wgConf?: string;           // WG .conf file text (only at creation time)
   xrayUris?: { direct: string; relay: string | null };
+  hy2Uri?: string;           // Hysteria 2 URI (direct-only)
 }
 
 export async function createClient(
@@ -40,6 +42,8 @@ export async function createClient(
   let wgConf: string | undefined;
   let xrayUuid: string | null = null;
   let xrayUris: { direct: string; relay: string | null } | undefined;
+  let hy2Password: string | null = null;
+  let hy2Uri: string | undefined;
 
   const expiresAt = ttlDays
     ? new Date(Date.now() + ttlDays * 86_400_000).toISOString()
@@ -61,6 +65,11 @@ export async function createClient(
     xrayUris = xrayService.generateVlessUris(name, xrayUuid);
   }
 
+  if (type === "hysteria2") {
+    hy2Password = hysteriaService.generatePassword();
+    hy2Uri = hysteriaService.generateUri(name, hy2Password);
+  }
+
   // DB first — source of truth
   queries.insertClient({
     id,
@@ -69,6 +78,7 @@ export async function createClient(
     wg_ip: wgIp,
     wg_pubkey: wgPubkey,
     xray_uuid: xrayUuid,
+    hy2_password: hy2Password,
     expires_at: expiresAt,
     is_active: 1,
     daily_quota_gb: dailyQuotaGb ?? null,
@@ -81,9 +91,14 @@ export async function createClient(
     await xrayService.syncConfigAndRestart();
   }
 
+  // Rebuild sing-box config from DB
+  if (type === "hysteria2") {
+    await hysteriaService.syncConfigAndRestart();
+  }
+
   const client = queries.getClientById(id)!;
   logger.info(`Created client "${name}" (type=${type})`);
-  return { client, wgConf, xrayUris };
+  return { client, wgConf, xrayUris, hy2Uri };
 }
 
 export async function suspendClient(client: Client, reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" = "manual"): Promise<void> {
@@ -96,6 +111,9 @@ export async function suspendClient(client: Client, reason: "manual" | "daily_qu
   if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
     await xrayService.syncConfigAndRestart();
   }
+  if (client.type === "hysteria2" && client.hy2_password) {
+    await hysteriaService.syncConfigAndRestart();
+  }
 }
 
 export async function resumeClient(client: Client): Promise<void> {
@@ -107,6 +125,9 @@ export async function resumeClient(client: Client): Promise<void> {
   queries.setClientActive(client.id, true);
   if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
     await xrayService.syncConfigAndRestart();
+  }
+  if (client.type === "hysteria2" && client.hy2_password) {
+    await hysteriaService.syncConfigAndRestart();
   }
 }
 
@@ -185,6 +206,9 @@ export async function renameClient(client: Client, newName: string): Promise<voi
   if (client.type === "xray" || client.type === "both") {
     await xrayService.syncConfigAndRestart();
   }
+  if (client.type === "hysteria2") {
+    await hysteriaService.syncConfigAndRestart();
+  }
 }
 
 export async function deleteClient(client: Client): Promise<void> {
@@ -196,6 +220,9 @@ export async function deleteClient(client: Client): Promise<void> {
   queries.deleteClient(client.id);
   if ((client.type === "xray" || client.type === "both") && client.xray_uuid) {
     await xrayService.syncConfigAndRestart();
+  }
+  if (client.type === "hysteria2" && client.hy2_password) {
+    await hysteriaService.syncConfigAndRestart();
   }
 }
 
@@ -246,5 +273,20 @@ export async function sendConfigToChat(
         { caption: `QR: ${client.name} (Via Relay)` }
       );
     }
+  }
+
+  if (client.type === "hysteria2" && client.hy2_password) {
+    const uri = hysteriaService.generateUri(client.name, client.hy2_password);
+    const lines = [
+      `🚀 *Hysteria 2 Config for ${escapeMarkdown(client.name)}*\n`,
+      `\`${uri}\`\n`,
+      `_Import with Hiddify, NekoBox or Streisand app._`,
+    ];
+    await bot.api.sendMessage(chatId, lines.join("\n"), { parse_mode: "Markdown" });
+    await bot.api.sendPhoto(
+      chatId,
+      new InputFile(await qrService.generate(uri), "hy2-qr.png"),
+      { caption: `QR: ${client.name} (Hysteria 2)` }
+    );
   }
 }

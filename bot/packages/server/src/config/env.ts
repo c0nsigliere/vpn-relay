@@ -35,6 +35,18 @@ const envSchema = z.object({
   // Server A relay port (TCP relay entry)
   SERVER_A_RELAY_PORT: z.string().transform(Number).pipe(z.number().int()).default("443"),
 
+  // Hysteria 2 (sing-box) — direct-only in phase 1. HY2_HOST may be a bare IP even
+  // when HY2_DOMAIN is a real domain: Hy2 validates the cert by sni=, not by host.
+  HY2_ENABLED: z.string().transform((v) => v === "true" || v === "1").default("false"),
+  HY2_HOST: z.string().default(""),
+  HY2_DOMAIN: z.string().default(""),
+  HY2_PORT: z.string().transform(Number).pipe(z.number().int()).default("443"),
+  SINGBOX_CONFIG_FILE: z.string().default("/etc/sing-box/config.json"),
+  SINGBOX_OBFS_FILE: z.string().default("/etc/sing-box/obfs.pw"),
+  SINGBOX_V2RAY_API_PORT: z.string().transform(Number).pipe(z.number().int()).default("10086"),
+  // Static uplink password for the WG-over-Hy2 cascade (phase 3). Empty in phase 1.
+  HY2_UPLINK_PASSWORD: z.string().default(""),
+
   // TMA (Telegram Web App)
   TMA_PORT: z.string().transform(Number).pipe(z.number().int()).default("3000"),
   TMA_DOMAIN: z.string().optional(),
