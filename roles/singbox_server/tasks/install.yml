@@ -85,11 +85,15 @@
         extra_opts:
           - --strip-components=1
 
+    # -ldflags -X stamps the version constant. A plain `go build` from a source
+    # tarball has no .git to derive it from, so without this `sing-box version`
+    # reports "unknown". Path matches the upstream Makefile.
     - name: Build sing-box with v2ray_api
       ansible.builtin.command:
         cmd: >-
           /usr/local/go/bin/go build -trimpath
           -tags {{ singbox_build_tags }}
+          -ldflags "-X github.com/sagernet/sing-box/constant.Version={{ singbox_version }} -s -w -buildid="
           -o /tmp/sing-box-build-{{ singbox_version }}/sing-box
           ./cmd/sing-box
         chdir: "/tmp/sing-box-build-{{ singbox_version }}"
