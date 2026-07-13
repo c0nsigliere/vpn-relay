@@ -169,7 +169,10 @@ throughput-shaping because QUIC + salamander obfuscation hides the handshake.
 * Только Server B (exit / standalone)
 * **Собирает sing-box из исходников** с `with_v2ray_api` (pinned Go toolchain)
 * Генерирует salamander obfs-пароль (`/etc/sing-box/obfs.pw`, once)
-* `config.json` (Hy2 inbound + v2ray_api; `users` заполняет бот из БД)
+* `config.json` (Hy2 inbound + v2ray_api; `users` заполняет бот из БД —
+  поэтому изменение шаблона нотифицирует не только `restart sing-box`, но и
+  `restart vpn-bot` (`systemctl try-restart`), чтобы бот сразу вернул клиентов
+  в свежий scaffold; то же самое в `xray_server` для `/etc/xray/config.json`)
 * Firewall allow `hy2_port`/udp
 * systemd service + certbot deploy-hook (рестарт при renewal)
 * Verify (config check, service, udp listen, `with_v2ray_api` tag, cert)
@@ -434,7 +437,7 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 
 **Security:**
 - `vpn-bot` system user, no shell, data in `/var/lib/vpn-bot/`
-- ACL on `/etc/xray/keys/{reality.pub,shortid}` (read) and `/etc/xray/config.json` (read+write)
+- ACL on `/etc/xray/keys/{reality.pub,shortid}` (read) and `/etc/xray/config.json` (read+write); when Hy2 is enabled, same pattern on `/etc/sing-box/` (obfs.pw read, config.json read+write). Set by the `telegram_bot` role and re-applied by `xray_server`/`singbox_server` after templating config.json (the template module replaces the inode, dropping ACLs)
 - SSH keypair generated at deploy time, pubkey pushed to Server A authorized_keys
 - Reality private key never leaves Server B
 

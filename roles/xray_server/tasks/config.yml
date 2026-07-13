@@ -44,5 +44,20 @@
     mode: '0600'
     owner: root
     group: root
-  notify: restart xray
+  notify:
+    - restart xray
+    - restart vpn-bot
   no_log: true
+
+# The template module replaces the file atomically (new inode), which drops any
+# ACL previously set by the telegram_bot role — without this the bot loses write
+# access to config.json until the next deploy_bot run.
+- name: Re-apply vpn-bot read/write ACL on config.json
+  ansible.builtin.acl:
+    path: "{{ xray_config_dir }}/config.json"
+    entity: vpn-bot
+    etype: user
+    permissions: rw
+    state: present
+  failed_when: false  # bot user may not exist yet on fresh install; telegram_bot role sets ACLs later
+  tags: [config, xray]

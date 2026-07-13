@@ -7,6 +7,18 @@
     state: restarted
     daemon_reload: true
 
+# config.json is templated with empty clients — the bot re-injects them from
+# the DB on startup. Without this, a solo xray.yml run leaves xray running
+# with no clients until vpn-bot is next restarted.
+- name: restart vpn-bot
+  ansible.builtin.command:
+    cmd: systemctl try-restart vpn-bot.service
+  register: _vpn_bot_restart
+  # try-restart is a no-op if the bot is stopped; tolerate a missing unit on
+  # fresh installs (telegram_bot role deploys later in stack.yml)
+  failed_when: _vpn_bot_restart.rc != 0 and 'not found' not in _vpn_bot_restart.stderr
+  changed_when: _vpn_bot_restart.rc == 0
+
 - name: reload ufw
   ansible.builtin.command:
     cmd: ufw reload
