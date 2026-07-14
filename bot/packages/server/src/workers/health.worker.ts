@@ -53,14 +53,18 @@ export function healthWorker(bot: Bot<BotContext>): { stop: () => void } {
 
     // ICMP ping A ↔ B — requires CAP_NET_RAW (set via AmbientCapabilities in systemd unit)
     try {
-      const out = execSync(`ping -c 3 -W 2 ${env.SERVER_A_HOST}`, {
+      const out = execSync(`ping -c 10 -i 0.3 -W 2 ${env.SERVER_A_HOST}`, {
         encoding: "utf8",
         timeout: 10000,
       });
       const rttMatch = out.match(/rtt min\/avg\/max[^=]+=\s*[\d.]+\/([\d.]+)\//);
-      const lossMatch = out.match(/(\d+)%\s*packet loss/);
+      // iputils prints fractional loss ("33.3333% packet loss"), so the fraction
+      // must be part of the match — a \d+ pattern would capture the "3333" tail.
+      const lossMatch = out.match(/([\d.]+)%\s*packet loss/);
       const ms = rttMatch ? parseFloat(rttMatch[1]) : 0;
-      const lossPercent = lossMatch ? parseInt(lossMatch[1], 10) : 0;
+      const lossPercent = lossMatch
+        ? Math.min(100, Math.max(0, Math.round(parseFloat(lossMatch[1]))))
+        : 0;
       setPing({ ms, lossPercent });
     } catch {
       setPing({ ms: 0, lossPercent: 100 });
