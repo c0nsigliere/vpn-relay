@@ -12,8 +12,10 @@
 # B's obfs password (slurped) — never a private key or client secret. The LE cert
 # is validated by SNI, so no `insecure`.
 #
-# Unlike the exit node (roles/singbox_server), A's sing-box needs NO with_v2ray_api,
-# cert, or obfs generation — so we install the official RELEASE binary, not a build.
+# Unlike the exit node (roles/singbox_server), A's sing-box acts only as a client:
+# no cert or obfs generation of its own. We do NOT download from GitHub (Server A in
+# RU can't reach it — DPI handshake timeout); instead we reuse Server B's already-built
+# binary (see the install block below). B's with_v2ray_api build tag is unused here.
 
 - name: Assert hy2_uplink_password is set for the cascade uplink
   ansible.builtin.assert:

@@ -15,7 +15,7 @@ import { hysteriaService } from "./hysteria.service";
 import { xrayUplinkService } from "./xray-uplink.service";
 import { wgService } from "./wg.service";
 import { qrService } from "./qr.service";
-import { isStandalone } from "../config/standalone";
+import { isStandalone, wgHy2Available } from "../config/standalone";
 import { createLogger } from "../utils/logger";
 import { escapeMarkdown } from "../utils/telegram";
 import type { BotContext } from "../bot/context";
@@ -55,6 +55,16 @@ export async function createClient(
     throw new Error("WireGuard clients are not available in standalone mode — use 'xray' type");
   }
 
+  // Hy2 cascade uplink may be unavailable (standalone / HY2_UPLINK_PASSWORD unset).
+  // Creation is best-effort about this secondary choice: fall back to the default
+  // VLESS transport rather than record one Server A can't honour. (The explicit
+  // toggle in updateWgTransport is strict and rejects instead.)
+  const effectiveTransport: WgCascadeTransport =
+    wgCascadeTransport === "hy2" && !wgHy2Available ? "xray" : wgCascadeTransport;
+  if (effectiveTransport !== wgCascadeTransport) {
+    logger.warn(`Hy2 uplink unavailable — creating "${name}" on the VLESS cascade transport`);
+  }
+
   if (type === "wg" || type === "both") {
     const wgResult = await wgService.addClient(name);
     wgIp = wgResult.ip;
@@ -86,7 +96,7 @@ export async function createClient(
     daily_quota_gb: dailyQuotaGb ?? null,
     monthly_quota_gb: monthlyQuotaGb ?? null,
     suspend_reason: null,
-    wg_cascade_transport: wgCascadeTransport,
+    wg_cascade_transport: effectiveTransport,
   });
 
   // Rebuild XRay config from DB
@@ -245,6 +255,11 @@ export async function deleteClient(client: Client): Promise<void> {
 export async function updateWgTransport(client: Client, transport: WgCascadeTransport): Promise<void> {
   if (client.type !== "wg" && client.type !== "both") {
     throw new Error("Cascade transport applies only to WireGuard clients");
+  }
+  if (transport === "hy2" && !wgHy2Available) {
+    // No Hy2 uplink on this deployment (standalone, or HY2_UPLINK_PASSWORD unset):
+    // refuse rather than record a transport that Server A can't honour.
+    throw new Error("Hy2 cascade uplink is not available on this deployment");
   }
   logger.info(`Setting cascade transport for "${client.name}" → ${transport}`);
   queries.updateClientTransport(client.id, transport);

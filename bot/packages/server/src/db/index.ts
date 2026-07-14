@@ -124,18 +124,19 @@ function migrateClientsAddHysteria2(): void {
         last_ip TEXT DEFAULT NULL,
         last_ip_isp TEXT DEFAULT NULL,
         last_connection_route TEXT DEFAULT NULL,
-        hy2_password TEXT DEFAULT NULL
+        hy2_password TEXT DEFAULT NULL,
+        wg_cascade_transport TEXT DEFAULT 'xray'
       );
     `);
     db.exec(`
       INSERT INTO clients_new
         (id, name, type, wg_ip, wg_pubkey, xray_uuid, created_at, expires_at, is_active,
          last_seen_at, daily_quota_gb, monthly_quota_gb, suspend_reason, last_ip, last_ip_isp,
-         last_connection_route, hy2_password)
+         last_connection_route, hy2_password, wg_cascade_transport)
       SELECT
          id, name, type, wg_ip, wg_pubkey, xray_uuid, created_at, expires_at, is_active,
          last_seen_at, daily_quota_gb, monthly_quota_gb, suspend_reason, last_ip, last_ip_isp,
-         last_connection_route, NULL
+         last_connection_route, NULL, wg_cascade_transport
       FROM clients;
     `);
     db.exec("DROP TABLE clients");

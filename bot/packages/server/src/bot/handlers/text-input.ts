@@ -50,13 +50,16 @@ export const textInputHandler: MiddlewareFn<BotContext> = async (ctx, next) => {
       }
 
       if (result.xrayUris) {
-        const uriText = [
-          `*VLESS Config for ${text}*\n`,
-          `*Direct:*\n\`${result.xrayUris.direct}\`\n`,
-          `*Via Relay:*\n\`${result.xrayUris.relay}\`\n`,
-          `_Import with Hiddify or Streisand app._`,
-        ].join("\n");
-        await ctx.reply(uriText, { parse_mode: "Markdown" });
+        const { direct, relay } = result.xrayUris;
+        const lines = [`*VLESS Config for ${text}*\n`];
+        if (relay) {
+          lines.push(`*Direct:*\n\`${direct}\`\n`);
+          lines.push(`*Via Relay:*\n\`${relay}\`\n`);
+        } else {
+          lines.push(`\`${direct}\`\n`);
+        }
+        lines.push(`_Import with Hiddify or Streisand app._`);
+        await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
       }
 
       if (result.hy2Uris) {

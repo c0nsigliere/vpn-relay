@@ -44,8 +44,9 @@ xray_wg_uplink_uuid: ""
 # Hy2 cascade uplink (phase 3: WG-over-Hy2) — Server A runs a sing-box CLIENT
 # =============================================================================
 # Only active when hy2_enabled AND hy2_uplink_password (group_vars) is set.
-# Unlike the exit node, A's sing-box is a pure client: no with_v2ray_api, no cert,
-# no obfs generation — so we install the official release binary, not a source build.
+# Unlike the exit node, A's sing-box is a pure client: no cert or obfs generation of
+# its own. The binary is NOT downloaded from GitHub (Server A in RU can't reach it —
+# DPI); singbox_uplink.yml reuses Server B's already-built binary instead.
 singbox_bin:         "/usr/local/bin/sing-box"
 singbox_config_dir:  "/etc/sing-box"
 singbox_config_file: "/etc/sing-box/config.json"
