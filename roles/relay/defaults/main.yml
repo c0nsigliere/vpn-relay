@@ -7,6 +7,8 @@ server_b_public_ip: ""
 
 # port_a_tcp: 443  -- set in group_vars/all.yml
 # port_b_tcp: "{{ xray_port }}"  -- set in group_vars/all.yml
+# port_a_udp: 443  -- set in group_vars/all.yml (Hy2 relay entry, phase 4)
+# port_b_udp: "{{ hy2_port }}"  -- set in group_vars/all.yml (Hy2 relay target)
 
 # WAN interface - leave empty for auto-detection
 wan_if: ""
@@ -37,3 +39,22 @@ xray_reality_fingerprint: "chrome"
 xray_wg_uplink_uuid: ""
 
 # xray_tproxy_port: 12345  -- set in group_vars/all.yml
+
+# =============================================================================
+# Hy2 cascade uplink (phase 3: WG-over-Hy2) — Server A runs a sing-box CLIENT
+# =============================================================================
+# Only active when hy2_enabled AND hy2_uplink_password (group_vars) is set.
+# Unlike the exit node, A's sing-box is a pure client: no with_v2ray_api, no cert,
+# no obfs generation — so we install the official release binary, not a source build.
+singbox_bin:         "/usr/local/bin/sing-box"
+singbox_config_dir:  "/etc/sing-box"
+singbox_config_file: "/etc/sing-box/config.json"
+# Path of the salamander obfs password ON SERVER B (slurped via delegate_to).
+singbox_obfs_file:   "/etc/sing-box/obfs.pw"
+# Loopback-only SOCKS port where A's sing-box accepts XRay's forwarded traffic.
+# A-internal (never crosses hosts), so it lives in role defaults, not group_vars.
+singbox_uplink_socks_port: 1080
+
+# hy2_uplink_password — set in group_vars/all.yml (shared secret with B's bot env);
+# empty (phase 1/2) leaves the cascade on the VLESS uplink.
+hy2_uplink_password: ""

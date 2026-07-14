@@ -13,6 +13,9 @@
         Mode: {{ manage_ufw }}
         WAN Interface: {{ wan_if_final | default(ansible_default_ipv4.interface) }}
         TCP Relay: {{ ansible_default_ipv4.address }}:{{ port_a_tcp }} -> {{ server_b_public_ip }}:{{ port_b_tcp }}
+      {% if hy2_enabled | default(false) %}
+        UDP Relay (Hy2): {{ ansible_default_ipv4.address }}:{{ port_a_udp }} -> {{ server_b_public_ip }}:{{ port_b_udp }}
+      {% endif %}
   changed_when: false
 
 - name: Show NAT PREROUTING rules

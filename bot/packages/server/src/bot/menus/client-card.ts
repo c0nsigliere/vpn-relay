@@ -7,10 +7,12 @@ import {
   suspendClient as doSuspend,
   resumeClient as doResume,
   deleteClient as doDelete,
+  updateWgTransport,
 } from "../../services/client.service";
 import { chartsService } from "../../services/charts.service";
 import { qrService } from "../../services/qr.service";
 import { formatBytes } from "../../utils/format";
+import { wgHy2Available } from "../../config/standalone";
 
 function clientSummary(c: Client): string {
   const status = c.is_active ? "Active" : "Suspended";
@@ -24,10 +26,15 @@ function clientSummary(c: Client): string {
     hysteria2: "Hysteria 2",
   };
   const type = TYPE_LABEL[c.type];
+  const isWg = c.type === "wg" || c.type === "both";
+  const transport =
+    isWg && wgHy2Available
+      ? `\nCascade uplink: ${c.wg_cascade_transport === "hy2" ? "Hysteria 2" : "XRay (VLESS)"}`
+      : "";
   return (
     `*${c.name}*\n` +
     `Type: ${type}\n` +
-    `Status: ${status}${expiry}\n` +
+    `Status: ${status}${expiry}${transport}\n` +
     (c.wg_ip ? `IP: \`${c.wg_ip}\`` : "")
   );
 }
@@ -37,6 +44,12 @@ function clientKeyboard(c: Client): InlineKeyboard {
     .text("Get Config", `card:config:${c.id}`)
     .text("Traffic Graph", `card:graph:${c.id}`)
     .row();
+
+  // WG cascade transport toggle — only when the Hy2 uplink is available.
+  if ((c.type === "wg" || c.type === "both") && wgHy2Available) {
+    const next = c.wg_cascade_transport === "hy2" ? "XRay" : "Hy2";
+    kb.text(`Uplink → ${next}`, `card:transport:${c.id}`).row();
+  }
 
   if (c.is_active) {
     kb.text("Suspend", `card:suspend:${c.id}`);
@@ -118,9 +131,22 @@ export async function handleClientCardCallback(ctx: BotContext): Promise<void> {
     case "delete":
       await deleteClient(ctx, client);
       break;
+    case "transport":
+      await toggleTransport(ctx, client);
+      break;
     default:
       await showClientCard(ctx, clientId);
   }
+}
+
+async function toggleTransport(ctx: BotContext, client: Client): Promise<void> {
+  if ((client.type !== "wg" && client.type !== "both") || !wgHy2Available) {
+    await showClientCard(ctx, client.id);
+    return;
+  }
+  const next = client.wg_cascade_transport === "hy2" ? "xray" : "hy2";
+  await updateWgTransport(client, next);
+  await showClientCard(ctx, client.id);
 }
 
 async function sendConfig(ctx: BotContext, client: Client): Promise<void> {
@@ -160,15 +186,29 @@ async function sendConfig(ctx: BotContext, client: Client): Promise<void> {
   }
 
   if (client.type === "hysteria2" && client.hy2_password) {
-    const uri = hysteriaService.generateUri(client.name, client.hy2_password);
-    await ctx.reply(
-      [`*Hysteria 2 Config for ${client.name}*\n`, `\`${uri}\`\n`, `_Use Hiddify, NekoBox or Streisand app to import._`].join("\n"),
-      { parse_mode: "Markdown" }
-    );
+    const uris = hysteriaService.generateUris(client.name, client.hy2_password);
+
+    const lines = [`*Hysteria 2 Config for ${client.name}*\n`];
+    if (uris.relay) {
+      lines.push(`*Direct:*`, `\`${uris.direct}\`\n`);
+      lines.push(`*Via Relay:*`, `\`${uris.relay}\`\n`);
+    } else {
+      lines.push(`\`${uris.direct}\`\n`);
+    }
+    lines.push(`_Use Hiddify, NekoBox or Streisand app to import._`);
+
+    await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
+
     await ctx.replyWithPhoto(
-      new InputFile(await qrService.generate(uri), "hy2-qr.png"),
-      { caption: `QR: ${client.name} (Hysteria 2)` }
+      new InputFile(await qrService.generate(uris.direct), "hy2-direct-qr.png"),
+      { caption: `QR: ${client.name}${uris.relay ? " (Direct)" : " (Hysteria 2)"}` }
     );
+    if (uris.relay) {
+      await ctx.replyWithPhoto(
+        new InputFile(await qrService.generate(uris.relay), "hy2-relay-qr.png"),
+        { caption: `QR: ${client.name} (Via Relay)` }
+      );
+    }
   }
 }
 

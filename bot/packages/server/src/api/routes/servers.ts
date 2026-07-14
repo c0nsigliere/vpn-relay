@@ -4,7 +4,7 @@ import { getPing } from "../../services/ping.store";
 import { queries } from "../../db/queries";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 import { env } from "../../config/env";
-import { isStandalone } from "../../config/standalone";
+import { isStandalone, wgHy2Available } from "../../config/standalone";
 import type { ServerId, ServerTrafficResponse } from "@vpn-relay/shared";
 
 const PERIOD_LIMITS: Record<string, number> = {
@@ -60,6 +60,7 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
       trafficSparklineB,
       trafficTotal24hB: { rx: totals24hB.totalRx, tx: totals24hB.totalTx },
       standalone: isStandalone,
+      wgHy2Available,
     };
 
     if (!isStandalone) {

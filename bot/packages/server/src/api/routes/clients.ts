@@ -10,6 +10,7 @@ import {
   sendConfigToChat,
   updateQuota,
   updateExpiry,
+  updateWgTransport,
 } from "../../services/client.service";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 import { env } from "../../config/env";
@@ -92,22 +93,27 @@ export async function clientsRoutes(
     if (!name || !/^[a-zA-Z0-9_]{1,32}$/.test(name)) {
       return reply.code(400).send({ error: "Invalid name. Use letters, digits, underscores (max 32)." });
     }
-    if (!["wg", "xray", "both", "hysteria2"].includes(type ?? "")) {
-      return reply.code(400).send({ error: "Invalid type. Must be wg, xray, both, or hysteria2." });
+    // "both" is no longer offered for creation (deprecated); still valid for display.
+    if (!["wg", "xray", "hysteria2"].includes(type ?? "")) {
+      return reply.code(400).send({ error: "Invalid type. Must be wg, xray, or hysteria2." });
     }
     if (queries.getClientByName(name)) {
       return reply.code(409).send({ error: "A client with that name already exists." });
     }
 
-    const bodyTyped = body as { name?: string; type?: string; ttlDays?: number; dailyQuotaGb?: number; monthlyQuotaGb?: number };
+    const bodyTyped = body as {
+      name?: string; type?: string; ttlDays?: number;
+      dailyQuotaGb?: number; monthlyQuotaGb?: number; wgCascadeTransport?: string;
+    };
+    const wgTransport = bodyTyped.wgCascadeTransport === "hy2" ? "hy2" : "xray";
     try {
-      const result = await createClient(name, type as ClientType, ttlDays, bodyTyped.dailyQuotaGb, bodyTyped.monthlyQuotaGb);
+      const result = await createClient(name, type as ClientType, ttlDays, bodyTyped.dailyQuotaGb, bodyTyped.monthlyQuotaGb, wgTransport);
       // Killer feature: send config + QR to admin Telegram chat, then Web App can close
       await sendConfigToChat(bot, env.ADMIN_ID, result.client, result.wgConf);
       return reply.code(201).send({
         client: result.client,
         xrayUris: result.xrayUris,
-        hy2Uri: result.hy2Uri,
+        hy2Uris: result.hy2Uris,
       });
     } catch (err) {
       return reply.code(500).send({ error: (err as Error).message });
@@ -119,7 +125,7 @@ export async function clientsRoutes(
     const client = queries.getClientById(req.params.id);
     if (!client) return reply.code(404).send({ error: "Client not found" });
 
-    const body = req.body as { action?: string; newName?: string; dailyQuotaGb?: number | null; monthlyQuotaGb?: number | null; expiresAt?: string | null };
+    const body = req.body as { action?: string; newName?: string; dailyQuotaGb?: number | null; monthlyQuotaGb?: number | null; expiresAt?: string | null; transport?: string };
     try {
       if (body.action === "suspend") {
         await suspendClient(client, "manual");
@@ -171,8 +177,14 @@ export async function clientsRoutes(
           }
         }
         await updateExpiry(client.id, expiresAt ?? null);
+      } else if (body.action === "set-transport") {
+        if (client.type !== "wg" && client.type !== "both") {
+          return reply.code(400).send({ error: "Cascade transport applies only to WireGuard clients" });
+        }
+        const transport = body.transport === "hy2" ? "hy2" : "xray";
+        await updateWgTransport(client, transport);
       } else {
-        return reply.code(400).send({ error: "action must be suspend, resume, rename, update-quota, or update-expiry" });
+        return reply.code(400).send({ error: "action must be suspend, resume, rename, update-quota, update-expiry, or set-transport" });
       }
       const updated = queries.getClientById(req.params.id)!;
       return reply.send(updated);

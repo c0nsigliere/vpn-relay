@@ -51,3 +51,59 @@
     jump: ACCEPT
     comment: "VPN Relay TCP FORWARD from B"
   notify: save netfilter rules
+
+# ── Hysteria 2 UDP relay (phase 4) — only when hy2_enabled ───────────────────
+# UDP DNAT is appended (not inserted at rule_num 1) so it doesn't fight the TCP
+# DNAT for slot 1 across re-runs. Different protocol match — no conflict.
+- name: UDP DNAT - Redirect incoming Hy2 to Server B
+  ansible.builtin.iptables:
+    table: nat
+    chain: PREROUTING
+    in_interface: "{{ wan_if_final }}"
+    protocol: udp
+    destination_port: "{{ port_a_udp }}"
+    jump: DNAT
+    to_destination: "{{ server_b_public_ip }}:{{ port_b_udp }}"
+    action: append
+    comment: "VPN Relay UDP DNAT (Hy2)"
+  when: hy2_enabled | default(false)
+  notify: save netfilter rules
+
+- name: UDP MASQUERADE - SNAT for outgoing Hy2 to Server B
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    out_interface: "{{ wan_if_final }}"
+    protocol: udp
+    destination: "{{ server_b_public_ip }}"
+    destination_port: "{{ port_b_udp }}"
+    jump: MASQUERADE
+    comment: "VPN Relay UDP MASQUERADE (Hy2)"
+  when: hy2_enabled | default(false)
+  notify: save netfilter rules
+
+- name: UDP FORWARD to Server B (Hy2)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: "{{ wan_if_final }}"
+    protocol: udp
+    destination: "{{ server_b_public_ip }}"
+    destination_port: "{{ port_b_udp }}"
+    ctstate: NEW,ESTABLISHED,RELATED
+    jump: ACCEPT
+    comment: "VPN Relay UDP FORWARD to B (Hy2)"
+  when: hy2_enabled | default(false)
+  notify: save netfilter rules
+
+- name: UDP FORWARD from Server B (Hy2)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: "{{ wan_if_final }}"
+    protocol: udp
+    source: "{{ server_b_public_ip }}"
+    source_port: "{{ port_b_udp }}"
+    ctstate: ESTABLISHED,RELATED
+    jump: ACCEPT
+    comment: "VPN Relay UDP FORWARD from B (Hy2)"
+  when: hy2_enabled | default(false)
+  notify: save netfilter rules

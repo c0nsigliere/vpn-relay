@@ -1,0 +1,31 @@
+{
+  "log": {
+    "level": "{{ singbox_log_level | default('warn') }}",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "listen_port": {{ singbox_uplink_socks_port }}
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hy2-uplink",
+      "server": "{{ hy2_host | default(server_b_public_ip) }}",
+      "server_port": {{ hy2_port }},
+      "password": "{{ hy2_uplink_password }}",
+      "obfs": {
+        "type": "salamander",
+        "password": "{{ _singbox_uplink_obfs_password }}"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "{{ hy2_domain }}"
+      }
+    }
+  ]
+}

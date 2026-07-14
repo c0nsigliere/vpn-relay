@@ -77,6 +77,9 @@ try { db.exec("ALTER TABLE clients ADD COLUMN suspend_reason TEXT DEFAULT NULL")
 try { db.exec("ALTER TABLE clients ADD COLUMN last_ip TEXT DEFAULT NULL"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE clients ADD COLUMN last_ip_isp TEXT DEFAULT NULL"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE clients ADD COLUMN last_connection_route TEXT DEFAULT NULL"); } catch { /* already exists */ }
+// WG cascade uplink transport per client: 'xray' (VLESS+Reality) or 'hy2' (Hysteria 2).
+// Only meaningful for wg/both clients; drives per-client source routing in Server A's XRay.
+try { db.exec("ALTER TABLE clients ADD COLUMN wg_cascade_transport TEXT DEFAULT 'xray'"); } catch { /* already exists */ }
 
 // Hysteria 2 traffic columns (additive — same idempotent pattern as above).
 try { db.exec("ALTER TABLE traffic_snapshots ADD COLUMN hy2_rx INTEGER DEFAULT 0"); } catch { /* already exists */ }

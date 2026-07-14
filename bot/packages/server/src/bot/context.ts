@@ -1,5 +1,5 @@
 import { Context, SessionFlavor } from "grammy";
-import type { ClientType } from "@vpn-relay/shared";
+import type { ClientType, WgCascadeTransport } from "@vpn-relay/shared";
 
 export interface SessionData {
   step:
@@ -9,6 +9,7 @@ export interface SessionData {
     | "awaiting_delete_confirm";
   data: {
     clientType?: ClientType;
+    wgCascadeTransport?: WgCascadeTransport;
     clientId?: string;
     page?: number;
   };

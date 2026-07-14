@@ -12,13 +12,14 @@ import { InputFile, Bot } from "grammy";
 import { queries } from "../db/queries";
 import { xrayService } from "./xray.service";
 import { hysteriaService } from "./hysteria.service";
+import { xrayUplinkService } from "./xray-uplink.service";
 import { wgService } from "./wg.service";
 import { qrService } from "./qr.service";
 import { isStandalone } from "../config/standalone";
 import { createLogger } from "../utils/logger";
 import { escapeMarkdown } from "../utils/telegram";
 import type { BotContext } from "../bot/context";
-import type { Client, ClientType } from "@vpn-relay/shared";
+import type { Client, ClientType, WgCascadeTransport } from "@vpn-relay/shared";
 
 const logger = createLogger("client");
 
@@ -26,7 +27,7 @@ export interface CreateClientResult {
   client: Client;
   wgConf?: string;           // WG .conf file text (only at creation time)
   xrayUris?: { direct: string; relay: string | null };
-  hy2Uri?: string;           // Hysteria 2 URI (direct-only)
+  hy2Uris?: { direct: string; relay: string | null };
 }
 
 export async function createClient(
@@ -34,7 +35,8 @@ export async function createClient(
   type: ClientType,
   ttlDays?: number,
   dailyQuotaGb?: number,
-  monthlyQuotaGb?: number
+  monthlyQuotaGb?: number,
+  wgCascadeTransport: WgCascadeTransport = "xray"
 ): Promise<CreateClientResult> {
   const id = uuidv4();
   let wgIp: string | null = null;
@@ -43,7 +45,7 @@ export async function createClient(
   let xrayUuid: string | null = null;
   let xrayUris: { direct: string; relay: string | null } | undefined;
   let hy2Password: string | null = null;
-  let hy2Uri: string | undefined;
+  let hy2Uris: { direct: string; relay: string | null } | undefined;
 
   const expiresAt = ttlDays
     ? new Date(Date.now() + ttlDays * 86_400_000).toISOString()
@@ -67,7 +69,7 @@ export async function createClient(
 
   if (type === "hysteria2") {
     hy2Password = hysteriaService.generatePassword();
-    hy2Uri = hysteriaService.generateUri(name, hy2Password);
+    hy2Uris = hysteriaService.generateUris(name, hy2Password);
   }
 
   // DB first — source of truth
@@ -84,6 +86,7 @@ export async function createClient(
     daily_quota_gb: dailyQuotaGb ?? null,
     monthly_quota_gb: monthlyQuotaGb ?? null,
     suspend_reason: null,
+    wg_cascade_transport: wgCascadeTransport,
   });
 
   // Rebuild XRay config from DB
@@ -96,9 +99,14 @@ export async function createClient(
     await hysteriaService.syncConfigAndRestart();
   }
 
+  // Apply the WG cascade transport choice to Server A's XRay routing
+  if (type === "wg" || type === "both") {
+    await xrayUplinkService.syncRoutingAndRestart();
+  }
+
   const client = queries.getClientById(id)!;
   logger.info(`Created client "${name}" (type=${type})`);
-  return { client, wgConf, xrayUris, hy2Uri };
+  return { client, wgConf, xrayUris, hy2Uris };
 }
 
 export async function suspendClient(client: Client, reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" = "manual"): Promise<void> {
@@ -224,6 +232,23 @@ export async function deleteClient(client: Client): Promise<void> {
   if (client.type === "hysteria2" && client.hy2_password) {
     await hysteriaService.syncConfigAndRestart();
   }
+  // Drop the client's A-routing rule before its WG IP can be reused
+  if (client.type === "wg" || client.type === "both") {
+    await xrayUplinkService.syncRoutingAndRestart();
+  }
+}
+
+/**
+ * Change the WG cascade uplink transport (xray ↔ hy2) for a WG client.
+ * DB first, then rebuild Server A's XRay routing. No client-side config change.
+ */
+export async function updateWgTransport(client: Client, transport: WgCascadeTransport): Promise<void> {
+  if (client.type !== "wg" && client.type !== "both") {
+    throw new Error("Cascade transport applies only to WireGuard clients");
+  }
+  logger.info(`Setting cascade transport for "${client.name}" → ${transport}`);
+  queries.updateClientTransport(client.id, transport);
+  await xrayUplinkService.syncRoutingAndRestart();
 }
 
 /**
@@ -276,17 +301,30 @@ export async function sendConfigToChat(
   }
 
   if (client.type === "hysteria2" && client.hy2_password) {
-    const uri = hysteriaService.generateUri(client.name, client.hy2_password);
-    const lines = [
-      `🚀 *Hysteria 2 Config for ${escapeMarkdown(client.name)}*\n`,
-      `\`${uri}\`\n`,
-      `_Import with Hiddify, NekoBox or Streisand app._`,
-    ];
+    const uris = hysteriaService.generateUris(client.name, client.hy2_password);
+    const lines = [`🚀 *Hysteria 2 Config for ${escapeMarkdown(client.name)}*\n`];
+    if (uris.relay) {
+      lines.push(`*Direct:*\n\`${uris.direct}\`\n`);
+      lines.push(`*Via Relay:*\n\`${uris.relay}\`\n`);
+    } else {
+      lines.push(`\`${uris.direct}\`\n`);
+    }
+    lines.push(`_Import with Hiddify, NekoBox or Streisand app._`);
+
     await bot.api.sendMessage(chatId, lines.join("\n"), { parse_mode: "Markdown" });
+
     await bot.api.sendPhoto(
       chatId,
-      new InputFile(await qrService.generate(uri), "hy2-qr.png"),
-      { caption: `QR: ${client.name} (Hysteria 2)` }
+      new InputFile(await qrService.generate(uris.direct), "hy2-direct-qr.png"),
+      { caption: `QR: ${client.name}${uris.relay ? " (Direct)" : " (Hysteria 2)"}` }
     );
+
+    if (uris.relay) {
+      await bot.api.sendPhoto(
+        chatId,
+        new InputFile(await qrService.generate(uris.relay), "hy2-relay-qr.png"),
+        { caption: `QR: ${client.name} (Via Relay)` }
+      );
+    }
   }
 }

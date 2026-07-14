@@ -17,11 +17,17 @@ import * as crypto from "crypto";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { env } from "../config/env";
+import { isStandalone } from "../config/standalone";
 import { queries } from "../db/queries";
 import { createLogger } from "../utils/logger";
 import type { ClientStats } from "./xray.service";
 
 const logger = createLogger("hysteria");
+
+export interface Hy2Uris {
+  direct: string;
+  relay: string | null;
+}
 
 // Resolved from dist/services/ back up to packages/server/proto/ at runtime.
 // The proto/ dir is rsynced with the source tree (it is not copied into dist/).
@@ -56,10 +62,14 @@ class HysteriaService {
   }
 
   /**
-   * Build a canonical Hysteria 2 URI (hysteria.network format — note the slash
-   * before '?', required by stricter parsers). Direct-only; no relay variant.
+   * Build the canonical Hysteria 2 URIs (direct + relay) for a client.
+   *
+   * hysteria.network format — note the slash before '?', required by stricter
+   * parsers. The relay URI dials Server A's UDP relay port (port_a_udp); A does
+   * a pure L4 DNAT to B's sing-box, so credentials/obfs/SNI are identical and
+   * the cert stays valid (no insecure). In standalone mode there is no relay URI.
    */
-  generateUri(name: string, password: string): string {
+  generateUris(name: string, password: string): Hy2Uris {
     const obfs = fs.readFileSync(env.SINGBOX_OBFS_FILE, "utf8").trim();
     const params = [
       `sni=${encodeURIComponent(env.HY2_DOMAIN)}`,
@@ -68,9 +78,17 @@ class HysteriaService {
     ].join("&");
 
     const countryB = env.SERVER_B_COUNTRY;
-    const tag = countryB ? `${name}_${countryB}` : name;
+    const countryA = env.SERVER_A_COUNTRY;
+    const directTag = countryB ? `${name}_${countryB}` : name;
+    const relayTag = countryA && countryB ? `${name}_${countryA}_${countryB}` : `${name}-via-relay`;
 
-    return `hysteria2://${encodeURIComponent(password)}@${env.HY2_HOST}:${env.HY2_PORT}/?${params}#${encodeURIComponent(tag)}`;
+    const cred = encodeURIComponent(password);
+    const direct = `hysteria2://${cred}@${env.HY2_HOST}:${env.HY2_PORT}/?${params}#${encodeURIComponent(directTag)}`;
+    const relay = isStandalone
+      ? null
+      : `hysteria2://${cred}@${env.SERVER_A_HOST}:${env.SERVER_A_HY2_PORT}/?${params}#${encodeURIComponent(relayTag)}`;
+
+    return { direct, relay };
   }
 
   /**

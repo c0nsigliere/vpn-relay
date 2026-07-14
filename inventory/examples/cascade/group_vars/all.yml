@@ -59,3 +59,23 @@ xray_tproxy_table: 100
 
 # --- XRay version ---
 xray_version: "26.2.6"
+
+# --- Hysteria 2 relay (phase 4) — only takes effect when hy2_enabled: true ---
+# Entry node UDP relay port and its target on the exit node's sing-box.
+# Client dials A:port_a_udp/udp; A does a pure L4 DNAT to B:port_b_udp/udp.
+# hy2_enabled: true
+# hy2_port: 443
+# hy2_domain: "{{ tma_domain | default('') }}"
+# hy2_host: "{{ server_b_public_ip }}"
+# singbox_version: "1.13.14"
+# singbox_v2ray_api_port: 10086
+# singbox_log_level: "info"
+port_a_udp: 443
+port_b_udp: "{{ hy2_port | default(443) }}"
+
+# --- WG cascade over Hy2 (phase 3) — the entry node tunnels wg-clients traffic
+# to the exit node over Hysteria 2 instead of VLESS. Set a strong shared secret
+# (also becomes the bot's HY2_UPLINK_PASSWORD → static user wg-clients@hy2 on B).
+# Empty leaves the cascade on the VLESS uplink. Generate with:
+#   python3 -c "import secrets; print(secrets.token_hex(16))"
+# hy2_uplink_password: ""

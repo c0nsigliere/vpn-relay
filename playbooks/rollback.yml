@@ -62,6 +62,17 @@
             delete: true
           failed_when: false
 
+        # NAT/FORWARD UDP rules share the marker blocks above, so they are already
+        # removed. Only the standalone UFW allow rule needs an explicit delete.
+        - name: Remove UFW allow rule for UDP port (Hy2 relay)
+          community.general.ufw:
+            rule: allow
+            port: "{{ port_a_udp }}"
+            proto: udp
+            delete: true
+          when: hy2_enabled | default(false)
+          failed_when: false
+
     # =========================================================================
     # UFW DISABLE MODE ROLLBACK
     # =========================================================================
@@ -122,6 +133,63 @@
             jump: ACCEPT
             state: absent
           when: server_b_public_ip | length > 0
+          failed_when: false
+          notify: save netfilter after rollback
+
+        # ── Hy2 UDP relay (phase 4) ──────────────────────────────────────────
+        - name: Remove UDP DNAT rule (Hy2)
+          ansible.builtin.iptables:
+            table: nat
+            chain: PREROUTING
+            in_interface: "{{ wan_if_final }}"
+            protocol: udp
+            destination_port: "{{ port_a_udp }}"
+            jump: DNAT
+            to_destination: "{{ server_b_public_ip }}:{{ port_b_udp }}"
+            state: absent
+          when: server_b_public_ip | length > 0 and hy2_enabled | default(false)
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove UDP MASQUERADE rule (Hy2)
+          ansible.builtin.iptables:
+            table: nat
+            chain: POSTROUTING
+            out_interface: "{{ wan_if_final }}"
+            protocol: udp
+            destination: "{{ server_b_public_ip }}"
+            destination_port: "{{ port_b_udp }}"
+            jump: MASQUERADE
+            state: absent
+          when: server_b_public_ip | length > 0 and hy2_enabled | default(false)
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove UDP FORWARD to B rule (Hy2)
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: "{{ wan_if_final }}"
+            protocol: udp
+            destination: "{{ server_b_public_ip }}"
+            destination_port: "{{ port_b_udp }}"
+            ctstate: NEW,ESTABLISHED,RELATED
+            jump: ACCEPT
+            state: absent
+          when: server_b_public_ip | length > 0 and hy2_enabled | default(false)
+          failed_when: false
+          notify: save netfilter after rollback
+
+        - name: Remove UDP FORWARD from B rule (Hy2)
+          ansible.builtin.iptables:
+            chain: FORWARD
+            in_interface: "{{ wan_if_final }}"
+            protocol: udp
+            source: "{{ server_b_public_ip }}"
+            source_port: "{{ port_b_udp }}"
+            ctstate: ESTABLISHED,RELATED
+            jump: ACCEPT
+            state: absent
+          when: server_b_public_ip | length > 0 and hy2_enabled | default(false)
           failed_when: false
           notify: save netfilter after rollback
 

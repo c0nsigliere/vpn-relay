@@ -4,19 +4,20 @@ Ansible-managed VPN stack across two Ubuntu servers (server A in Russia and serv
 
 ## Server Roles:
 
-- Server A (Entry / Russia): Acts as the ingress node. Runs WireGuard and a pure L4 TCP port forwarder.
+- Server A (Entry / Russia): Acts as the ingress node. Runs WireGuard and a pure L4 port forwarder (TCP for VLESS relay; UDP for the Hysteria 2 relay when `hy2_enabled`).
 - Server B (Exit / Abroad): Acts as the egress node. May carry **two data-plane protocols**: XRay (VLESS+Reality, 443/tcp) and — when `hy2_enabled` — sing-box (Hysteria 2, 443/udp). Handles all actual decryption and internet routing. It contains NO WireGuard installation. Stores XRay keys (`/etc/xray/keys/`) and, if Hy2 is on, the sing-box obfs password (`/etc/sing-box/`). Client state lives in the bot's SQLite DB (`/var/lib/vpn-bot/data.db`); **both** runtime configs (`/etc/xray/config.json`, `/etc/sing-box/config.json`) are rebuilt from the DB on every change and on bot startup.
 
-## The 4 Ways Clients Can Connect:
+## The 5 Ways Clients Can Connect:
 
-- WireGuard Cascade (WG ➔ A ➔ B): Client connects to Server A via WireGuard (UDP). Server A intercepts this traffic via TPROXY and tunnels it to Server B's XRay.
+- WireGuard Cascade (WG ➔ A ➔ B): Client connects to Server A via WireGuard (UDP). Server A intercepts this traffic via TPROXY and tunnels it to Server B. The **uplink transport is a per-client choice** (`wg_cascade_transport`): XRay (VLESS+Reality, the default) or Hysteria 2 (when `hy2_uplink_password` is set). The bot rewrites Server A's XRay source-routing (by each client's WG tunnel IP) over SSH; A holds no client secrets.
 - XRay Relay (VLESS ➔ A ➔ B): Client connects to Server A via VLESS (TCP). Server A blindly forwards the traffic via DNAT to Server B's XRay.
 - Direct XRay (VLESS ➔ B): Client bypasses Server A entirely and connects directly to Server B's XRay (TCP).
-- Direct Hysteria 2 (Hy2 ➔ B): Client connects directly to Server B's sing-box over UDP/QUIC (salamander obfs). Direct-only in phase 1 — no relay/cascade variant. Strong against DPI throughput shaping.
+- Direct Hysteria 2 (Hy2 ➔ B): Client connects directly to Server B's sing-box over UDP/QUIC (salamander obfs). Strong against DPI throughput shaping.
+- Hysteria 2 Relay (Hy2 ➔ A ➔ B): Client connects to Server A on `port_a_udp/udp`. Server A does a pure L4 UDP DNAT + MASQUERADE to Server B's sing-box (`hy2_port/udp`). The QUIC/TLS session terminates on B, so the cert stays valid and no `insecure` appears in the URI. A holds no Hy2 credentials, cert, or sing-box. Mirror of the VLESS relay, for UDP. Each Hy2 client gets both a direct and a relay URI (relay is null in standalone).
 
 **Critical invariants:**
-- Strict Secret Isolation: Server A is a "dumb pipe". It NEVER holds XRay configurations, Reality private keys, or client UUIDs. All decryption happens on Server B.
-- Routing Logic: Server A routes WireGuard traffic via TPROXY, and VLESS traffic via pure L4 TCP forwarding (no protocol awareness).
+- Strict Secret Isolation: Server A is a "dumb pipe". It NEVER holds XRay configurations, Reality private keys, client UUIDs, or Hy2 credentials/certs. All decryption happens on Server B.
+- Routing Logic: Server A routes WireGuard traffic via TPROXY, VLESS traffic via pure L4 TCP forwarding, and (when `hy2_enabled`) Hysteria 2 traffic via pure L4 UDP forwarding — all without protocol awareness.
 - Single Source of Truth: ALL port numbers and shared configuration variables must be defined strictly in `group_vars/all.yml`. Do NOT put port definitions in role `defaults/main.yml`.
 - Hysteria 2 stats: sing-box must be built from source with `with_v2ray_api`; the bot reads per-user stats over a native gRPC client (service name `v2ray.core.app.stats.command.StatsService`), NOT via the xray CLI. TLS for Hy2 is a real Let's Encrypt cert (`roles/tls_cert`), never `insecure=1`.
 

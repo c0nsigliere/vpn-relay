@@ -36,16 +36,21 @@ function detectLocalInterface(): string {
 /**
  * Query conntrack on Server A to build a map of masqueraded port → real client IP.
  *
- * Conntrack line format:
+ * Conntrack line formats (note: UDP lines have NO state column, TCP does):
  *   tcp 6 300 ESTABLISHED src=5.18.217.45 dst=195.133.31.93 sport=51234 dport=443 src=104.248.240.45 dst=195.133.31.93 sport=443 dport=60123 [ASSURED]
+ *   udp 17 29 src=5.18.217.45 dst=195.133.31.93 sport=51234 dport=443 src=104.248.240.45 dst=195.133.31.93 sport=443 dport=60123 [ASSURED]
  *
- * First src= is the real client IP; last dport= (before [ASSURED]) is the masqueraded
- * source port that Server B sees in its XRay access log.
+ * First src= is the real client IP; the last dport= (reply tuple) is the masqueraded
+ * source port that Server B sees — in the XRay access log (TCP/VLESS relay) or the
+ * sing-box log (UDP/Hy2 relay). Greedy `.*` walks to that last dport=.
  */
-const CONNTRACK_RE = /^tcp\s+\d+\s+\d+\s+\S+\s+src=(\d+\.\d+\.\d+\.\d+)\s+.*\sdport=(\d+)\s*(?:\[|$)/;
+const CONNTRACK_RE: Record<"tcp" | "udp", RegExp> = {
+  tcp: /^tcp\s+\d+\s+\d+\s+\S+\s+src=(\d+\.\d+\.\d+\.\d+)\s+.*\sdport=(\d+)/,
+  udp: /^udp\s+\d+\s+\d+\s+src=(\d+\.\d+\.\d+\.\d+)\s+.*\sdport=(\d+)/,
+};
 
 interface ConntrackData {
-  /** masqPort → realIP — for correlating XRay log source ports with client IPs */
+  /** masqPort → realIP — for correlating relay-log source ports with client IPs */
   masqToIp: Map<number, string>;
   /**
    * All real client IPs currently connected via relay (i.e. any active DNAT entry to Server B).
@@ -56,19 +61,20 @@ interface ConntrackData {
   connectedIps: Set<string>;
 }
 
-async function getRelayConntrackData(): Promise<ConntrackData> {
+async function getRelayConntrackData(proto: "tcp" | "udp"): Promise<ConntrackData> {
   const masqToIp = new Map<number, string>();
   const connectedIps = new Set<string>();
   try {
     const serverBIp = env.SERVER_B_HOST;
+    const re = CONNTRACK_RE[proto];
     // Pre-filter on Server A to minimize data transfer.
     // Server B IP appears as reply src= (not dst=) in conntrack, so grep for IP anywhere.
     // Trailing `|| true` prevents grep exit code 1 (no matches) from failing SSH.
     const out = await sshPool.exec(
-      `conntrack -L -p tcp --dst-nat 2>/dev/null | grep '${serverBIp}' || true`
+      `conntrack -L -p ${proto} --dst-nat 2>/dev/null | grep '${serverBIp}' || true`
     );
     for (const line of out.split("\n")) {
-      const m = line.match(CONNTRACK_RE);
+      const m = line.match(re);
       if (!m) continue;
       const realIp = m[1];
       const masqPort = parseInt(m[2], 10);
@@ -190,21 +196,31 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
 
       // ── Collect client IPs ──────────────────────────────────────────────
         try {
-          // XRay access log: direct IPs + relay masqueraded ports
+          // XRay access log: direct IPs + relay masqueraded ports (TCP)
           const { directIps, relayPorts } = xrayLogService.getRecentClientIps();
 
-          // sing-box log: Hysteria 2 source IPs (direct-only). Requires log.level=info.
-          const hy2Ips = env.HY2_ENABLED
+          // sing-box log: Hysteria 2 direct IPs + relay masqueraded ports (UDP).
+          // Requires log.level=info.
+          const { directIps: hy2DirectIps, relayPorts: hy2RelayPorts } = env.HY2_ENABLED
             ? singboxLogService.getRecentClientIps()
-            : new Map<string, string>();
+            : { directIps: new Map<string, string>(), relayPorts: new Map<string, number>() };
 
-          // If any clients connected via relay, resolve real IPs via conntrack on Server A
+          // If any clients connected via relay, resolve real IPs via conntrack on Server A.
+          // TCP (VLESS relay) and UDP (Hy2 relay) are separate conntrack tables.
           let conntrackMap = new Map<number, string>();
           let relayConnectedIps = new Set<string>();
           if (relayPorts.size > 0 && !isStandalone) {
-            const ct = await getRelayConntrackData();
+            const ct = await getRelayConntrackData("tcp");
             conntrackMap = ct.masqToIp;
             relayConnectedIps = ct.connectedIps;
+          }
+
+          let hy2ConntrackMap = new Map<number, string>();
+          let hy2RelayConnectedIps = new Set<string>();
+          if (hy2RelayPorts.size > 0 && !isStandalone) {
+            const ct = await getRelayConntrackData("udp");
+            hy2ConntrackMap = ct.masqToIp;
+            hy2RelayConnectedIps = ct.connectedIps;
           }
 
           // Determine current IP per client
@@ -252,10 +268,29 @@ export function trafficWorker(bot: Bot<BotContext>): { stop: () => void } {
               route = "relay";
             }
 
-            // Hysteria 2 — direct-only source IP from the sing-box log
+            // Hysteria 2 direct IP from the sing-box log
             if (!ip && client.type === "hysteria2") {
-              ip = hy2Ips.get(client.name);
+              ip = hy2DirectIps.get(client.name);
               if (ip) route = "direct";
+            }
+
+            // Hysteria 2 relay — resolve via UDP conntrack correlation on Server A.
+            // QUIC sessions are long-lived (keepalive), so the exact masq-port match
+            // hits far more often than it does for short-lived TCP.
+            if (!ip && client.type === "hysteria2") {
+              const masqPort = hy2RelayPorts.get(client.name);
+              if (masqPort !== undefined) {
+                ip = hy2ConntrackMap.get(masqPort);
+                if (ip) route = "relay";
+              }
+            }
+
+            // Hysteria 2 relay fallback: masqPort already left conntrack, but the
+            // client's known IP still has an active UDP DNAT entry to Server B.
+            if (!ip && client.type === "hysteria2"
+                && client.last_ip && hy2RelayConnectedIps.has(client.last_ip)) {
+              ip = client.last_ip;
+              route = "relay";
             }
 
             // Also update route even if IP didn't change (client may switch direct↔relay)

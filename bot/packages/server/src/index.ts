@@ -23,6 +23,8 @@ import { alertWorker } from "./workers/alert.worker";
 import { sshPool } from "./services/ssh";
 import { xrayService } from "./services/xray.service";
 import { hysteriaService } from "./services/hysteria.service";
+import { xrayUplinkService } from "./services/xray-uplink.service";
+import { isStandalone } from "./config/standalone";
 import { startApiServer } from "./api/server";
 import type { FastifyInstance } from "fastify";
 
@@ -56,7 +58,7 @@ bot.on("callback_query:data", async (ctx) => {
     return;
   }
 
-  if (data === "menu:add_client" || data.startsWith("add:")) {
+  if (data === "menu:add_client" || data.startsWith("add:") || data.startsWith("addwg:")) {
     await handleAddClientCallback(ctx);
     return;
   }
@@ -126,6 +128,15 @@ if (env.HY2_ENABLED) {
   hysteriaService.syncConfigAndRestart()
     .then(() => logger.info("sing-box config synced from DB"))
     .catch(logOnError(logger, "sing-box config sync failed"));
+}
+
+// Sync Server A's XRay cascade routing from DB on startup — re-applies each WG
+// client's transport choice (xray/hy2) after a deploy re-templated A's config or
+// a restart. Cascade mode only. No-op / graceful if Server A is unreachable.
+if (!isStandalone) {
+  xrayUplinkService.syncRoutingAndRestart()
+    .then(() => logger.info("Server A cascade routing synced from DB"))
+    .catch(logOnError(logger, "Server A routing sync failed"));
 }
 
 // Workers

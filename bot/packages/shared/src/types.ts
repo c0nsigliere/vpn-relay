@@ -19,9 +19,16 @@ export interface Client {
   suspend_reason: "manual" | "daily_quota" | "monthly_quota" | "expired" | "abnormal_traffic" | null;
   last_ip: string | null;
   last_ip_isp: string | null;
-  // Hysteria 2 is direct-only in phase 1, so route stays "direct" | null for it.
+  // "direct" (client → exit node B) or "relay" (client → entry node A → B).
+  // Set for xray/both (TCP relay) and hysteria2 (phase 4 UDP relay).
   last_connection_route: "direct" | "relay" | null;
+  // WG cascade uplink transport: which A→B tunnel this client's WireGuard traffic
+  // takes. Only meaningful for wg/both clients; ignored for xray/hysteria2.
+  wg_cascade_transport: WgCascadeTransport;
 }
+
+// Transport for the WG cascade uplink (Server A → Server B). Extensible.
+export type WgCascadeTransport = "xray" | "hy2";
 
 export interface ClientQuotaUsage {
   daily_used_bytes: number;
@@ -50,10 +57,13 @@ export interface CreateClientRequest {
   ttlDays?: number;
   dailyQuotaGb?: number;
   monthlyQuotaGb?: number;
+  // WG cascade uplink transport (wg clients only; ignored otherwise).
+  wgCascadeTransport?: WgCascadeTransport;
 }
 
 export interface PatchClientRequest {
-  action: "suspend" | "resume" | "rename" | "update-quota" | "update-expiry";
+  action: "suspend" | "resume" | "rename" | "update-quota" | "update-expiry" | "set-transport";
+  transport?: WgCascadeTransport;
   newName?: string;        // required when action === "rename"
   dailyQuotaGb?: number | null;
   monthlyQuotaGb?: number | null;
@@ -107,6 +117,8 @@ export interface ServersStatusResponse {
   trafficTotal24hB?: { rx: number; tx: number };
   /** Deployment mode: true = single server, no entry node */
   standalone?: boolean;
+  /** True when WG clients can choose the Hy2 cascade uplink (cascade + uplink configured) */
+  wgHy2Available?: boolean;
 }
 
 export type ServerId = "a" | "b";

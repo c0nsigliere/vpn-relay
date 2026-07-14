@@ -101,6 +101,13 @@ export function patchClient(id: string, body: PatchClientRequest): Promise<Clien
   });
 }
 
+export function setTransport(id: string, transport: "xray" | "hy2"): Promise<Client> {
+  return apiFetch<Client>(`/api/clients/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "set-transport", transport }),
+  });
+}
+
 export function renameClient(id: string, newName: string): Promise<Client> {
   return apiFetch<Client>(`/api/clients/${id}`, {
     method: "PATCH",

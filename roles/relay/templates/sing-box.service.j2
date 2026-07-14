@@ -1,0 +1,14 @@
+[Unit]
+Description=sing-box Hysteria 2 Uplink Client (WG cascade over Hy2 — Server A)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ singbox_bin }} run -c {{ singbox_config_file }}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

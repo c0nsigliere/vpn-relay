@@ -26,16 +26,21 @@ export const textInputHandler: MiddlewareFn<BotContext> = async (ctx, next) => {
     }
 
     const clientType = ctx.session.data.clientType ?? "xray";
+    const wgTransport = ctx.session.data.wgCascadeTransport ?? "xray";
     ctx.session.step = "idle";
     ctx.session.data = {};
 
-    const typeLabel = clientType === "hysteria2" ? "Hysteria 2" : clientType.toUpperCase();
+    const baseLabel = clientType === "hysteria2" ? "Hysteria 2" : clientType.toUpperCase();
+    const typeLabel =
+      (clientType === "wg" || clientType === "both") && wgTransport === "hy2"
+        ? `${baseLabel} via Hy2`
+        : baseLabel;
     const statusMsg = await ctx.reply(`Creating *${text}* (${typeLabel})...`, {
       parse_mode: "Markdown",
     });
 
     try {
-      const result = await createClient(text, clientType);
+      const result = await createClient(text, clientType, undefined, undefined, undefined, wgTransport);
 
       if (result.wgConf) {
         await ctx.replyWithDocument(
@@ -54,15 +59,28 @@ export const textInputHandler: MiddlewareFn<BotContext> = async (ctx, next) => {
         await ctx.reply(uriText, { parse_mode: "Markdown" });
       }
 
-      if (result.hy2Uri) {
-        await ctx.reply(
-          [`*Hysteria 2 Config for ${text}*\n`, `\`${result.hy2Uri}\`\n`, `_Import with Hiddify, NekoBox or Streisand app._`].join("\n"),
-          { parse_mode: "Markdown" }
-        );
+      if (result.hy2Uris) {
+        const { direct, relay } = result.hy2Uris;
+        const lines = [`*Hysteria 2 Config for ${text}*\n`];
+        if (relay) {
+          lines.push(`*Direct:*\n\`${direct}\`\n`);
+          lines.push(`*Via Relay:*\n\`${relay}\`\n`);
+        } else {
+          lines.push(`\`${direct}\`\n`);
+        }
+        lines.push(`_Import with Hiddify, NekoBox or Streisand app._`);
+        await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
+
         await ctx.replyWithPhoto(
-          new InputFile(await qrService.generate(result.hy2Uri), "hy2-qr.png"),
-          { caption: `QR: ${text} (Hysteria 2)` }
+          new InputFile(await qrService.generate(direct), "hy2-direct-qr.png"),
+          { caption: `QR: ${text}${relay ? " (Direct)" : " (Hysteria 2)"}` }
         );
+        if (relay) {
+          await ctx.replyWithPhoto(
+            new InputFile(await qrService.generate(relay), "hy2-relay-qr.png"),
+            { caption: `QR: ${text} (Via Relay)` }
+          );
+        }
       }
 
       await ctx.api.editMessageText(

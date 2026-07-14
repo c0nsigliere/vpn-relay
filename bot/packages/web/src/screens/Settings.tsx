@@ -42,6 +42,14 @@ const ALERT_META: Record<string, AlertMeta> = {
       { key: "cooldown_min", label: "Cooldown", unit: "min", min: 1 },
     ],
   },
+  service_dead_singbox: {
+    name: "sing-box Service Dead",
+    description: "sing-box (Hysteria 2) service on Server B is not running",
+    group: "critical",
+    fields: [
+      { key: "cooldown_min", label: "Cooldown", unit: "min", min: 1 },
+    ],
+  },
   service_dead_wg: {
     name: "WireGuard Service Dead",
     description: "WireGuard service on Server A is not running",

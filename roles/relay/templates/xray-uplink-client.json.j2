@@ -46,6 +46,17 @@
       },
       "mux": { "enabled": true, "concurrency": 8, "xudpConcurrency": 16 }
     },
+{% if _hy2_uplink_active | default(false) %}
+    {
+      "tag": "hy2-uplink",
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          { "address": "127.0.0.1", "port": {{ singbox_uplink_socks_port }} }
+        ]
+      }
+    },
+{% endif %}
     {
       "tag": "direct",
       "protocol": "freedom",
@@ -67,3 +78,10 @@
     ]
   }
 }
+{#
+  Routing note: this is the BASE config. When the Hy2 uplink is active, the bot
+  (running on Server B) rewrites ONLY routing.rules over SSH to insert per-client
+  `source: [<wg_ip>/32] -> hy2-uplink` rules for WG clients whose wg_cascade_transport
+  is 'hy2', keeping this proxy-out rule as the default. Outbounds are Ansible-owned.
+  See bot/packages/server/src/services/xray-uplink.service.ts.
+#}

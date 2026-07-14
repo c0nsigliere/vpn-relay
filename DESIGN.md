@@ -65,6 +65,23 @@ Server B больше не имеет WireGuard — только XRay.
 * XRay принимает VLESS+Reality, `freedom` outbound создаёт соединения с оригинальным dst
 * NAT через XRay на уровне приложения — iptables MASQUERADE на B не нужен
 
+**Phase 3 (WG cascade over Hy2) — per-client uplink transport, при `hy2_uplink_password`:**
+тот же TPROXY-путь, но транспорт A→B **выбирается для каждого WG-клиента**
+(`wg_cascade_transport` = `xray` | `hy2`). На A всегда присутствуют оба outbound'а:
+`proxy-out` (VLESS) и `hy2-uplink` (SOCKS `127.0.0.1:1080` → sing-box-КЛИЕНТ на A,
+release-бинарь роли `relay`, Hy2-outbound на `hy2_port/udp` Server B, статический юзер
+`wg-clients@hy2`, валидный LE-серт — без `insecure`). XRay роутит **по source-IP**: TPROXY
+сохраняет tunnel-IP клиента (10.66.0.x), правило `source: [ip/32] → hy2-uplink` выбирает
+Hy2 для конкретного клиента; дефолт — `proxy-out` (VLESS).
+
+Ansible кладёт БАЗОВЫЙ конфиг A (оба outbound'а + дефолт `proxy-out`); **бот (на B)
+переписывает ТОЛЬКО `routing.rules` конфига A по SSH** — вставляет per-client
+`source`-правила для клиентов с транспортом `hy2` и рестартит XRay на A. Outbound'ы
+(с Reality-pubkey и UUID) — Ansible-owned, бот их не трогает и секретов на A не добавляет.
+Правила active-agnostic (у suspended-клиента peer снят, правило инертно) → suspend/resume
+не рестартит A. Синхронизация — на create/edit-transport/delete WG-клиента и на старте бота
+(`xray-uplink.service.ts`). `proxy-out` сохранён для мгновенного отката всего каскада на VLESS.
+
 ---
 
 ## 2️⃣ XRay Access (Proxy plane)
@@ -100,8 +117,9 @@ Client → Server B :443/udp (sing-box Hysteria 2, salamander obfs)
 
 Second, independent data-plane on the exit node, co-existing with XRay
 (XRay 443/tcp, Hy2 443/udp — TCP and UDP on the same port do not conflict).
-Direct-only in phase 1 (no relay/cascade variant). Strong against DPI
-throughput-shaping because QUIC + salamander obfuscation hides the handshake.
+Available direct (client → B) and, in cascade mode, via a UDP relay through
+Server A (see §2.6). Strong against DPI throughput-shaping because QUIC +
+salamander obfuscation hides the handshake.
 
 * Service: `sing-box` (systemd), Hysteria 2 inbound, `443/udp`
 * Built **from source** with `with_v2ray_api` (release binaries omit it) — needed
@@ -118,6 +136,37 @@ throughput-shaping because QUIC + salamander obfuscation hides the handshake.
   XRay).
 * URI: `hysteria2://<pw>@<host>:443/?sni=<domain>&obfs=salamander&obfs-password=<obfs>#<tag>`
   (canonical slash before `?`).
+
+---
+
+## 2️⃣.6 Hysteria 2 Relay (UDP relay plane — phase 4)
+
+```
+Client → Server A :port_a_udp/udp
+        → DNAT + MASQUERADE (pure L4, no decryption)
+        → Server B :hy2_port/udp (sing-box Hysteria 2) → Internet
+```
+
+The UDP mirror of the VLESS relay (§2️⃣). A fifth connection method — additive,
+not a replacement: a Hy2 client can use its direct URI and its relay URI in
+parallel. The QUIC/TLS session terminates on B, so the Let's Encrypt cert stays
+valid and no `insecure` appears in the relay URI. Server A stays a dumb pipe: no
+Hy2 credentials, no cert, no sing-box.
+
+* **Ansible (`roles/relay`):** UDP `DNAT port_a_udp → server_b:port_b_udp` +
+  `MASQUERADE`, in both firewall modes (`ufw_keep.yml` `*nat` block / `iptables.yml`),
+  gated on `hy2_enabled`. `nf_conntrack_udp_timeout_stream` is raised so long-lived
+  QUIC sessions survive between keepalives. No MSS clamping (QUIC does PMTUD).
+* **Bot URIs:** `hysteriaService.generateUris()` returns `{ direct, relay }` —
+  `direct` dials `hy2_host:hy2_port`, `relay` dials `SERVER_A_HOST:port_a_udp`;
+  identical creds/obfs/SNI, only host:port and `#tag` differ. `relay` is `null` in
+  standalone. Both are shown/QR'd on create and on "Get Config".
+* **Route + real IP:** the sing-box log gives the source IP per client; if it is
+  Server A's IP, the connection is relay and its masqueraded UDP source port is
+  correlated against `conntrack -L -p udp --dst-nat` on A to recover the real
+  client IP (mirror of the VLESS-relay TCP correlation). `last_connection_route`
+  becomes `direct` or `relay`; stats/quotas/alerts are unchanged (all accounted on
+  B, keyed by user name, route-agnostic).
 
 ---
 
@@ -187,8 +236,11 @@ throughput-shaping because QUIC + salamander obfuscation hides the handshake.
 ### roles/relay
 
 * Только Server A
-* DNAT TCP (443 → B:8443)
-* MASQUERADE + FORWARD rules
+* DNAT TCP (`port_a_tcp` → B:`port_b_tcp`)
+* **DNAT UDP (`port_a_udp` → B:`port_b_udp`)** — Hy2 relay, phase 4, gated on
+  `hy2_enabled`; в обоих режимах firewall (`ufw_keep.yml` `*nat` / `iptables.yml`).
+  `nf_conntrack_udp_timeout_stream` поднят для долгих QUIC-сессий
+* MASQUERADE + FORWARD rules (TCP + UDP)
 * UFW keep mode
 * **XRay TPROXY client** — устанавливает XRay binary, пишет config из шаблона
   `xray-uplink-client.json.j2` (TPROXY inbound + VLESS+Reality outbound)
@@ -306,6 +358,8 @@ relay_servers:
 * xray_port (8443)
 * port_a_tcp (443)
 * port_b_tcp (derives from xray_port)
+* port_a_udp (443) — Hy2 relay entry on A (phase 4; only when hy2_enabled)
+* port_b_udp (derives from hy2_port) — Hy2 relay target on B (phase 4)
 * wg_clients_port (51888)
 * xray_tproxy_port (12345)
 * xray_tproxy_table (100)

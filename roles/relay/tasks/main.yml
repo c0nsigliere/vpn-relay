@@ -36,6 +36,12 @@
   tags:
     - iptables
 
+- name: Import sing-box uplink client tasks (WG cascade over Hy2 — phase 3)
+  ansible.builtin.import_tasks: singbox_uplink.yml
+  when: _hy2_uplink_active | default(false)
+  tags:
+    - hy2-uplink
+
 - name: Import XRay uplink client tasks
   ansible.builtin.import_tasks: xray_uplink.yml
   tags:

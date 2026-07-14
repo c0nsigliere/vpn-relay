@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { useTelegram } from "../hooks/useTelegram";
 import { createClient, fetchServersStatus } from "../api/client";
-import type { ClientType } from "@vpn-relay/shared";
+import type { ClientType, WgCascadeTransport } from "@vpn-relay/shared";
 
 const NAME_RE = /^[a-zA-Z0-9_]{1,32}$/;
 
@@ -17,8 +17,12 @@ const inputStyle: React.CSSProperties = {
 const ALL_CLIENT_TYPES: { value: ClientType; label: string; desc: string }[] = [
   { value: "xray", label: "XRay (VLESS)", desc: "VLESS+Reality — best for censored regions" },
   { value: "hysteria2", label: "Hysteria 2", desc: "UDP/QUIC — best against DPI throttling" },
-  { value: "wg", label: "WireGuard", desc: "Fast UDP tunnel — works everywhere" },
-  { value: "both", label: "Both", desc: "WireGuard + XRay in one" },
+  { value: "wg", label: "WireGuard", desc: "Fast UDP tunnel via the entry node (cascade)" },
+];
+
+const WG_TRANSPORTS: { value: WgCascadeTransport; label: string; desc: string }[] = [
+  { value: "xray", label: "via XRay uplink", desc: "A → B over VLESS+Reality (TCP)" },
+  { value: "hy2", label: "via Hy2 uplink", desc: "A → B over Hysteria 2 (UDP/QUIC)" },
 ];
 
 export function AddClient() {
@@ -32,6 +36,7 @@ export function AddClient() {
     staleTime: 60_000,
   });
   const isStandalone = statusData?.standalone === true;
+  const wgHy2Available = statusData?.wgHy2Available === true;
   // Standalone has no entry node → no WireGuard; only direct protocols.
   const CLIENT_TYPES = isStandalone
     ? ALL_CLIENT_TYPES.filter((ct) => ct.value === "xray" || ct.value === "hysteria2")
@@ -39,6 +44,7 @@ export function AddClient() {
 
   const [name, setName] = useState("");
   const [type, setType] = useState<ClientType>("xray");
+  const [wgTransport, setWgTransport] = useState<WgCascadeTransport>("xray");
   const [ttlDays, setTtlDays] = useState<string>("");
   const [dailyQuotaGb, setDailyQuotaGb] = useState<string>("");
   const [monthlyQuotaGb, setMonthlyQuotaGb] = useState<string>("");
@@ -56,6 +62,7 @@ export function AddClient() {
         ttlDays: ttlDays ? parseInt(ttlDays, 10) : undefined,
         dailyQuotaGb: dailyQuotaGb ? parseFloat(dailyQuotaGb) : undefined,
         monthlyQuotaGb: monthlyQuotaGb ? parseFloat(monthlyQuotaGb) : undefined,
+        wgCascadeTransport: type === "wg" ? wgTransport : undefined,
       }),
     onSuccess: (data) => {
       haptic.notification("success");
@@ -175,6 +182,39 @@ export function AddClient() {
           ))}
         </div>
       </div>
+
+      {/* WG cascade transport — only for WireGuard when the Hy2 uplink is available */}
+      {type === "wg" && wgHy2Available && (
+        <div className="mb-5">
+          <label className="block text-sm font-medium text-tg mb-2">
+            Cascade uplink (A → B)
+          </label>
+          <div className="space-y-2">
+            {WG_TRANSPORTS.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => setWgTransport(t.value)}
+                className="w-full text-left px-4 py-3 rounded-xl border-2 transition-colors bg-tg-secondary"
+                style={{
+                  borderColor: wgTransport === t.value ? "var(--tg-button)" : "var(--tg-section-separator)",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${
+                      wgTransport === t.value ? "border-tg-button bg-tg-button" : "border-tg-hint"
+                    }`}
+                  />
+                  <div>
+                    <div className="text-sm font-medium text-tg">{t.label}</div>
+                    <div className="text-xs text-tg-hint">{t.desc}</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* TTL (optional) */}
       <div className="mb-5">

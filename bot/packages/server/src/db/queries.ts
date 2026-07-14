@@ -33,9 +33,23 @@ export const queries = {
 
   insertClient(client: Omit<Client, "created_at" | "last_seen_at" | "last_ip" | "last_ip_isp" | "last_connection_route">): void {
     db.prepare(`
-      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, hy2_password, expires_at, is_active, daily_quota_gb, monthly_quota_gb)
-      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @hy2_password, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb)
+      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, hy2_password, expires_at, is_active, daily_quota_gb, monthly_quota_gb, wg_cascade_transport)
+      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @hy2_password, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb, @wg_cascade_transport)
     `).run(client);
+  },
+
+  updateClientTransport(id: string, transport: "xray" | "hy2"): void {
+    db.prepare("UPDATE clients SET wg_cascade_transport = ? WHERE id = ?").run(transport, id);
+  },
+
+  // Active-agnostic list of WG clients that route their cascade over Hy2. Used to
+  // rebuild Server A's XRay source-routing rules. Suspended clients are included
+  // (their WG peer is gone, so the rule is inert) so resume needs no A restart.
+  getWgHy2RouteClients(): Array<{ id: string; name: string; wg_ip: string }> {
+    return db.prepare(
+      `SELECT id, name, wg_ip FROM clients
+       WHERE type IN ('wg','both') AND wg_ip IS NOT NULL AND wg_cascade_transport = 'hy2'`
+    ).all() as Array<{ id: string; name: string; wg_ip: string }>;
   },
 
   deleteClient(id: string): void {

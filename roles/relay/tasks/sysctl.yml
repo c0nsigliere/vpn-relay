@@ -13,3 +13,29 @@
 # On Server A, wg_cascade owns rp_filter (must be 0 for TPROXY).
 # relay/sysctl.yml setting rp_filter=2 would override the wg_cascade value
 # because 99-vpn-relay.conf loads after 99-wg-cascade.conf alphabetically.
+
+# ── Hy2 relay (phase 4): keep long-lived QUIC/UDP conntrack entries alive ────
+# The UDP DNAT/MASQUERADE reply path depends on the conntrack entry surviving
+# between keepalives. The default nf_conntrack_udp_timeout_stream (120s) can be
+# shorter than a Hy2 client's idle keepalive, dropping the DNAT mapping. Raise it.
+- name: Ensure nf_conntrack module is loaded (Hy2 relay conntrack tuning)
+  community.general.modprobe:
+    name: nf_conntrack
+    state: present
+  when: hy2_enabled | default(false)
+
+- name: Persist nf_conntrack module load across reboots
+  ansible.builtin.copy:
+    content: "nf_conntrack\n"
+    dest: /etc/modules-load.d/vpn-relay-conntrack.conf
+    mode: '0644'
+  when: hy2_enabled | default(false)
+
+- name: Raise UDP-stream conntrack timeout for Hy2 relay sessions
+  ansible.posix.sysctl:
+    name: net.netfilter.nf_conntrack_udp_timeout_stream
+    value: '600'
+    sysctl_file: /etc/sysctl.d/99-vpn-relay.conf
+    reload: true
+    state: present
+  when: hy2_enabled | default(false)

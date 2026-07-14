@@ -33,6 +33,9 @@ Both modes use the same `stack.yml` playbook. The inventory determines what gets
   TPROXY forwards the decrypted client packets via VLESS+Reality, preserving original destination.
 - Server A's **SSH and main default route are never affected** (TPROXY only applies to wg-clients)
 - **Server B has no WireGuard** — XRay freedom outbound creates connections directly to the internet
+- **Per-client uplink transport** (when `hy2_uplink_password` is set): each WG client can take the
+  A→B hop over **XRay/VLESS** (default) or **Hysteria 2**. XRay on A routes by the client's WG
+  tunnel IP; the bot rewrites A's XRay `routing.rules` over SSH. Pick it at creation or toggle later.
 
 ### XRay L4 Relay + VLESS+Reality (parallel — TCP/VLESS)
 
@@ -64,7 +67,7 @@ Both modes use the same `stack.yml` playbook. The inventory determines what gets
 └──────────┘         └──────────────────────────────┘
 ```
 
-- Direct-only UDP/QUIC protocol, strong against DPI **throughput shaping**
+- UDP/QUIC protocol, strong against DPI **throughput shaping**
 - Runs alongside XRay on the exit node (XRay 443/tcp, Hy2 443/udp — no conflict)
 - `sing-box` built from source with `with_v2ray_api` for per-user stats
   (`roles/singbox_server/`); real Let's Encrypt cert via `roles/tls_cert/`
@@ -72,6 +75,27 @@ Both modes use the same `stack.yml` playbook. The inventory determines what gets
   `config.json` rebuilt from DB on every change
 - Managed by `playbooks/tls_cert.yml` + `playbooks/singbox.yml` (both fold into
   `stack.yml` automatically when `tma_domain`/`hy2_domain`/`hy2_enabled` are set)
+
+---
+
+### Hysteria 2 — Relay (cascade mode, `hy2_enabled`)
+
+```
+┌──────────┐         ┌──────────────────┐         ┌──────────────────┐
+│  Client  │ ──────> │   Server A       │ ──────> │   Server B       │
+│  Hy2 URI │  QUIC   │   (Relay)        │  QUIC   │ sing-box Hy2     │
+│ B's creds│ :port_a │ DNAT+MASQ (UDP)  │ :hy2_   │ salamander+LE    │
+│ A's IP   │  _udp   │ No keys/decrypt  │  port   │ terminates here  │
+└──────────┘         └──────────────────┘         └──────────────────┘
+```
+
+- Fifth connection method — the UDP mirror of the VLESS relay above
+- Server A does a pure L4 UDP DNAT of `port_a_udp` → `server_b:port_b_udp`; the
+  QUIC/TLS session terminates on B, so the cert stays valid (no `insecure`)
+- A holds no Hy2 credentials, cert, or sing-box — just the forwarding rule
+- Each Hy2 client gets a **direct** and a **relay** URI from the bot; `route`
+  (direct/relay) and the real client IP behind A are recovered via UDP conntrack
+- Enabled automatically in cascade deployments where `hy2_enabled` is set
 
 ---
 
@@ -355,7 +379,7 @@ ansible-playbook playbooks/verify_all.yml
 
 ## Variable Reference
 
-All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `xray_tproxy_port`, `xray_tproxy_table`) are defined in `all.yml` as the single source of truth. Per-group files override only non-port settings.
+All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `port_a_udp`, `port_b_udp`, `wg_clients_port`, `xray_tproxy_port`, `xray_tproxy_table`) are defined in `all.yml` as the single source of truth. Per-group files override only non-port settings.
 
 ### Shared (`all.yml`)
 
@@ -366,6 +390,8 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `xray_port` | `8443` | XRay VLESS+Reality port on B |
 | `port_a_tcp` | `443` | TCP relay entry port on A |
 | `port_b_tcp` | `{{ xray_port }}` | TCP relay target port on B |
+| `port_a_udp` | `443` | Hy2 UDP relay entry port on A (phase 4; only when `hy2_enabled`) |
+| `port_b_udp` | `{{ hy2_port }}` | Hy2 UDP relay target port on B (phase 4) |
 | `wg_clients_port` | `51888` | UDP port clients connect to on A |
 | `xray_tproxy_port` | `12345` | XRay TPROXY inbound port on A |
 | `xray_tproxy_table` | `100` | Routing table for TPROXY fwmark 0x1 |
@@ -377,6 +403,7 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `wg_clients_port`, `x
 | `singbox_version` | `1.13.14` | sing-box source tag (built with `with_v2ray_api`; latest stable) |
 | `singbox_v2ray_api_port` | `10086` | Loopback gRPC stats port (bot ↔ sing-box) |
 | `singbox_log_level` | `warn` | sing-box log level (phase 2 IP parsing needs `info`) |
+| `hy2_uplink_password` | `""` | Shared secret for the WG-over-Hy2 cascade uplink. Set → brings up a sing-box client on A + the `wg-clients@hy2` user on B, enabling the per-client WG→Hy2 transport. Empty → WG cascade uses VLESS only. |
 | `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |
 | `wan_if` | auto-detect | WAN interface override |
 | `do_dist_upgrade` | `false` | Enable dist-upgrade in maintenance |

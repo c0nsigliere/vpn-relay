@@ -64,7 +64,7 @@ export function ClientRow({ client, totalRx = 0, totalTx = 0, quota, standalone 
           <span className="text-xs text-tg-hint bg-tg-secondary px-1.5 py-0.5 rounded">
             {typeLabel}
           </span>
-          {!standalone && client.last_connection_route && (client.type === "xray" || client.type === "both") && (
+          {!standalone && client.last_connection_route && (client.type === "xray" || client.type === "both" || client.type === "hysteria2") && (
             <span
               className="text-xs px-1.5 py-0.5 rounded"
               style={{

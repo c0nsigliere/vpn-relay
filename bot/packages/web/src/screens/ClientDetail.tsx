@@ -15,7 +15,7 @@ import { useTelegram } from "../hooks/useTelegram";
 import {
   fetchClient, patchClient, deleteClient, sendConfig, renameClient,
   fetchTrafficHistory, fetchClientMonthly, fetchClientDaily, updateQuota, updateExpiry,
-  fetchServersStatus,
+  fetchServersStatus, setTransport,
 } from "../api/client";
 import { QuotaProgressBar } from "../components/QuotaProgressBar";
 import { formatBytesLong, formatMonth, formatDay, formatRelativeTime } from "../utils/format";
@@ -70,6 +70,7 @@ export function ClientDetail() {
     staleTime: 60_000,
   });
   const isStandalone = statusData?.standalone === true;
+  const wgHy2Available = statusData?.wgHy2Available === true;
 
   // Auto-dismiss "just created" toast & clear location state
   useEffect(() => {
@@ -107,6 +108,19 @@ export function ClientDetail() {
 
   const patchMutation = useMutation({
     mutationFn: (action: "suspend" | "resume") => patchClient(id!, { action }),
+    onSuccess: () => {
+      haptic.notification("success");
+      void queryClient.invalidateQueries({ queryKey: ["client", id] });
+      void queryClient.invalidateQueries({ queryKey: ["clients"] });
+    },
+    onError: (err: Error) => {
+      haptic.notification("error");
+      alert(err.message);
+    },
+  });
+
+  const transportMutation = useMutation({
+    mutationFn: (transport: "xray" | "hy2") => setTransport(id!, transport),
     onSuccess: () => {
       haptic.notification("success");
       void queryClient.invalidateQueries({ queryKey: ["client", id] });
@@ -339,7 +353,7 @@ export function ClientDetail() {
             </>
           )}
 
-          {!isStandalone && client.last_connection_route && (client.type === "xray" || client.type === "both") && (
+          {!isStandalone && client.last_connection_route && (client.type === "xray" || client.type === "both" || client.type === "hysteria2") && (
             <>
               <div className="text-tg-hint">Route</div>
               <div>
@@ -358,6 +372,24 @@ export function ClientDetail() {
 
           <div className="text-tg-hint">Type</div>
           <div className="text-tg">{typeLabel}</div>
+
+          {wgHy2Available && (client.type === "wg" || client.type === "both") && (
+            <>
+              <div className="text-tg-hint">Cascade uplink</div>
+              <div className="text-tg flex items-center gap-2">
+                <span>{client.wg_cascade_transport === "hy2" ? "Hysteria 2" : "XRay (VLESS)"}</span>
+                <button
+                  onClick={() =>
+                    transportMutation.mutate(client.wg_cascade_transport === "hy2" ? "xray" : "hy2")
+                  }
+                  disabled={transportMutation.isPending}
+                  className="text-xs px-2 py-0.5 rounded bg-tg-secondary text-tg-link disabled:opacity-50"
+                >
+                  → {client.wg_cascade_transport === "hy2" ? "XRay" : "Hy2"}
+                </button>
+              </div>
+            </>
+          )}
 
           {client.wg_ip && (
             <>

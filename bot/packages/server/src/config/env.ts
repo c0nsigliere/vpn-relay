@@ -34,6 +34,9 @@ const envSchema = z.object({
 
   // Server A relay port (TCP relay entry)
   SERVER_A_RELAY_PORT: z.string().transform(Number).pipe(z.number().int()).default("443"),
+  // Server A Hysteria 2 relay entry (UDP; port_a_udp). Mirrors SERVER_A_RELAY_PORT
+  // for the UDP/QUIC relay path. Unused in standalone (no relay URI).
+  SERVER_A_HY2_PORT: z.string().transform(Number).pipe(z.number().int()).default("443"),
 
   // Hysteria 2 (sing-box) — direct-only in phase 1. HY2_HOST may be a bare IP even
   // when HY2_DOMAIN is a real domain: Hy2 validates the cert by sni=, not by host.

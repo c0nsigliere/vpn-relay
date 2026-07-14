@@ -1,0 +1,144 @@
+---
+# Install sing-box on Server A as a Hysteria 2 UPLINK CLIENT for the WG cascade
+# (phase 3: WG-over-Hy2). A's XRay routes wg-clients traffic to a loopback SOCKS
+# inbound here; sing-box tunnels it to Server B's sing-box over Hy2/QUIC.
+#
+# Data path (phase 3):
+#   WG client → wg-clients (A) → TPROXY :xray_tproxy_port → XRay dokodemo
+#   → XRay socks outbound → 127.0.0.1:singbox_uplink_socks_port (this sing-box)
+#   → Hy2 outbound → server_b:hy2_port/udp (sing-box, user wg-clients@hy2) → internet
+#
+# A stays a dumb pipe: it holds only the shared uplink password (group_vars) and
+# B's obfs password (slurped) — never a private key or client secret. The LE cert
+# is validated by SNI, so no `insecure`.
+#
+# Unlike the exit node (roles/singbox_server), A's sing-box needs NO with_v2ray_api,
+# cert, or obfs generation — so we install the official RELEASE binary, not a build.
+
+- name: Assert hy2_uplink_password is set for the cascade uplink
+  ansible.builtin.assert:
+    that:
+      - hy2_uplink_password | default('') | length > 0
+    fail_msg: "hy2_uplink_password must be set (group_vars/all.yml) for the Hy2 cascade uplink"
+  no_log: true
+
+- name: Check installed sing-box version
+  ansible.builtin.command:
+    cmd: "{{ singbox_bin }} version"
+  register: _singbox_uplink_version_check
+  changed_when: false
+  failed_when: false
+
+# Server A (RU) usually cannot reach GitHub releases (DPI / SSL handshake timeout).
+# Reuse Server B's already-built sing-box binary instead: it is the same pinned
+# version and (on any real cascade) the same architecture, and the binary is a
+# static CGO_ENABLED=0 build, so it is portable. B is fetched via the controller
+# (fetch → copy), so this works regardless of GitHub reachability on A or the
+# controller. B's binary carries with_v2ray_api; harmless dead weight on a client.
+- name: Install sing-box binary on Server A (reuse Server B's build)
+  when: >-
+    _singbox_uplink_version_check.rc != 0
+    or singbox_version not in _singbox_uplink_version_check.stdout
+  block:
+    - name: Get Server B CPU architecture
+      ansible.builtin.command:
+        cmd: uname -m
+      register: _singbox_b_arch
+      changed_when: false
+      delegate_to: "{{ groups['xray_servers'][0] }}"
+
+    - name: Assert Server A and Server B share CPU architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture == _singbox_b_arch.stdout
+        fail_msg: >-
+          Server A ({{ ansible_architecture }}) and Server B ({{ _singbox_b_arch.stdout }})
+          have different architectures — cannot reuse B's sing-box binary. Install a
+          matching sing-box {{ singbox_version }} binary on Server A manually.
+
+    - name: Verify Server B's sing-box is the pinned version
+      ansible.builtin.command:
+        cmd: "{{ singbox_bin }} version"
+      register: _singbox_b_version
+      changed_when: false
+      delegate_to: "{{ groups['xray_servers'][0] }}"
+
+    - name: Assert Server B carries the expected sing-box version
+      ansible.builtin.assert:
+        that:
+          - singbox_version in _singbox_b_version.stdout
+        fail_msg: "Server B's sing-box is not {{ singbox_version }} — deploy the exit node (singbox.yml) first."
+
+    - name: Fetch sing-box binary from Server B to the controller
+      ansible.builtin.fetch:
+        src: "{{ singbox_bin }}"
+        dest: "/tmp/vpn-relay-singbox-{{ singbox_version }}.bin"
+        flat: true
+      delegate_to: "{{ groups['xray_servers'][0] }}"
+
+    - name: Install sing-box binary on Server A
+      ansible.builtin.copy:
+        src: "/tmp/vpn-relay-singbox-{{ singbox_version }}.bin"
+        dest: "{{ singbox_bin }}"
+        mode: '0755'
+        owner: root
+        group: root
+      notify: restart sing-box
+
+    - name: Clean up fetched binary from the controller
+      ansible.builtin.file:
+        path: "/tmp/vpn-relay-singbox-{{ singbox_version }}.bin"
+        state: absent
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+# Read B's salamander obfs password — same secret both ends. Only the obfs
+# password ever leaves B (never a private key); secret-isolation invariant holds.
+- name: Read sing-box obfs password from Server B
+  ansible.builtin.slurp:
+    src: "{{ singbox_obfs_file }}"
+  register: _singbox_uplink_obfs_slurp
+  delegate_to: "{{ groups['xray_servers'][0] }}"
+  no_log: true
+
+- name: Set sing-box uplink obfs fact
+  ansible.builtin.set_fact:
+    _singbox_uplink_obfs_password: "{{ _singbox_uplink_obfs_slurp.content | b64decode | trim }}"
+  no_log: true
+
+- name: Ensure sing-box config directory exists
+  ansible.builtin.file:
+    path: "{{ singbox_config_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Template sing-box uplink client config
+  ansible.builtin.template:
+    src: singbox-uplink-client.json.j2
+    dest: "{{ singbox_config_file }}"
+    mode: '0600'
+    owner: root
+    group: root
+  notify: restart sing-box
+  no_log: true
+
+- name: Template sing-box systemd service unit
+  ansible.builtin.template:
+    src: sing-box.service.j2
+    dest: /etc/systemd/system/sing-box.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - reload systemd
+    - restart sing-box
+
+- name: Enable and start sing-box uplink service
+  ansible.builtin.systemd:
+    name: sing-box
+    enabled: true
+    state: started
+    daemon_reload: true
