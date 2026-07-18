@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { Layout } from "../components/Layout";
 import { ServerTrafficChart } from "../components/ServerTrafficChart";
+import { MaintenanceCard } from "../components/MaintenanceCard";
 import { fetchServersStatus, fetchServerTraffic, fetchServerMonthly, fetchServerDaily } from "../api/client";
 import { formatBytesLong, formatMonth, formatDay } from "../utils/format";
 import { countryToFlag, countryName } from "../utils/country";
@@ -260,6 +261,10 @@ export function ServerDetail() {
           </div>
         </div>
       ) : null}
+
+      {/* On-demand update / reboot. Kept in its own component: this screen is otherwise
+          read-only, and all the mutation state belongs with the buttons. */}
+      <MaintenanceCard serverId={serverId} />
 
       {/* Network Speed chart */}
       <div className="bg-tg-secondary rounded-xl p-4">

@@ -5,6 +5,7 @@ import { systemService } from "../../services/system.service";
 import { hysteriaService } from "../../services/hysteria.service";
 import { isStandalone } from "../../config/standalone";
 import { env } from "../../config/env";
+import { maintenanceButtons, maintenanceStatusLine } from "./maintenance";
 
 function isServiceActive(name: string): boolean {
   try {
@@ -57,19 +58,37 @@ export async function showServerStatus(ctx: BotContext): Promise<void> {
 
     const sections = ["📊 *Server Status*\n"];
 
+    // maintenanceStatusLine() is empty when a server has never had a job — append it
+    // to the server's own block so the blank-line separators below stay meaningful.
+    const withMaintenance = (block: string, server: "a" | "b"): string => {
+      const line = maintenanceStatusLine(server);
+      return line ? `${block}\n${line}` : block;
+    };
+
     if (!isStandalone) {
       const statusA = await Promise.allSettled([systemService.getStatusA()]);
-      sections.push(`*Server A (entry)*\n${formatStatus(statusA[0], "Unreachable")}`, "");
+      sections.push(
+        withMaintenance(`*Server A (entry)*\n${formatStatus(statusA[0], "Unreachable")}`, "a"),
+        ""
+      );
     }
 
-    sections.push(`*Server${isStandalone ? "" : " B"} (exit — this host)*\n${fmtB}`);
+    sections.push(
+      withMaintenance(`*Server${isStandalone ? "" : " B"} (exit — this host)*\n${fmtB}`, "b")
+    );
     sections.push("", `*Services (exit)*\n${await formatExitServices()}`);
+
+    // Maintenance actions: Server A only exists in cascade mode.
+    const kb = new InlineKeyboard();
+    if (!isStandalone) maintenanceButtons(kb, "a");
+    maintenanceButtons(kb, "b");
+    kb.row()
+      .text("🔄 Refresh", "menu:server_status")
+      .text("« Back", "menu:main");
 
     await ctx.editMessageText(sections.join("\n"), {
       parse_mode: "Markdown",
-      reply_markup: new InlineKeyboard()
-        .text("🔄 Refresh", "menu:server_status")
-        .text("« Back", "menu:main"),
+      reply_markup: kb,
     });
   } catch (err) {
     await ctx.editMessageText(`❌ Error: ${(err as Error).message}`, {

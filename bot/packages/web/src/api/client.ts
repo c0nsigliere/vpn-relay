@@ -18,6 +18,9 @@ import type {
   AlertSetting,
   AlertSettingsResponse,
   PatchAlertSettingRequest,
+  MaintenanceAction,
+  MaintenanceJob,
+  MaintenanceStatusResponse,
 } from "@vpn-relay/shared";
 
 function getInitData(): string {
@@ -180,6 +183,19 @@ export function fetchServerDaily(serverId: ServerId): Promise<{ serverId: Server
 
 export function fetchClientDaily(clientId: string): Promise<{ clientId: string; history: DailyTraffic[] }> {
   return apiFetch(`/api/clients/${clientId}/daily`);
+}
+
+// ─── Maintenance ──────────────────────────────────────────────────────────────
+
+export function fetchMaintenance(serverId: ServerId): Promise<MaintenanceStatusResponse> {
+  return apiFetch<MaintenanceStatusResponse>(`/api/servers/${serverId}/maintenance`);
+}
+
+export function startMaintenance(serverId: ServerId, action: MaintenanceAction): Promise<{ job: MaintenanceJob }> {
+  return apiFetch<{ job: MaintenanceJob }>(`/api/servers/${serverId}/maintenance`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
 }
 
 // ─── Alert settings ───────────────────────────────────────────────────────────

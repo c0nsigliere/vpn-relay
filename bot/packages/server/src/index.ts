@@ -11,6 +11,7 @@ import { handleAddClientCallback } from "./bot/menus/add-client";
 import { showClientList } from "./bot/menus/client-list";
 import { showClientCard, handleClientCardCallback } from "./bot/menus/client-card";
 import { showServerStatus } from "./bot/menus/server-status";
+import { handleMaintenanceCallback } from "./bot/menus/maintenance";
 import { showSettings, handleSettingsCallback } from "./bot/menus/settings";
 import { textInputHandler } from "./bot/handlers/text-input";
 import { trafficWorker } from "./workers/traffic.worker";
@@ -20,6 +21,7 @@ import { updatesWorker } from "./workers/updates.worker";
 import { rollupWorker } from "./workers/rollup.worker";
 import { quotaWorker } from "./workers/quota.worker";
 import { alertWorker } from "./workers/alert.worker";
+import { maintenanceWorker } from "./workers/maintenance.worker";
 import { sshPool } from "./services/ssh";
 import { xrayService } from "./services/xray.service";
 import { hysteriaService } from "./services/hysteria.service";
@@ -104,6 +106,11 @@ bot.on("callback_query:data", async (ctx) => {
     return;
   }
 
+  if (data.startsWith("maint:")) {
+    await handleMaintenanceCallback(ctx);
+    return;
+  }
+
   await ctx.answerCallbackQuery("Unknown action");
 });
 
@@ -148,6 +155,9 @@ const workers = [
   rollupWorker(),
   quotaWorker(bot),
   alertWorker(bot),
+  // Reconciles any job left in flight by the last shutdown (including a reboot of this
+  // very host) before its first tick — see maintenance.worker.ts.
+  maintenanceWorker(bot),
 ];
 
 // Register BotFather menu button if TMA_URL is configured

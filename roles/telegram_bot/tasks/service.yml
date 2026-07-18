@@ -1,4 +1,16 @@
 ---
+# The maintenance path units below are useless without the helper script they exec.
+# deploy_bot.yml runs this role alone, so pull the agent in from roles/maintenance
+# here. import_role (not include_tasks by path) is deliberate: it loads that role's
+# defaults — maintenance_apt_lock_timeout / maintenance_job_retention — which the
+# helper template needs, and being static it propagates these tags to the imported
+# tasks without an `apply:` block.
+- name: Ensure the maintenance agent is installed (shared with roles/maintenance)
+  import_role:
+    name: maintenance
+    tasks_from: agent
+  tags: [service, bot]
+
 - name: Install vpn-bot systemd service
   template:
     src: vpn-bot.service.j2
@@ -69,6 +81,40 @@
     state: started
     daemon_reload: true
   when: hy2_enabled | default(false) | bool
+  tags: [service, bot]
+
+# On-demand maintenance — one path+oneshot pair per action. The action is encoded in
+# the trigger filename AND in the unit's ExecStart, so the allowlist is enforced by
+# systemd topology: root never parses an action string supplied by the bot.
+- name: Install vpn-maintenance oneshot services (one per action)
+  template:
+    src: vpn-maintenance.service.j2
+    dest: "/etc/systemd/system/vpn-maintenance-{{ item }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ bot_maintenance_actions }}"
+  notify: reload systemd
+  tags: [service, bot]
+
+- name: Install vpn-maintenance path units (watch {{ maintenance_trigger_dir }}/req-<action>)
+  template:
+    src: vpn-maintenance.path.j2
+    dest: "/etc/systemd/system/vpn-maintenance-{{ item }}.path"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ bot_maintenance_actions }}"
+  notify: reload systemd
+  tags: [service, bot]
+
+- name: Enable and start vpn-maintenance path units
+  systemd:
+    name: "vpn-maintenance-{{ item }}.path"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: "{{ bot_maintenance_actions }}"
   tags: [service, bot]
 
 - name: Enable and start vpn-bot service

@@ -1,0 +1,150 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# vpn-maintenance -- imperative twin of roles/maintenance/tasks/update.yml.
+#
+# Runs as root. Two launch paths:
+#   Server B: systemd path unit (vpn-maintenance-<action>.path) fires when the
+#             unprivileged bot creates {{ maintenance_trigger_dir }}/req-<action>.
+#             The job id is read from that file.
+#   Server A: systemd-run over SSH, with the job id passed in $VPN_MAINT_JOB.
+#
+# The action is NEVER read from a bot-writable file -- it arrives as argv[1] from
+# the unit's own ExecStart. The only value root takes from the bot is the job id,
+# which is opened O_NOFOLLOW and filtered down to 32 hex chars.
+#
+# Not using `set -e`: apt failures are handled explicitly so that each phase can
+# record its own state before exiting.
+set -u -o pipefail
+umask 022
+
+STATE_DIR="{{ maintenance_state_dir }}"
+TRIGGER_DIR="{{ maintenance_trigger_dir }}"
+JOBS_DIR="$STATE_DIR/jobs"
+RETENTION="{{ maintenance_job_retention }}"
+
+ACTION="${1:-}"
+case "$ACTION" in update|update-reboot|reboot) ;; *) exit 64 ;; esac
+
+TRIGGER="$TRIGGER_DIR/req-$ACTION"
+
+JOB_ID="${VPN_MAINT_JOB:-}"                     # Server A path
+if [ -z "$JOB_ID" ] && [ -e "$TRIGGER" ]; then  # Server B path
+  # O_NOFOLLOW open = atomic symlink rejection. bash cannot open a file this way,
+  # and a `[ -L ]` test first would leave a check-then-read TOCTOU window in which
+  # the bot could swap the file for a symlink and make root read something else.
+  # python3 is guaranteed on both hosts (every inventory pins ansible_python_interpreter).
+  JOB_ID="$(python3 -c '
+import os, re, sys
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+except OSError:
+    sys.exit(1)
+data = os.read(fd, 64).decode("ascii", "ignore")
+os.close(fd)
+sys.stdout.write(re.sub(r"[^0-9a-f]", "", data))
+' "$TRIGGER" 2>/dev/null)" || JOB_ID=""
+fi
+
+# Eat the trigger FIRST. A helper crash must never leave a file behind that would
+# re-arm the path unit -- on B that would mean a reboot loop after `reboot`.
+# `rm` unlinks without dereferencing, so a symlink here is harmless.
+rm -f -- "$TRIGGER"
+
+# Never echo untrusted content back out.
+# NB: a regex, not a bash string-length test — this file is an Ansible template, and
+# the brace-hash sequence that a length expansion needs opens a Jinja comment tag.
+[[ "$JOB_ID" =~ ^[0-9a-f]{32}$ ]] || exit 66
+
+JOB_JSON="$JOBS_DIR/$JOB_ID.json"
+JOB_LOG="$JOBS_DIR/$JOB_ID.log"
+BOOT_ID="$(cat /proc/sys/kernel/random/boot_id)"
+STARTED_AT="$(date +%s)"
+UPGRADED=0
+PKGS=""
+RC=0
+
+# write_state <status> <phase> [exit_code]
+# Atomic: mktemp + mv inside the root-owned jobs dir, never through a bot-writable path.
+write_state() {
+  local status="$1" phase="$2" code="${3:-null}" fin="null" reboot_req=false tmp
+  [ -f /var/run/reboot-required ] && reboot_req=true
+  case "$status" in succeeded|failed) fin="$(date +%s)" ;; esac
+  tmp="$(mktemp "$JOBS_DIR/.state.XXXXXX")"
+  printf '{"schema":1,"job_id":"%s","action":"%s","status":"%s","phase":"%s","boot_id":"%s","started_at":%s,"finished_at":%s,"exit_code":%s,"reboot_required":%s,"upgraded":%s,"packages":"%s"}\n' \
+    "$JOB_ID" "$ACTION" "$status" "$phase" "$BOOT_ID" "$STARTED_AT" "$fin" "$code" \
+    "$reboot_req" "$UPGRADED" "$PKGS" > "$tmp"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$JOB_JSON"
+}
+
+# Keep the RETENTION most recent jobs (and their logs).
+prune_jobs() {
+  ls -1t "$JOBS_DIR"/*.json 2>/dev/null | tail -n +$((RETENTION + 1)) | while read -r f; do
+    rm -f -- "$f" "${f%.json}.log"
+  done
+}
+
+# Replay guard: a job id that already reached a terminal state never runs again.
+# Closes the "stale trigger re-fires an old job" class of bug for good.
+[ -f "$JOB_JSON" ] && grep -qE '"status":"(succeeded|failed)"' "$JOB_JSON" && exit 0
+
+exec 9>"$STATE_DIR/lock"
+flock -n 9 || { write_state failed busy 100; exit 100; }
+
+# From here on every exit path prunes -- including the apt failure paths.
+trap prune_jobs EXIT
+
+exec >>"$JOB_LOG" 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+# needrestart ignores DEBIAN_FRONTEND on Ubuntu 22.04/24.04 and would happily
+# restart vpn-bot.service out from under this very job. `l` = list only.
+export NEEDRESTART_MODE=l
+
+APT=(-y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+     -o DPkg::Lock::Timeout={{ maintenance_apt_lock_timeout }})
+
+if [ "$ACTION" != "reboot" ]; then
+  write_state running preflight
+  dpkg --configure -a || true          # finish any dpkg run interrupted earlier
+
+  write_state running apt-update
+  # NB: `if ! cmd; then RC=$?` would capture the status of the `!`, which is always 0.
+  # Run the command bare and read $? straight away.
+  apt-get "${APT[@]}" update; RC=$?
+  if [ "$RC" -ne 0 ]; then
+    write_state failed apt-update "$RC"
+    exit "$RC"
+  fi
+
+  # Package names/versions are JSON-safe by charset; sanitize defensively anyway.
+  # Count from the full list, then truncate -- a dist-upgrade can list hundreds.
+  pkgs_full="$(apt-get -s dist-upgrade | awk '/^Inst /{print $2}' | tr '\n' ' ' | tr -cd 'a-zA-Z0-9.+:~ -')"
+  UPGRADED="$(printf '%s' "$pkgs_full" | wc -w)"
+  PKGS="$(printf '%s' "$pkgs_full" | cut -c1-2000)"
+
+  write_state running dist-upgrade
+  apt-get "${APT[@]}" dist-upgrade; RC=$?
+  if [ "$RC" -ne 0 ]; then
+    write_state failed dist-upgrade "$RC"
+    exit "$RC"
+  fi
+
+  write_state running clean
+  apt-get "${APT[@]}" clean || true
+fi
+
+NEED=0
+[ "$ACTION" = "reboot" ] && NEED=1
+[ "$ACTION" = "update-reboot" ] && [ -f /var/run/reboot-required ] && NEED=1
+
+if [ "$NEED" -eq 1 ]; then
+  write_state rebooting rebooting 0
+  sync
+  sleep 10                     # window for the bot's worker (3s tick) to observe and notify
+  systemctl --no-block reboot  # --no-block: do not deadlock on our own unit's stop-job
+  exit 0
+fi
+
+write_state succeeded done 0

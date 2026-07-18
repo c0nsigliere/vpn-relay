@@ -1,0 +1,36 @@
+---
+# On-demand maintenance agent: the root helper the bot triggers to run
+# apt / reboot without holding any privileges itself.
+#
+# Installed on BOTH servers:
+#   Server B - launched by the vpn-maintenance-<action>.path units that
+#              roles/telegram_bot installs alongside the unprivileged bot.
+#   Server A - launched by the bot over SSH via systemd-run.
+#
+# roles/telegram_bot imports this file directly (import_role tasks_from: agent),
+# so that deploy_bot.yml -- which runs telegram_bot alone -- never installs the
+# path units without the script behind them.
+#
+# Tags: agent, maintenance
+
+- name: Create maintenance state directory
+  ansible.builtin.file:
+    path: "{{ maintenance_state_dir }}/jobs"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - agent
+    - maintenance
+
+- name: Install the vpn-maintenance helper
+  ansible.builtin.template:
+    src: vpn-maintenance.j2
+    dest: "{{ maintenance_agent_bin }}"
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - agent
+    - maintenance

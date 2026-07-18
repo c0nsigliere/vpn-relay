@@ -43,6 +43,13 @@ xray_sni: "www.googletagmanager.com"
 xray_fingerprint: "chrome"
 xray_flow: "xtls-rprx-vision"
 
+# On-demand maintenance actions. One systemd path+oneshot pair is rendered per entry;
+# the action is part of the unit's ExecStart, so this list IS the root allowlist.
+bot_maintenance_actions:
+  - update
+  - update-reboot
+  - reboot
+
 # TMA (Telegram Mini App) — leave empty to disable
 tma_domain: ""
 tma_https_port: 8444

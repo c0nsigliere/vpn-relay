@@ -256,6 +256,8 @@ Hy2 credentials, no cert, no sing-box.
 * unattended-upgrades with systemd resource limits (MemoryHigh/MemoryMax tiered by RAM)
 * update / upgrade
 * reboot-if-needed
+* on-demand maintenance agent (`/usr/local/sbin/vpn-maintenance`, тег `agent`) — root-хелпер,
+  который бот дёргает для apt/reboot по кнопке (см. § On-demand Maintenance)
 * health (ip_forward, rp_filter, UFW, fail2ban jail status)
 
 ---
@@ -473,7 +475,8 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 - `charts.service.ts` — chartjs-node-canvas traffic PNG
 - `qr.service.ts` — QR code PNG for VLESS URIs
 - `system.service.ts` — CPU/RAM/disk/uptime via /proc + SSH
-- `metrics.cache.ts` — 20s TTL cache for system.service calls (prevents throughput delta double-read)
+- `metrics.cache.ts` — 20s TTL cache for system.service calls (prevents throughput delta double-read). `invalidate(server)` drops a slot after an update so the "N upd" badge zeroes immediately (promise-identity guard keeps an in-flight fetch from re-pinning stale data)
+- `maintenance.service.ts` — on-demand update/reboot: starts a job (trigger file on B, `systemd-run` on A), probes the root helper's state file, and reconciles jobs after a restart via `boot_id` (see § On-demand Maintenance)
 - `ip-info.service.ts` — ISP lookup via ip-api.com batch endpoint, in-memory cache (re-lookup only on IP change)
 - `xray-log.service.ts` — parses XRay access log (`/var/log/xray/access.log`) for last client IP per email tag; filters out `wg-clients@xray` and Server A relay IP
 
@@ -488,6 +491,7 @@ Bot (Server B) ─── gRPC :10085 ──► XRay (local)
 - `quota.worker.ts` — 1min: enforce daily/monthly quotas, daily/monthly reset
 - `rollup.worker.ts` — nightly: move old snapshots → *_traffic_monthly tables
 - `alert.worker.ts` — 30s (90s delayed start): evaluate all alert conditions (see § Alert System)
+- `maintenance.worker.ts` — 3s (no-op unless a job is in flight): mirror the root helper's job state into the DB, stall detection, reboot tracking by `boot_id`, Telegram transitions. Reconciles jobs left in flight by the previous shutdown before its first tick (see § On-demand Maintenance)
 
 **Security:**
 - `vpn-bot` system user, no shell, data in `/var/lib/vpn-bot/`
@@ -633,6 +637,80 @@ Composite keys (`disk_full:a`, `quota_warning:{client_id}`) give independent coo
 **API:** `GET /api/settings/alerts`, `PATCH /api/settings/alerts/:key`
 
 **TMA Settings page:** grouped cards (Critical / Warning / Info) with toggle + expandable threshold fields. Saved on blur via React Query mutation.
+
+---
+
+## 7️⃣ On-demand Maintenance (Update / Reboot from bot & TMA)
+
+Update и Reboot по кнопке — из TMA (`/server/:id`) и из inline-меню бота. Кнопка запускает
+`/usr/local/sbin/vpn-maintenance` — императивный двойник `roles/maintenance/tasks/update.yml`
+(`apt-get update` → `dist-upgrade` c `autoremove: false` → `clean`). Ansible остаётся источником
+истины для эталонной архитектуры; гонка между ними безопасна — обе идут через apt lock.
+
+**Ключевая проблема: бот на B непривилегированный** (`NoNewPrivileges=true`, `ProtectSystem=strict`,
+sudoers в репозитории нет) и не может запустить apt. Отсюда два разных канала эскалации:
+
+```
+Server B (свой хост, бот без прав)          Server A (удалённый, бот = root по SSH)
+─────────────────────────────────           ─────────────────────────────────────
+bot → /run/vpn-maintenance/req-<action>      bot → ssh: systemd-run --unit=vpn-maint-<id>
+        │  (tmpfs, владелец vpn-bot)                  │  --setenv=VPN_MAINT_JOB=<id>
+        ▼                                             ▼
+vpn-maintenance-<action>.path                 transient unit на системном менеджере A
+        │  PathExists=                                │
+        ▼                                             │  detach обязателен: при обрыве SSH
+vpn-maintenance-<action>.service              ───────┘  sshd убил бы apt посреди dpkg
+  Type=oneshot, TimeoutStartSec=3600
+        │
+        ▼
+/usr/local/sbin/vpn-maintenance <action>   (root)
+        │
+        └──► /var/lib/vpn-maintenance/jobs/<id>.{json,log}   ← persistent, root-only
+```
+
+**Действие закодировано в имени файла-триггера и в `ExecStart` юнита, никогда в содержимом
+файла.** Allowlist обеспечивается топологией systemd — root не парсит строку действия,
+пришедшую от непривилегированного процесса. Единственное, что root читает из bot-writable
+файла, — 32-hex job id, открытый с `O_NOFOLLOW` (атомарный отказ по симлинку) и отфильтрованный
+регуляркой.
+
+**Две директории — намеренно:**
+- `/run/vpn-maintenance` (**tmpfs**) — триггеры. Триггер, переживший ребут, повторно поднял бы
+  `.path`-юнит при загрузке → для `reboot` это **цикл перезагрузок**. Хелпер к тому же съедает
+  триггер первым действием, поэтому его падение не оставляет «взведённый» файл.
+- `/var/lib/vpn-maintenance/jobs/` (**диск**) — статус переживает ребут. Именно это позволяет
+  отчитаться о перезагрузке **собственного** хоста: бот умирает вместе с сервером, а после
+  старта сверяет `boot_id` из файла с текущим.
+
+**`boot_id` — несущая конструкция.** Он отличает «задача всё ещё идёт» от «машина
+перезагрузилась под задачей»: для A worker'ом (опрос), для B — startup-реконсиляцией.
+
+**`maintenance_jobs`** (DB) — зеркало файла состояния плюс «кто и когда попросил».
+Частичный уникальный индекс `ON (server_id) WHERE status IN ('queued','running','rebooting')` —
+и есть настоящая гарантия «одна задача на сервер»: переживает рестарт бота, не требует
+in-memory мьютекса и одинаково закрывает оба входа (TMA и меню бота).
+
+**Защита от двойного нажатия — 5 слоёв:** disabled-кнопки в UI → перепроверка в обработчике
+меню → **уникальный индекс (HTTP 409)** → `flock -n` на уровне ОС → replay guard в хелпере
+(job id, дошедший до терминального статуса, не запускается повторно).
+
+**Подавление алертов.** Пока задача активна (и 3 минуты после — `wg-quick` может ещё
+подниматься), для этого сервера глушатся `cascade_down`, `cascade_degradation`,
+`service_dead_wg/xray/singbox`, `cpu_overload`; `reboot_detected` глушится по `reboot_at`
+в окне 15 минут. **`disk_full` не глушится намеренно** — забитый `/boot` это ровно тот отказ,
+который апгрейд и вскрывает.
+
+**Сервисы/воркеры:** `services/maintenance.service.ts` (старт, probe, реконсиляция),
+`workers/maintenance.worker.ts` (тик 3с, зеркалирование, stall detection, уведомления;
+реконсиляция — внутри фабрики до первого тика).
+
+**API:** `POST /api/servers/:id/maintenance` → 202 (400/409/502), `GET /api/servers/:id/maintenance`
+→ `{active, last}` (**только БД** — TMA опрашивает раз в 2с, SSH тут был бы штормом).
+
+**Ansible:** хелпер — `roles/maintenance` (тег `agent`, ставится на A и B), path-юниты —
+`roles/telegram_bot` (роль, создающая непривилегированный принципал, владеет его каналом
+эскалации). `telegram_bot` импортирует `maintenance/tasks/agent.yml`, поэтому `deploy_bot.yml`
+не может поставить юниты без скрипта за ними.
 
 ---
 

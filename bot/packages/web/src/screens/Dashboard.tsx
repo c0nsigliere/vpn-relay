@@ -28,6 +28,7 @@ export function Dashboard() {
             status={isLoading ? undefined : data?.serverA}
             sparklineData={data?.trafficSparklineA}
             trafficTotal24h={data?.trafficTotal24hA}
+            maintenance={data?.maintenanceA}
             onClick={() => { haptic.impact("light"); navigate("/server/a"); }}
           />
         )}
@@ -37,6 +38,7 @@ export function Dashboard() {
           status={isLoading ? undefined : data?.serverB}
           sparklineData={data?.trafficSparklineB}
           trafficTotal24h={data?.trafficTotal24hB}
+          maintenance={data?.maintenanceB}
           onClick={() => { haptic.impact("light"); navigate("/server/b"); }}
         />
       </div>

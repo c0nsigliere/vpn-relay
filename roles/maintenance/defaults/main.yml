@@ -19,6 +19,17 @@ manage_unattended_upgrades: "true"
 # Override at runtime: -e "maintenance_reboot=false"
 maintenance_reboot: true
 
+# --- On-demand maintenance agent (bot/TMA-triggered apt + reboot) ---
+# The three paths (maintenance_agent_bin / _state_dir / _trigger_dir) are shared
+# with roles/telegram_bot and therefore live in group_vars/all.yml, not here.
+
+# How long apt waits for a lock held by unattended-upgrades before giving up.
+# 600s comfortably outlasts a typical unattended security run.
+maintenance_apt_lock_timeout: 600
+
+# How many finished jobs (status JSON + log) to keep in maintenance_state_dir/jobs.
+maintenance_job_retention: 20
+
 # Manage fail2ban SSH brute-force protection:
 #   "true"  - Install + configure SSH jail + enable service.
 #   "false" - Stop + disable + remove config.

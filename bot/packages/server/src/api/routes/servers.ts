@@ -5,7 +5,17 @@ import { queries } from "../../db/queries";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
 import { env } from "../../config/env";
 import { isStandalone, wgHy2Available } from "../../config/standalone";
-import type { ServerId, ServerTrafficResponse } from "@vpn-relay/shared";
+import {
+  maintenanceService,
+  MaintenanceError,
+  MAINTENANCE_ACTIONS,
+} from "../../services/maintenance.service";
+import type {
+  MaintenanceStatusResponse,
+  ServerId,
+  ServerTrafficResponse,
+  StartMaintenanceRequest,
+} from "@vpn-relay/shared";
 
 const PERIOD_LIMITS: Record<string, number> = {
   "24h": 144,
@@ -61,6 +71,9 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
       trafficTotal24hB: { rx: totals24hB.totalRx, tx: totals24hB.totalTx },
       standalone: isStandalone,
       wgHy2Available,
+      // Active job only — feeds the read-only progress pill on the dashboard cards,
+      // so they need no query of their own.
+      maintenanceB: maintenanceService.getActiveJob("b"),
     };
 
     if (!isStandalone) {
@@ -68,10 +81,60 @@ export async function serversRoutes(app: FastifyInstance): Promise<void> {
       response.trafficSparklineA = downsample(rawA, 24).map((s) => ({ ts: s.ts, rx: s.rx, tx: s.tx }));
       const totals24hA = queries.getServerTrafficTotals24hById("a");
       response.trafficTotal24hA = { rx: totals24hA.totalRx, tx: totals24hA.totalTx };
+      response.maintenanceA = maintenanceService.getActiveJob("a");
     }
 
     return reply.send(response);
   });
+
+  // ── Maintenance (on-demand update / reboot) ────────────────────────────────
+
+  // GET /api/servers/:id/maintenance
+  // DB-only by design: the TMA polls this every 2s while a job runs, and the worker
+  // is what talks to the hosts. Reading SSH here would turn a poll into an SSH storm.
+  app.get<{ Params: { id: string } }>(
+    "/api/servers/:id/maintenance",
+    async (req, reply) => {
+      const id = req.params.id as ServerId;
+      if (id !== "a" && id !== "b") {
+        return reply.status(404).send({ error: "Unknown server id" });
+      }
+      const response: MaintenanceStatusResponse = {
+        active: maintenanceService.getActiveJob(id),
+        last: maintenanceService.getLastJob(id),
+      };
+      return reply.send(response);
+    }
+  );
+
+  // POST /api/servers/:id/maintenance  { action }
+  app.post<{ Params: { id: string }; Body: StartMaintenanceRequest }>(
+    "/api/servers/:id/maintenance",
+    async (req, reply) => {
+      const id = req.params.id as ServerId;
+      if (id !== "a" && id !== "b") {
+        return reply.status(404).send({ error: "Unknown server id" });
+      }
+
+      const { action } = req.body ?? {};
+      if (!action || !MAINTENANCE_ACTIONS.includes(action)) {
+        return reply.status(400).send({
+          error: `Unknown action. Expected one of: ${MAINTENANCE_ACTIONS.join(", ")}`,
+        });
+      }
+
+      try {
+        const job = await maintenanceService.startJob(id, action, "tma");
+        return reply.status(202).send({ job });
+      } catch (err) {
+        if (err instanceof MaintenanceError) {
+          return reply.status(err.statusCode).send({ error: err.message });
+        }
+        // requireCascade() throws a plain Error when Server A is asked for in standalone.
+        return reply.status(400).send({ error: (err as Error).message });
+      }
+    }
+  );
 
   // GET /api/servers/:id/traffic?period=24h|7d|30d
   app.get<{ Params: { id: string }; Querystring: { period?: string } }>(

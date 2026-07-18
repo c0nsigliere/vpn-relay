@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for vpn-maintenance {{ item }} request from the VPN bot
+
+[Path]
+PathExists={{ maintenance_trigger_dir }}/req-{{ item }}
+Unit=vpn-maintenance-{{ item }}.service
+
+[Install]
+WantedBy=multi-user.target

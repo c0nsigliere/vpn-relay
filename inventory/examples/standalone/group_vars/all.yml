@@ -24,6 +24,12 @@ do_dist_upgrade: false
 manage_unattended_upgrades: "leave"
 maintenance_reboot: true
 
+# On-demand update/reboot from the bot & TMA. Shared by roles/maintenance (installs
+# the root helper) and roles/telegram_bot (installs the path units that trigger it).
+maintenance_agent_bin: /usr/local/sbin/vpn-maintenance
+maintenance_state_dir: /var/lib/vpn-maintenance   # persistent: job status survives a reboot
+maintenance_trigger_dir: /run/vpn-maintenance     # tmpfs: a trigger must NOT survive a reboot
+
 # --- Telegram Bot (optional — deploy with deploy_bot.yml) ---
 # Create a bot via @BotFather; get your admin chat ID from @userinfobot
 # bot_telegram_token: "YOUR_BOT_TOKEN"

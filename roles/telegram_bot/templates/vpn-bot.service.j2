@@ -24,8 +24,15 @@ ProtectSystem=strict
 AmbientCapabilities=CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_RAW
 ReadWritePaths={{ bot_data_dir }} {{ xray_config_dir }}{{ ' ' + singbox_config_dir if hy2_enabled | default(false) else '' }}
-RuntimeDirectory=vpn-bot
+# systemd creates these owned by {{ bot_user }} and adds them to ReadWritePaths itself,
+# which is what makes them writable under ProtectSystem=strict. vpn-maintenance holds the
+# req-<action> triggers for the maintenance path units; it is on tmpfs on purpose, so no
+# trigger can survive a reboot and re-fire the job at boot.
+RuntimeDirectory=vpn-bot vpn-maintenance
 RuntimeDirectoryMode=0755
+# Without this systemd deletes the runtime dirs every time the bot stops — which would
+# also drop a trigger the bot had just written before being restarted mid-job.
+RuntimeDirectoryPreserve=yes
 
 [Install]
 WantedBy=multi-user.target

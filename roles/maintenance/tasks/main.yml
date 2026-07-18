@@ -10,6 +10,12 @@
     - packages
     - maintenance
 
+- name: Install the on-demand maintenance agent (bot-triggered apt/reboot helper)
+  ansible.builtin.import_tasks: agent.yml
+  tags:
+    - agent
+    - maintenance
+
 - name: Manage fail2ban SSH protection
   ansible.builtin.import_tasks: fail2ban.yml
   tags:

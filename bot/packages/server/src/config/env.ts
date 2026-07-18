@@ -55,6 +55,13 @@ const envSchema = z.object({
   TMA_DOMAIN: z.string().optional(),
   TMA_URL: z.string().url().optional(),
 
+  // Maintenance (on-demand update/reboot). These must stay in lockstep with the
+  // Ansible-rendered helper and path units on BOTH hosts, hence env-configurable
+  // (unlike the xray/singbox restart triggers, which are local to Server B).
+  MAINTENANCE_STATE_DIR: z.string().default("/var/lib/vpn-maintenance"),
+  MAINTENANCE_TRIGGER_DIR: z.string().default("/run/vpn-maintenance"),
+  MAINTENANCE_AGENT_BIN: z.string().default("/usr/local/sbin/vpn-maintenance"),
+
   // Timezone offset for daily traffic grouping (e.g. "+3:00" for Moscow)
   TZ_OFFSET: z.string().default("+3:00"),
 

@@ -174,6 +174,40 @@ db.exec(`
   );
 `);
 
+// On-demand maintenance jobs (apt update / reboot triggered from the bot or TMA).
+// The row is the bot's mirror of the root helper's /var/lib/vpn-maintenance/jobs/<id>.json;
+// the helper is the source of truth for status/phase, this table for who asked and when.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS maintenance_jobs (
+    id                TEXT PRIMARY KEY,
+    server_id         TEXT NOT NULL CHECK(server_id IN ('a', 'b')),
+    action            TEXT NOT NULL CHECK(action IN ('update', 'update-reboot', 'reboot')),
+    status            TEXT NOT NULL CHECK(status IN ('queued', 'running', 'rebooting', 'succeeded', 'failed', 'unknown')),
+    phase             TEXT,
+    requested_by      TEXT NOT NULL CHECK(requested_by IN ('tma', 'bot')),
+    boot_id           TEXT,
+    created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at        DATETIME,
+    finished_at       DATETIME,
+    reboot_at         DATETIME,
+    exit_code         INTEGER,
+    error             TEXT,
+    packages_upgraded INTEGER,
+    packages          TEXT,
+    log_tail          TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_maint_server_created
+    ON maintenance_jobs(server_id, created_at DESC);
+
+  -- The real single-job guarantee: a second concurrent INSERT for the same server
+  -- hits this constraint (-> HTTP 409). Survives bot restarts, needs no in-memory
+  -- mutex, and covers the TMA and the bot menu identically. 'unknown' is terminal,
+  -- so it frees the index.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_maint_active
+    ON maintenance_jobs(server_id) WHERE status IN ('queued', 'running', 'rebooting');
+`);
+
 // Seed default alert settings (INSERT OR IGNORE — never overrides user changes)
 const _alertDefaults = [
   { alert_key: "cascade_down",       enabled: 1, threshold: 100, threshold2: 2,    cooldown_min: 30 },

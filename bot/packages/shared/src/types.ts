@@ -119,9 +119,56 @@ export interface ServersStatusResponse {
   standalone?: boolean;
   /** True when WG clients can choose the Hy2 cascade uplink (cascade + uplink configured) */
   wgHy2Available?: boolean;
+  /** Active maintenance job, if any — drives the read-only progress pill on the dashboard */
+  maintenanceA?: MaintenanceJob | null;
+  maintenanceB?: MaintenanceJob | null;
 }
 
 export type ServerId = "a" | "b";
+
+// ─── Maintenance (on-demand update / reboot) ───
+
+export type MaintenanceAction = "update" | "update-reboot" | "reboot";
+
+/** Terminal: succeeded | failed | unknown. The rest keep the job "active". */
+export type MaintenanceStatus =
+  | "queued"
+  | "running"
+  | "rebooting"
+  | "succeeded"
+  | "failed"
+  | "unknown";
+
+/** DB row (snake_case, like Client / AlertSetting). */
+export interface MaintenanceJob {
+  id: string;
+  server_id: ServerId;
+  action: MaintenanceAction;
+  status: MaintenanceStatus;
+  /** preflight | apt-update | dist-upgrade | clean | rebooting | done | busy */
+  phase: string | null;
+  requested_by: "tma" | "bot";
+  /** /proc/sys/kernel/random/boot_id as of job start — how a reboot is distinguished from a hang */
+  boot_id: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  reboot_at: string | null;
+  exit_code: number | null;
+  error: string | null;
+  packages_upgraded: number | null;
+  packages: string | null;
+  log_tail: string | null;
+}
+
+export interface StartMaintenanceRequest {
+  action: MaintenanceAction;
+}
+
+export interface MaintenanceStatusResponse {
+  active: MaintenanceJob | null;
+  last: MaintenanceJob | null;
+}
 
 export interface AggregateTrafficSnapshot {
   ts: string;

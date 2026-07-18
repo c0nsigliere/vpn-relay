@@ -1,0 +1,12 @@
+[Unit]
+Description=vpn-maintenance {{ item }} (requested by the VPN bot)
+
+[Service]
+Type=oneshot
+# The default 90s would SIGKILL dpkg mid-transaction and corrupt the package DB.
+TimeoutStartSec=3600
+ExecStart={{ maintenance_agent_bin }} {{ item }}
+
+# No ExecStartPost=/bin/rm of the trigger (unlike xray-restart.service): the helper
+# deletes it as its very first action, so a crash cannot leave a re-arming file, and
+# an exit-time rm would swallow a legitimately queued next request.

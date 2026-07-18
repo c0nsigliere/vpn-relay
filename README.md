@@ -54,7 +54,7 @@ Both modes use the same `stack.yml` playbook. The inventory determines what gets
 - Server B runs native XRay VLESS+Reality (`roles/xray_server/`)
 - Managed by `playbooks/relay.yml` (A) + `playbooks/xray.yml` (B)
 - **From Russia**: clients connect to Server A (Russian IP) to bypass DPI — direct connections to Server B are filtered (see DPI notes below)
-
+ 
 ---
 
 ### Hysteria 2 — Direct QUIC (optional, `hy2_enabled`)
@@ -208,6 +208,7 @@ ansible-playbook playbooks/stack.yml -i inventory/my-server/ \
 - Auto-suspend expired clients (TTL support)
 - Health alerts if Server A goes unreachable
 - Enriched update alerts — lists which packages need updating with changelogs and optional AI summaries (CVEs for security, brief descriptions for regular). Set `OPENAI_API_KEY` for AI summaries; degrades gracefully without it
+- **On-demand Update / Reboot per server** — apt `dist-upgrade` and reboots from the bot menu or the TMA, with a live phase indicator and the result delivered to Telegram. Runs the same steps as `playbooks/maintenance.yml`; safe to use alongside it. See [docs/maintenance.md](docs/maintenance.md#on-demand-maintenance-from-the-bot--tma)
 - Client IP tracking (WG endpoint + XRay access log) with ISP lookup (ip-api.com)
 
 **Required:** Get a bot token from [@BotFather](https://t.me/BotFather) and your numeric Telegram user ID.
@@ -413,6 +414,9 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `port_a_udp`, `port_b
 | `fail2ban_sshd_findtime` | `300` | Window (seconds) for maxretry |
 | `fail2ban_sshd_bantime` | `3600` | Ban duration (seconds) |
 | `maintenance_reboot` | `true` | Reboot after maintenance if required |
+| `maintenance_agent_bin` | `/usr/local/sbin/vpn-maintenance` | Root helper for on-demand update/reboot from the bot & TMA |
+| `maintenance_state_dir` | `/var/lib/vpn-maintenance` | Job status + logs (persistent — survives a reboot, so the result is reportable) |
+| `maintenance_trigger_dir` | `/run/vpn-maintenance` | Bot-writable trigger dir (**must be tmpfs**: a surviving trigger would re-fire at boot) |
 
 ### Cascade (`wg_cascade.yml`)
 
@@ -492,7 +496,10 @@ ansible-playbook playbooks/deploy_bot.yml --ask-vault-pass
 
 ### `maintenance.yml`
 
-`maintenance` `fail2ban` `sysctl` `unattended` `update` `upgrade` `reboot` `health`
+`maintenance` `agent` `fail2ban` `sysctl` `unattended` `update` `upgrade` `reboot` `health`
+
+`--tags agent` installs just the on-demand maintenance helper on every host — the script
+behind the bot's Update/Reboot buttons.
 
 ---
 
@@ -642,7 +649,9 @@ vpn-relay/
 │   │       ├── vpn-bot.service.j2       # Bot systemd unit
 │   │       ├── env.j2                   # Bot environment file
 │   │       ├── xray-restart.service.j2  # XRay restart on config change
-│   │       └── xray-restart.path.j2     # Path unit trigger for restart
+│   │       ├── xray-restart.path.j2     # Path unit trigger for restart
+│   │       ├── vpn-maintenance.service.j2  # Root oneshot per maintenance action
+│   │       └── vpn-maintenance.path.j2     # Watches /run/vpn-maintenance/req-<action>
 │   ├── nginx_tma/                       # Nginx reverse-proxy for TMA
 │   │   ├── defaults/main.yml
 │   │   ├── handlers/main.yml
@@ -664,11 +673,13 @@ vpn-relay/
 │       │   ├── fail2ban.yml             # SSH brute-force protection
 │       │   ├── sysctl_vm.yml            # VM tuning + DefaultTasksMax + journald
 │       │   ├── unattended_upgrades.yml  # + systemd resource limits for apt
+│       │   ├── agent.yml                # on-demand maintenance helper (tag: agent)
 │       │   ├── update.yml
 │       │   ├── upgrade.yml
 │       │   ├── reboot.yml
 │       │   └── health.yml
 │       └── templates/
+│           ├── vpn-maintenance.j2            # root helper behind the bot's Update/Reboot
 │           ├── 99relay-unattended.j2
 │           ├── jail-relay.conf.j2           # fail2ban SSH jail
 │           ├── 99-vm-tuning.conf.j2         # sysctl: swappiness, vfs_cache, min_free (tiered by RAM)
@@ -708,6 +719,7 @@ vpn-relay/
         │       │       ├── client-card.ts
         │       │       ├── add-client.ts
         │       │       ├── server-status.ts
+        │       │       ├── maintenance.ts   # Update/Reboot buttons + confirm flow
         │       │       └── settings.ts
         │       ├── api/
         │       │   ├── server.ts        # Fastify instance (127.0.0.1:3000)
@@ -733,6 +745,7 @@ vpn-relay/
         │       │   ├── metrics.cache.ts    # In-memory metrics aggregation
         │       │   ├── ping.store.ts       # Server reachability state
         │       │   ├── updates.service.ts  # apt list + changelog fetching
+        │       │   ├── maintenance.service.ts # On-demand update/reboot jobs
         │       │   └── openai.service.ts   # AI update summaries (optional)
         │       └── workers/
         │           ├── traffic.worker.ts   # 10min: collect XRay+WG stats
@@ -741,7 +754,8 @@ vpn-relay/
         │           ├── updates.worker.ts   # 12h: apt-check A+B, alert on updates
         │           ├── alert.worker.ts     # 30s: 12 alert checks with cooldowns
         │           ├── rollup.worker.ts    # Daily traffic aggregation
-        │           └── quota.worker.ts     # Quota enforcement + warnings
+        │           ├── quota.worker.ts     # Quota enforcement + warnings
+        │           └── maintenance.worker.ts # 3s: mirror job state, notify, reconcile
         └── web/                         # Telegram Mini App (React + Vite)
             ├── package.json
             ├── tsconfig.json
@@ -767,6 +781,7 @@ vpn-relay/
                 │   ├── QuotaProgressBar.tsx
                 │   ├── ServerStatusCard.tsx
                 │   ├── ServerTrafficChart.tsx
+                │   ├── MaintenanceCard.tsx  # Update/Reboot + live phase & log
                 │   ├── Sparkline.tsx
                 │   └── TrafficChart.tsx
                 ├── hooks/

@@ -1,4 +1,4 @@
-import type { ServerStatus, ServerId } from "@vpn-relay/shared";
+import type { MaintenanceJob, ServerStatus, ServerId } from "@vpn-relay/shared";
 import { Sparkline } from "./Sparkline";
 import { formatBytesLong } from "../utils/format";
 
@@ -14,6 +14,8 @@ interface ServerStatusCardProps {
   status: ServerStatus | { error: string } | undefined;
   sparklineData?: SparklinePoint[];
   trafficTotal24h?: { rx: number; tx: number };
+  /** Active maintenance job, if any — rendered as a read-only pill (see below). */
+  maintenance?: MaintenanceJob | null;
   onClick?: () => void;
 }
 
@@ -22,6 +24,7 @@ export function ServerStatusCard({
   status,
   sparklineData,
   trafficTotal24h,
+  maintenance,
   onClick,
 }: ServerStatusCardProps) {
   const isClickable = !!onClick;
@@ -51,6 +54,14 @@ export function ServerStatusCard({
           {isOk && (status as ServerStatus).updatesAvailable > 0 && (
             <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400">
               {(status as ServerStatus).updatesAvailable} upd
+            </span>
+          )}
+          {/* Read-only on purpose: the whole card is one clickable navigation zone, so a
+              button here would swallow the tap. Actions live on the server page. */}
+          {maintenance && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 whitespace-nowrap">
+              <span className="inline-block animate-spin">⟳</span>{" "}
+              {maintenance.status === "rebooting" ? "Rebooting…" : "Updating…"}
             </span>
           )}
         </div>

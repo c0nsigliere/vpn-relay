@@ -25,6 +25,7 @@ import { sshPool } from "../services/ssh";
 import { queries } from "../db/queries";
 import { suspendClient } from "../services/client.service";
 import { metricsCache } from "../services/metrics.cache";
+import { maintenanceService } from "../services/maintenance.service";
 import { env } from "../config/env";
 import { isStandalone } from "../config/standalone";
 import type { ServerStatus } from "../services/system.service";
@@ -141,6 +142,7 @@ async function fetchBothServersAndBuildChecks<T>(
 
 async function checkCascadeDown(bot: Bot<BotContext>): Promise<void> {
   if (isStandalone || !isEnabled("cascade_down")) return;
+  if (maintenanceService.shouldSuppressAlerts("a")) return;
   const threshold = getThreshold("cascade_down", "threshold", 100);
   const durationMin = getThreshold("cascade_down", "threshold2", 2);
 
@@ -162,6 +164,7 @@ async function checkCascadeDown(bot: Bot<BotContext>): Promise<void> {
 
 async function checkCascadeDegradation(bot: Bot<BotContext>): Promise<void> {
   if (isStandalone || !isEnabled("cascade_degradation")) return;
+  if (maintenanceService.shouldSuppressAlerts("a")) return;
   const threshold = getThreshold("cascade_degradation", "threshold", 30);
   const durationMin = getThreshold("cascade_degradation", "threshold2", 5);
 
@@ -184,6 +187,7 @@ async function checkCascadeDegradation(bot: Bot<BotContext>): Promise<void> {
 
 async function checkServiceDeadXray(bot: Bot<BotContext>): Promise<void> {
   if (!isEnabled("service_dead_xray")) return;
+  if (maintenanceService.shouldSuppressAlerts("b")) return;
 
   let xrayRunning = false;
   try {
@@ -203,6 +207,7 @@ async function checkServiceDeadXray(bot: Bot<BotContext>): Promise<void> {
 
 async function checkServiceDeadSingbox(bot: Bot<BotContext>): Promise<void> {
   if (!env.HY2_ENABLED || !isEnabled("service_dead_singbox")) return;
+  if (maintenanceService.shouldSuppressAlerts("b")) return;
 
   let singboxRunning = false;
   try {
@@ -222,6 +227,7 @@ async function checkServiceDeadSingbox(bot: Bot<BotContext>): Promise<void> {
 
 async function checkServiceDeadWg(bot: Bot<BotContext>): Promise<void> {
   if (isStandalone || !isEnabled("service_dead_wg")) return;
+  if (maintenanceService.shouldSuppressAlerts("a")) return;
 
   let wgRunning = false;
   try {
@@ -305,6 +311,8 @@ async function checkCpuOverload(bot: Bot<BotContext>): Promise<void> {
 
   for (const { key: serverId, label, data: cpu } of servers) {
     if (cpu === undefined) continue;
+    // A dist-upgrade pegs the CPU by design — that is work we asked for, not an incident.
+    if (maintenanceService.shouldSuppressAlerts(serverId as "a" | "b")) continue;
     const key = `cpu_overload:${serverId}`;
     const conditionTrue = cpu >= threshold;
     const sustained = evalSustained(key, conditionTrue, durationMin * 60_000);
@@ -424,10 +432,13 @@ async function checkRebootDetected(bot: Bot<BotContext>): Promise<void> {
   if (!isEnabled("reboot_detected")) return;
   const thresholdMin = 10;
 
-  // Server B (local)
+  // Server B (local). A reboot we asked for is not a detection worth reporting —
+  // the maintenance worker already narrated it, and reports the outcome besides.
   const uptimeBSec = os.uptime();
   const stateB = queries.getAlertState("reboot_detected:b");
-  if (uptimeBSec < thresholdMin * 60 && shouldFire("reboot_detected:b")) {
+  if (maintenanceService.isPlannedBoot("b")) {
+    // fall through to the clear branch below once uptime is stable again
+  } else if (uptimeBSec < thresholdMin * 60 && shouldFire("reboot_detected:b")) {
     await fireAlert(
       "reboot_detected:b",
       `🔄 *Server B rebooted*\nCurrent uptime: ${Math.floor(uptimeBSec / 60)}m`,
@@ -443,7 +454,9 @@ async function checkRebootDetected(bot: Bot<BotContext>): Promise<void> {
       const rawUptime = await sshPool.exec("cat /proc/uptime");
       const uptimeASec = parseFloat(rawUptime.trim().split(" ")[0]);
       const stateA = queries.getAlertState("reboot_detected:a");
-      if (uptimeASec < thresholdMin * 60 && shouldFire("reboot_detected:a")) {
+      if (maintenanceService.isPlannedBoot("a")) {
+        // planned — the maintenance worker owns the story for this boot
+      } else if (uptimeASec < thresholdMin * 60 && shouldFire("reboot_detected:a")) {
         await fireAlert(
           "reboot_detected:a",
           `🔄 *Server A rebooted*\nCurrent uptime: ${Math.floor(uptimeASec / 60)}m`,

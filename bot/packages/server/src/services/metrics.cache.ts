@@ -33,16 +33,22 @@ class MetricsCache {
       return this.cacheA.value;
     }
     if (!this.fetchingA) {
-      this.fetchingA = systemService.getStatusA()
+      const p: Promise<ServerStatus> = systemService.getStatusA()
         .then((v) => {
-          this.cacheA = { value: v, fetchedAt: Date.now() };
-          this.fetchingA = null;
+          // Promise-identity guard: only the fetch we are still tracking may write the
+          // cache. Without it, a fetch already in flight when invalidate() ran would
+          // resolve afterwards and re-pin the pre-update reading for another TTL.
+          if (this.fetchingA === p) {
+            this.cacheA = { value: v, fetchedAt: Date.now() };
+            this.fetchingA = null;
+          }
           return v;
         })
         .catch((err) => {
-          this.fetchingA = null;
+          if (this.fetchingA === p) this.fetchingA = null;
           throw err;
         });
+      this.fetchingA = p;
     }
     return this.fetchingA;
   }
@@ -52,18 +58,40 @@ class MetricsCache {
       return this.cacheB.value;
     }
     if (!this.fetchingB) {
-      this.fetchingB = systemService.getStatusB()
+      const p: Promise<ServerStatus> = systemService.getStatusB()
         .then((v) => {
-          this.cacheB = { value: v, fetchedAt: Date.now() };
-          this.fetchingB = null;
+          if (this.fetchingB === p) {
+            this.cacheB = { value: v, fetchedAt: Date.now() };
+            this.fetchingB = null;
+          }
           return v;
         })
         .catch((err) => {
-          this.fetchingB = null;
+          if (this.fetchingB === p) this.fetchingB = null;
           throw err;
         });
+      this.fetchingB = p;
     }
     return this.fetchingB;
+  }
+
+  /**
+   * Drop the cached reading for a server so the next caller re-measures.
+   *
+   * Called when a maintenance job finishes: apt has just changed the very numbers this
+   * cache holds (updatesAvailable, rebootRequired), and a 20s-stale badge showing "12
+   * updates" straight after a successful update reads as a bug.
+   *
+   * Detaching the in-flight promise is the important half — see the guard above.
+   */
+  invalidate(server: "a" | "b"): void {
+    if (server === "a") {
+      this.cacheA = null;
+      this.fetchingA = null;
+    } else {
+      this.cacheB = null;
+      this.fetchingB = null;
+    }
   }
 }
 

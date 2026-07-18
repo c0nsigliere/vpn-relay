@@ -8,20 +8,30 @@ Maintenance is a distinct operational concern handled by `roles/maintenance/` an
 
 ## Maintenance Targets
 
-All maintenance playbooks target `wg_cascade:relay_servers` (Ansible union pattern), which covers:
-- **Both features active:** Server A + Server B from wg_cascade, Server A from relay_servers (deduplicated)
-- **Cascade only:** Server A + Server B from wg_cascade
+`playbooks/maintenance.yml` targets `wg_cascade:relay_servers:xray_servers` (Ansible union pattern), which covers:
+- **Cascade:** Server A (entry) from wg_cascade/relay_servers, Server B (exit) from xray_servers
 - **Relay only:** Server A from relay_servers
+- **Standalone:** the single node from xray_servers
+
+Note the narrower targeting of the smaller playbooks: `update.yml`, `upgrade.yml` and
+`reboot-if-needed.yml` target `wg_cascade:relay_servers` only, so on a **standalone**
+deployment they match zero hosts. Use `maintenance.yml` there.
 
 ## Update vs. Upgrade: Know the Difference
 
+Both run `dist-upgrade`; the difference is whether orphaned packages are removed afterwards.
+
 | Playbook | Apt Command | Removes packages? | When to use |
 |----------|-------------|-------------------|-------------|
-| `playbooks/update.yml` | `apt upgrade` | Never | Regular security patching (weekly/monthly) |
-| `playbooks/upgrade.yml` | `apt dist-upgrade` | Sometimes | Scheduled maintenance windows only |
+| `playbooks/update.yml` | `apt-get dist-upgrade` (`autoremove: false`) | Never | Regular security patching (weekly/monthly) |
+| `playbooks/upgrade.yml` | `apt-get dist-upgrade` + `autoremove` | Sometimes | Scheduled maintenance windows only |
 
-- **Safe upgrade** (`apt upgrade`): Upgrades packages only if it can do so without removing any installed package. Handles 95% of patch scenarios. Safe to run at any time without a window.
-- **Dist-upgrade** (`apt dist-upgrade`): Resolves complex dependency changes, may remove packages. Required after major kernel updates or when held packages need to update. Always review the removed-packages list before proceeding.
+- **Update** (`roles/maintenance/tasks/update.yml`): resolves dependency changes and installs
+  everything pending, but never removes an installed package (`autoremove: false`). Safe to run
+  at any time without a window. This is what the bot's **Update** button does.
+- **Upgrade** (`roles/maintenance/tasks/upgrade.yml`, `do_dist_upgrade=true`): the same
+  dist-upgrade followed by `autoremove`, so it *may* remove packages. Always review the
+  removed-packages list before proceeding.
 
 ## When to Use Each Playbook
 
@@ -33,6 +43,70 @@ All maintenance playbooks target `wg_cascade:relay_servers` (Ansible union patte
 | `playbooks/maintenance.yml` | Full workflow: update + reboot + verify | If needed |
 
 Use `playbooks/maintenance.yml` as the default entry point for all routine maintenance. It handles the complete flow including service verification after updates.
+
+## On-demand Maintenance from the Bot / TMA
+
+The Telegram bot and the mini app expose **Update** and **Reboot** per server, so routine
+patching does not require an SSH session or an Ansible run. Tapping *Update* offers
+"Update only" or "Update + reboot if required"; *Reboot* is its own confirmed action.
+
+The button runs `/usr/local/sbin/vpn-maintenance` — the **imperative twin** of
+`roles/maintenance/tasks/update.yml` (`apt-get update` → `dist-upgrade` with
+`autoremove: false` → `clean`). Ansible remains the source of truth for the reference
+architecture; the helper simply performs the same steps on demand, which is why the apt
+flags live in one role and one template.
+
+**Running the playbook and the button at the same time is safe.** Both go through the
+same dpkg lock, and the helper passes `DPkg::Lock::Timeout` (default 600s) so it waits
+rather than failing. It also runs `dpkg --configure -a` first, recovering from a
+previous run that was interrupted.
+
+### How the privilege boundary works
+
+The bot on Server B runs as an unprivileged system user (`NoNewPrivileges=true`,
+`ProtectSystem=strict`, no sudoers anywhere in this repo) and *cannot* run apt. Escalation
+therefore differs per host:
+
+| Host | Mechanism |
+|---|---|
+| **Server B** (bot's own host) | The bot writes `/run/vpn-maintenance/req-<action>`. A systemd `.path` unit — one per action — fires the matching root oneshot, which execs the helper. |
+| **Server A** (remote) | The bot is root over SSH, so it launches `systemd-run --unit=vpn-maint-<id>`. Detaching matters: if the SSH channel drops, sshd would otherwise kill apt mid-`dpkg`. |
+
+The action is encoded in the trigger **filename** and in the unit's `ExecStart`, never in
+file content — the allowlist is enforced by systemd topology, so root never parses an
+action string supplied by an unprivileged process. The only value root reads from a
+bot-writable file is the 32-hex job id, opened `O_NOFOLLOW` and regex-filtered.
+
+Two directories, deliberately:
+
+- `/run/vpn-maintenance` (**tmpfs**) — triggers. A trigger that survived a reboot would
+  re-fire its `.path` unit at boot, which for `reboot` means a **reboot loop**. The helper
+  also deletes the trigger as its very first action.
+- `/var/lib/vpn-maintenance/jobs/` (**persistent**) — `<id>.json` status and `<id>.log`.
+  This is what lets the bot report the outcome of a reboot of its *own* host: the bot dies
+  with the server, and on restart it compares the file's `boot_id` against the current one.
+
+### Operating notes
+
+- Installed on both hosts by `roles/maintenance` (tag `agent`); the path units come from
+  `roles/telegram_bot`, which imports the agent task so `deploy_bot.yml` can never install
+  a unit with no script behind it.
+- Only one job per server can be active at a time, enforced at four layers below the UI
+  (a partial unique DB index, an OS `flock`, and a replay guard in the helper).
+- While a job runs, alerts that the work itself would trip — `cascade_down`,
+  `service_dead_*`, `cpu_overload`, `reboot_detected` — are suppressed for that server,
+  plus a 3-minute grace afterwards. `disk_full` is **not** suppressed, on purpose: a full
+  `/boot` is exactly the kind of failure an upgrade surfaces.
+- Job history is capped at the last 20 runs per host (`maintenance_job_retention`).
+
+```bash
+# Install / update the helper on every host
+ansible-playbook playbooks/maintenance.yml -i inventory/<name>/ --tags agent
+
+# Inspect a live run on Server B
+journalctl -u vpn-maintenance-update -f
+cat /var/lib/vpn-maintenance/jobs/<job-id>.json
+```
 
 ## Reboot Strategy
 

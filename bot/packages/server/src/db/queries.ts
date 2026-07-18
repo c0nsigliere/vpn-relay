@@ -1,8 +1,8 @@
 import { db } from "./index";
 import { env } from "../config/env";
-import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting } from "@vpn-relay/shared";
+import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting, MaintenanceJob, ServerId } from "@vpn-relay/shared";
 
-export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting };
+export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting, MaintenanceJob };
 
 export interface AlertState {
   alert_key: string;
@@ -477,5 +477,63 @@ export const queries = {
     ).get(...params) as { total: number };
 
     return { clients, total };
+  },
+
+  // ── Maintenance jobs ───────────────────────────────────────────────────────
+
+  /** Throws SqliteError(SQLITE_CONSTRAINT_UNIQUE) if the server already has an active job. */
+  insertMaintenanceJob(job: Pick<MaintenanceJob, "id" | "server_id" | "action" | "status" | "requested_by">): void {
+    db.prepare(`
+      INSERT INTO maintenance_jobs (id, server_id, action, status, requested_by)
+      VALUES (@id, @server_id, @action, @status, @requested_by)
+    `).run(job);
+  },
+
+  updateMaintenanceJob(
+    id: string,
+    updates: Partial<Pick<MaintenanceJob,
+      "status" | "phase" | "boot_id" | "started_at" | "finished_at" | "reboot_at" |
+      "exit_code" | "error" | "packages_upgraded" | "packages" | "log_tail">>
+  ): void {
+    const entries = Object.entries(updates).filter(([, v]) => v !== undefined);
+    if (entries.length === 0) return;
+    const setClauses = entries.map(([k]) => `${k} = ?`).join(", ");
+    const values = entries.map(([, v]) => v);
+    db.prepare(`UPDATE maintenance_jobs SET ${setClauses} WHERE id = ?`).run(...values, id);
+  },
+
+  getMaintenanceJob(id: string): MaintenanceJob | undefined {
+    return db.prepare("SELECT * FROM maintenance_jobs WHERE id = ?").get(id) as MaintenanceJob | undefined;
+  },
+
+  getActiveMaintenanceJob(serverId: ServerId): MaintenanceJob | undefined {
+    return db.prepare(`
+      SELECT * FROM maintenance_jobs
+      WHERE server_id = ? AND status IN ('queued', 'running', 'rebooting')
+    `).get(serverId) as MaintenanceJob | undefined;
+  },
+
+  getLastMaintenanceJob(serverId: ServerId): MaintenanceJob | undefined {
+    return db.prepare(`
+      SELECT * FROM maintenance_jobs
+      WHERE server_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1
+    `).get(serverId) as MaintenanceJob | undefined;
+  },
+
+  /** Every job still considered in-flight — across all servers. Drives the worker tick. */
+  getActiveMaintenanceJobs(): MaintenanceJob[] {
+    return db.prepare(`
+      SELECT * FROM maintenance_jobs
+      WHERE status IN ('queued', 'running', 'rebooting') ORDER BY created_at
+    `).all() as MaintenanceJob[];
+  },
+
+  /** Most recent terminal job per server — used for the post-reboot alert grace window. */
+  getLastTerminalMaintenanceJob(serverId: ServerId): MaintenanceJob | undefined {
+    return db.prepare(`
+      SELECT * FROM maintenance_jobs
+      WHERE server_id = ? AND status IN ('succeeded', 'failed', 'unknown')
+      ORDER BY created_at DESC, rowid DESC LIMIT 1
+    `).get(serverId) as MaintenanceJob | undefined;
   },
 };
