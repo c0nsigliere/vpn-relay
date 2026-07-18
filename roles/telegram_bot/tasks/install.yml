@@ -27,10 +27,15 @@
       command: bash /tmp/nodesource_setup.sh
       changed_when: true
 
+    # state: latest, not present — `present` is satisfied by ANY installed nodejs, so
+    # on a host already running an older major (e.g. 20) the NodeSource repo would be
+    # added and then nothing would actually upgrade. This task only runs when the
+    # installed major differs from node_major_version (see the `when` below), and the
+    # NodeSource repo pins the major, so `latest` cannot drift past it.
     - name: Install nodejs
       apt:
         name: nodejs
-        state: present
+        state: latest
         update_cache: true
   when: _node_installed_major.stdout != node_major_version | string
   tags: [install, bot]
