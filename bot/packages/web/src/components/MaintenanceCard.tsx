@@ -147,7 +147,7 @@ export function MaintenanceCard({ serverId }: { serverId: ServerId }) {
           <button
             onClick={() => startMutation.mutate("update-reboot")}
             disabled={busy}
-            className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+            className="w-full px-4 py-3 rounded-xl bg-tg text-tg font-medium text-sm border border-tg disabled:opacity-60"
           >
             Update + reboot if required
           </button>
@@ -169,7 +169,7 @@ export function MaintenanceCard({ serverId }: { serverId: ServerId }) {
           <button
             onClick={() => startMutation.mutate("reboot")}
             disabled={busy}
-            className="w-full px-4 py-3 rounded-xl bg-tg-secondary text-tg-destructive font-medium text-sm border border-tg disabled:opacity-60"
+            className="w-full px-4 py-3 rounded-xl bg-tg text-tg-destructive font-medium text-sm border border-tg disabled:opacity-60"
           >
             Reboot {serverLabel}
           </button>
@@ -186,14 +186,14 @@ export function MaintenanceCard({ serverId }: { serverId: ServerId }) {
             <button
               onClick={() => { haptic.impact("light"); setConfirm("update"); }}
               disabled={busy}
-              className="px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+              className="px-4 py-3 rounded-xl bg-tg text-tg font-medium text-sm border border-tg disabled:opacity-60"
             >
               ⬆️ Update
             </button>
             <button
               onClick={() => { haptic.impact("light"); setConfirm("reboot"); }}
               disabled={busy}
-              className="px-4 py-3 rounded-xl bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+              className="px-4 py-3 rounded-xl bg-tg text-tg font-medium text-sm border border-tg disabled:opacity-60"
             >
               🔄 Reboot
             </button>
