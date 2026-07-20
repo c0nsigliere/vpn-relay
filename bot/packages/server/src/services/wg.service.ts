@@ -73,6 +73,19 @@ export interface WgSyncResult {
 // Mutex to prevent duplicate IP allocation from concurrent requests
 let ipMutex: Promise<void> = Promise.resolve();
 
+/**
+ * Octets handed out by findFreeIp but not yet visible anywhere durable.
+ *
+ * addClient returns before its caller writes the DB row, and the conf block is only
+ * written by the subsequent syncPeersFromDb() — so between those two points the
+ * allocation exists nowhere findFreeIp can see it. The previous implementation had
+ * no such window because it appended the conf block itself, inside the mutex.
+ * Entries are dropped once the row lands, and swept after the TTL so a create that
+ * failed midway cannot leak an octet for the life of the process.
+ */
+const reserved = new Map<number, number>(); // octet → reservedAt (ms)
+const RESERVATION_TTL_MS = 60_000;
+
 class WgService {
   async addClient(name: string): Promise<WgClientConfig> {
     requireCascade("WireGuard");
@@ -157,6 +170,12 @@ class WgService {
     if (isStandalone) return { applied: 0, suspended: 0, skipped: [] };
 
     const { desired, skipped } = this.buildDesiredPeers();
+
+    // Every desired peer is now durable in the DB, so its reservation is redundant.
+    for (const peer of desired) {
+      const m = IP_RE.exec(peer.ip);
+      if (m) reserved.delete(parseInt(m[1], 10));
+    }
 
     const currentConf = await sshPool.exec(`cat ${WG_CONF}`);
     const nextConf = renderConf(currentConf, desired);
@@ -259,8 +278,15 @@ class WgService {
       if (m) used.add(parseInt(m[1], 10));
     }
 
+    // In-flight allocations that have not reached the DB yet
+    const now = Date.now();
+    for (const [octet, at] of reserved) {
+      if (now - at > RESERVATION_TTL_MS) reserved.delete(octet);
+      else used.add(octet);
+    }
+
     try {
-      const conf = await sshPool.exec(`cat ${WG_CONF}`);
+      const conf = await sshPool.exec(`cat ${WG_CONF}`, 10_000);
       for (const n of parseConfIps(conf)) used.add(n);
     } catch {
       // A is unreachable — the DB alone is a safe basis, since every IP the bot
@@ -269,7 +295,10 @@ class WgService {
     }
 
     for (let i = WG_IP_START; i <= WG_IP_END; i++) {
-      if (!used.has(i)) return `${WG_NET}.${i}`;
+      if (!used.has(i)) {
+        reserved.set(i, Date.now());
+        return `${WG_NET}.${i}`;
+      }
     }
     throw new Error(`No free IPs in WireGuard subnet ${WG_NET}.0/24`);
   }
