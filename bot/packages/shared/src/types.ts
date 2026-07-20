@@ -231,6 +231,43 @@ export interface TrafficHistoryResponse {
   snapshots: TrafficSnapshot[];
 }
 
+// ─── Backups ─────────────────────────────────────────────────────────────────
+
+export type BackupTrigger = "scheduled" | "manual";
+
+/**
+ * `degraded` is the load-bearing one: a valid encrypted bundle exists locally but
+ * did not reach Telegram, so a backup exists and is NOT off-site. It counts as
+ * "a backup exists" for staleness, and still raises backup_failed so a persistent
+ * delivery outage is visible rather than silently un-alarming.
+ */
+export type BackupStatus = "running" | "success" | "degraded" | "failed";
+
+/** DB row (snake_case, like Client / MaintenanceJob). */
+export interface BackupRun {
+  id: string;
+  trigger: BackupTrigger;
+  status: BackupStatus;
+  started_at: string;
+  finished_at: string | null;
+  bundle_bytes: number | null;
+  db_bytes: number | null;
+  /** 1 sent, 0 failed or skipped (too large) */
+  telegram_ok: number | null;
+  local_path: string | null;
+  /** 0 when Server A was unreachable at backup time — the bundle still restores. */
+  wg_key_included: number | null;
+  error: string | null;
+}
+
+export interface DbInfoResponse {
+  size: number;
+  lastBackup: Pick<
+    BackupRun,
+    "finished_at" | "status" | "bundle_bytes" | "telegram_ok"
+  > | null;
+}
+
 // ─── Alert settings ──────────────────────────────────────────────────────────
 
 export type AlertKey =
@@ -248,7 +285,9 @@ export type AlertKey =
   | "reboot_detected"
   | "reboot_required"
   | "channel_capacity"
-  | "updates_pending";
+  | "updates_pending"
+  | "backup_failed"
+  | "backup_stale";
 
 export interface AlertSetting {
   alert_key: string;

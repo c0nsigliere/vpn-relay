@@ -62,6 +62,17 @@ const envSchema = z.object({
   MAINTENANCE_TRIGGER_DIR: z.string().default("/run/vpn-maintenance"),
   MAINTENANCE_AGENT_BIN: z.string().default("/usr/local/sbin/vpn-maintenance"),
 
+  // Backups — daily encrypted DR bundle to the admin chat + local rotation.
+  // All defaulted, so existing nodes need no .env change to get backups.
+  // The passphrase is read from a FILE, not inlined here: it mirrors the obfs-password
+  // idiom, keeps .env templating simple, and gives the DR runbook one canonical
+  // artifact to save and restore.
+  BACKUP_ENABLED: z.string().transform((v) => v === "true" || v === "1").default("true"),
+  BACKUP_HOUR_UTC: z.string().transform(Number).pipe(z.number().int().min(0).max(23)).default("3"),
+  BACKUP_RETENTION: z.string().transform(Number).pipe(z.number().int().min(1)).default("7"),
+  BACKUP_DIR: z.string().default("/var/lib/vpn-bot/backups"),
+  BACKUP_PASSPHRASE_FILE: z.string().default("/var/lib/vpn-bot/backup.passphrase"),
+
   // Timezone offset for daily traffic grouping (e.g. "+3:00" for Moscow)
   TZ_OFFSET: z.string().default("+3:00"),
 

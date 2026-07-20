@@ -1,8 +1,8 @@
 import { db } from "./index";
 import { env } from "../config/env";
-import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting, MaintenanceJob, ServerId } from "@vpn-relay/shared";
+import type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting, MaintenanceJob, ServerId, BackupRun, BackupStatus, BackupTrigger } from "@vpn-relay/shared";
 
-export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting, MaintenanceJob };
+export type { Client, TrafficSnapshot, TrafficTotals, ServerTrafficSnapshot, MonthlyTraffic, DailyTraffic, AlertSetting, MaintenanceJob, BackupRun, BackupStatus, BackupTrigger };
 
 export interface AlertState {
   alert_key: string;
@@ -535,5 +535,66 @@ export const queries = {
       WHERE server_id = ? AND status IN ('succeeded', 'failed', 'unknown')
       ORDER BY created_at DESC, rowid DESC LIMIT 1
     `).get(serverId) as MaintenanceJob | undefined;
+  },
+
+  // ─── Backup runs ───────────────────────────────────────────────────────────
+
+  insertBackupRun(row: { id: string; trigger: BackupTrigger }): void {
+    db.prepare(`
+      INSERT INTO backup_runs (id, trigger, status) VALUES (@id, @trigger, 'running')
+    `).run(row);
+  },
+
+  /** Same dynamic-SET idiom as updateMaintenanceJob; always stamps finished_at. */
+  finishBackupRun(
+    id: string,
+    updates: Partial<Pick<BackupRun,
+      "status" | "bundle_bytes" | "db_bytes" | "telegram_ok" |
+      "local_path" | "wg_key_included" | "error">>
+  ): void {
+    const entries = Object.entries(updates).filter(([, v]) => v !== undefined);
+    const setClauses = [...entries.map(([k]) => `${k} = ?`), "finished_at = datetime('now')"].join(", ");
+    const values = entries.map(([, v]) => v);
+    db.prepare(`UPDATE backup_runs SET ${setClauses} WHERE id = ?`).run(...values, id);
+  },
+
+  /**
+   * Newest run, optionally restricted to a set of statuses. Staleness and the
+   * startup catch-up both pass ['success','degraded'] — a local-only bundle still
+   * counts as "a backup exists"; persistent delivery failure is surfaced by the
+   * repeating backup_failed alerts instead.
+   */
+  getLastBackupRun(statuses?: BackupStatus[]): BackupRun | undefined {
+    if (!statuses || statuses.length === 0) {
+      return db.prepare(
+        "SELECT * FROM backup_runs ORDER BY started_at DESC, rowid DESC LIMIT 1"
+      ).get() as BackupRun | undefined;
+    }
+    const placeholders = statuses.map(() => "?").join(", ");
+    return db.prepare(`
+      SELECT * FROM backup_runs WHERE status IN (${placeholders})
+      ORDER BY started_at DESC, rowid DESC LIMIT 1
+    `).get(...statuses) as BackupRun | undefined;
+  },
+
+  getBackupRuns(limit: number): BackupRun[] {
+    return db.prepare(
+      "SELECT * FROM backup_runs ORDER BY started_at DESC, rowid DESC LIMIT ?"
+    ).all(limit) as BackupRun[];
+  },
+
+  /**
+   * Reap rows left 'running' by a crash or a restart mid-backup. Scoped to rows
+   * older than the current process start so it can never reap a live run — the
+   * worker calls this synchronously at construction, but the scope makes the
+   * guarantee independent of that ordering.
+   */
+  failStuckBackupRuns(processStartIso: string): number {
+    const result = db.prepare(`
+      UPDATE backup_runs
+      SET status = 'failed', error = 'interrupted by restart', finished_at = datetime('now')
+      WHERE status = 'running' AND started_at < ?
+    `).run(processStartIso);
+    return result.changes;
   },
 };

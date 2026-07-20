@@ -208,6 +208,28 @@ db.exec(`
     ON maintenance_jobs(server_id) WHERE status IN ('queued', 'running', 'rebooting');
 `);
 
+// Scheduled encrypted backup runs. History for the staleness watchdog, the slot-based
+// catch-up on startup, and the "last backup" lines in the bot menu and the TMA.
+// A row is inserted as 'running' before any work starts, so a crash mid-backup leaves
+// evidence rather than nothing; backupWorker marks orphaned rows failed at startup.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS backup_runs (
+    id              TEXT PRIMARY KEY,
+    trigger         TEXT NOT NULL CHECK(trigger IN ('scheduled', 'manual')),
+    status          TEXT NOT NULL CHECK(status IN ('running', 'success', 'degraded', 'failed')),
+    started_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    finished_at     DATETIME,
+    bundle_bytes    INTEGER,
+    db_bytes        INTEGER,
+    telegram_ok     INTEGER,
+    local_path      TEXT,
+    wg_key_included INTEGER,
+    error           TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_backup_runs_started ON backup_runs(started_at);
+`);
+
 // Seed default alert settings (INSERT OR IGNORE — never overrides user changes)
 const _alertDefaults = [
   { alert_key: "cascade_down",       enabled: 1, threshold: 100, threshold2: 2,    cooldown_min: 30 },
@@ -225,6 +247,9 @@ const _alertDefaults = [
   { alert_key: "reboot_required",   enabled: 1, threshold: null, threshold2: null, cooldown_min: 720 },
   { alert_key: "channel_capacity",   enabled: 1, threshold: 100, threshold2: null, cooldown_min: 0 },
   { alert_key: "updates_pending",   enabled: 1, threshold: null, threshold2: null, cooldown_min: 720 },
+  { alert_key: "backup_failed",      enabled: 1, threshold: null, threshold2: null, cooldown_min: 360 },
+  // threshold = max age in hours of the newest success/degraded run
+  { alert_key: "backup_stale",       enabled: 1, threshold: 36,  threshold2: null, cooldown_min: 720 },
 ];
 const _seedStmt = db.prepare(
   "INSERT OR IGNORE INTO alert_settings (alert_key, enabled, threshold, threshold2, cooldown_min) VALUES (@alert_key, @enabled, @threshold, @threshold2, @cooldown_min)"

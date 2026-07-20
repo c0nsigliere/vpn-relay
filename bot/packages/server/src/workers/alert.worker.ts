@@ -37,6 +37,8 @@ const logger = createLogger("alert");
 const INTERVAL_MS = 30_000;
 const STARTUP_DELAY_MS = 90_000; // let other workers populate data first
 const GB = 1_073_741_824;
+/** Baseline for staleness on a node that has never produced a backup. */
+const PROCESS_START_MS = Date.now();
 
 // Per-condition sustained-duration tracking.
 // Maps composite key → timestamp (ms) when condition first became continuously true.
@@ -488,6 +490,38 @@ async function checkRebootRequired(bot: Bot<BotContext>): Promise<void> {
   }
 }
 
+/**
+ * Backups have stopped happening. A separate watchdog from the backup worker's own
+ * error path on purpose: this one also catches a scheduling bug, where no run is
+ * attempted at all and there is therefore no error to report.
+ *
+ * A `degraded` run counts as "a backup exists" — it is local-only, but it exists.
+ * Persistent delivery failure is surfaced by the repeating backup_failed alerts.
+ */
+async function checkBackupStale(bot: Bot<BotContext>): Promise<void> {
+  if (!env.BACKUP_ENABLED || !isEnabled("backup_stale")) return;
+
+  const thresholdHours = getThreshold("backup_stale", "threshold", 36);
+  const last = queries.getLastBackupRun(["success", "degraded"]);
+  const state = queries.getAlertState("backup_stale");
+
+  // With no history at all, age from process start — otherwise a freshly deployed
+  // node fires a false alarm at +90s, before the startup catch-up has even run.
+  const ageMs = last?.finished_at
+    ? Date.now() - new Date(`${last.finished_at}Z`).getTime()
+    : Date.now() - PROCESS_START_MS;
+  const stale = ageMs > thresholdHours * 3_600_000;
+
+  if (stale && shouldFire("backup_stale")) {
+    const detail = last?.finished_at
+      ? `Last backup: ${last.finished_at} UTC (${Math.floor(ageMs / 3_600_000)}h ago)`
+      : "No backup has ever completed on this node.";
+    await fireAlert("backup_stale", `🗄 *Backups are stale*\n\n${detail}`, bot);
+  } else if (!stale && state?.status === "fired") {
+    await clearAlert("backup_stale", "✅ *Backups are current again*", bot);
+  }
+}
+
 // ── Worker loop ───────────────────────────────────────────────────────────────
 
 export function alertWorker(bot: Bot<BotContext>): { stop: () => void } {
@@ -511,6 +545,7 @@ export function alertWorker(bot: Bot<BotContext>): { stop: () => void } {
       await checkCertExpiry(bot);
       await checkRebootDetected(bot);
       await checkRebootRequired(bot);
+      await checkBackupStale(bot);
     } catch (err) {
       logger.error("Unhandled error", err);
     }

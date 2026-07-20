@@ -22,6 +22,8 @@ import { rollupWorker } from "./workers/rollup.worker";
 import { quotaWorker } from "./workers/quota.worker";
 import { alertWorker } from "./workers/alert.worker";
 import { maintenanceWorker } from "./workers/maintenance.worker";
+import { backupWorker } from "./workers/backup.worker";
+import { onTeardown, runTeardown } from "./lifecycle";
 import { sshPool } from "./services/ssh";
 import { xrayService } from "./services/xray.service";
 import { hysteriaService } from "./services/hysteria.service";
@@ -167,6 +169,9 @@ const workers = [
   // Reconciles any job left in flight by the last shutdown (including a reboot of this
   // very host) before its first tick — see maintenance.worker.ts.
   maintenanceWorker(bot),
+  // Reaps interrupted runs and wipes restore staging synchronously, before bot.start()
+  // — see backup.worker.ts.
+  backupWorker(bot),
 ];
 
 // Register BotFather menu button if TMA_URL is configured
@@ -184,17 +189,25 @@ if (env.TMA_URL) {
 
 let apiServer: FastifyInstance | null = null;
 
+// Teardown steps, in the order they must run. Registered rather than inlined so a
+// bot-driven restore can run the identical sequence from inside backup.service —
+// it has to stop everything and close the DB cleanly before swapping the file, and
+// a service cannot import this module without a cycle.
+onTeardown("bot", () => bot.stop());
+onTeardown("api", async () => { if (apiServer) await apiServer.close(); });
+onTeardown("workers", () => {
+  workers.forEach((w) => w.stop());
+  logger.info("All workers stopped");
+});
+onTeardown("ssh", () => sshPool.close());
+onTeardown("xray", () => xrayService.close());
+onTeardown("hysteria", () => hysteriaService.close());
+onTeardown("db", () => db.close());
+
 // Graceful shutdown
 async function shutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}, shutting down...`);
-  await bot.stop();
-  if (apiServer) await apiServer.close();
-  workers.forEach((w) => w.stop());
-  logger.info("All workers stopped");
-  sshPool.close();
-  xrayService.close();
-  hysteriaService.close();
-  db.close();
+  await runTeardown();
   process.exit(0);
 }
 
