@@ -25,6 +25,10 @@ export interface Client {
   // WG cascade uplink transport: which A→B tunnel this client's WireGuard traffic
   // takes. Only meaningful for wg/both clients; ignored for xray/hysteria2.
   wg_cascade_transport: WgCascadeTransport;
+  // Opaque 192-bit capability token for GET /sub/<token>. NULL for wg-only and
+  // other non-subscription-capable rows. Anyone holding it can read this client's
+  // full credentials — treat it like a password, never log it.
+  sub_token: string | null;
 }
 
 // Transport for the WG cascade uplink (Server A → Server B). Extensible.
@@ -79,6 +83,26 @@ export interface ClientsResponse {
 
 export interface ApiError {
   error: string;
+}
+
+/**
+ * Subscription link state for one client.
+ *
+ * Deliberately carries NO raw token: the TMA only ever needs the URL, and the
+ * token is a bearer secret — there is no reason to hand it across one more hop.
+ *
+ * `capable` false = the client has no URI-representable credential (wg-only or a
+ * malformed row); `url` null with capable=true = no public origin configured
+ * (TMA_URL unset), which the UI must render as "requires a domain", not as a link.
+ */
+export interface SubInfoResponse {
+  capable: boolean;
+  url: string | null;
+}
+
+/** Result of rotate-and-send: `url` is always the NEW link, even when the send failed. */
+export interface SubRotateResponse extends SubInfoResponse {
+  sent: boolean;
 }
 
 // ─── Server status ───────────────────────────────────────────────────────────

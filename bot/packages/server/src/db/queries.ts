@@ -31,10 +31,19 @@ export const queries = {
     return db.prepare("SELECT * FROM clients WHERE name = ?").get(name) as Client | undefined;
   },
 
+  // Hot path for the public GET /sub/<token> route — served by idx_clients_sub_token.
+  getClientBySubToken(token: string): Client | undefined {
+    return db.prepare("SELECT * FROM clients WHERE sub_token = ?").get(token) as Client | undefined;
+  },
+
+  setClientSubToken(id: string, token: string): void {
+    db.prepare("UPDATE clients SET sub_token = ? WHERE id = ?").run(token, id);
+  },
+
   insertClient(client: Omit<Client, "created_at" | "last_seen_at" | "last_ip" | "last_ip_isp" | "last_connection_route">): void {
     db.prepare(`
-      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, hy2_password, expires_at, is_active, daily_quota_gb, monthly_quota_gb, wg_cascade_transport)
-      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @hy2_password, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb, @wg_cascade_transport)
+      INSERT INTO clients (id, name, type, wg_ip, wg_pubkey, xray_uuid, hy2_password, expires_at, is_active, daily_quota_gb, monthly_quota_gb, wg_cascade_transport, sub_token)
+      VALUES (@id, @name, @type, @wg_ip, @wg_pubkey, @xray_uuid, @hy2_password, @expires_at, @is_active, @daily_quota_gb, @monthly_quota_gb, @wg_cascade_transport, @sub_token)
     `).run(client);
   },
 

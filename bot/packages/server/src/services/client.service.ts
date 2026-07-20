@@ -18,7 +18,10 @@ import { qrService } from "./qr.service";
 import { isStandalone, wgHy2Available } from "../config/standalone";
 import { createLogger } from "../utils/logger";
 import { escapeMarkdown } from "../utils/telegram";
+import { generateSubToken } from "../utils/sub-token";
+import { subscriptionUrl } from "./subscription.service";
 import type { BotContext } from "../bot/context";
+import { isSubscriptionCapable } from "@vpn-relay/shared";
 import type { Client, ClientType, WgCascadeTransport } from "@vpn-relay/shared";
 
 const logger = createLogger("client");
@@ -82,6 +85,17 @@ export async function createClient(
     hy2Uris = hysteriaService.generateUris(name, hy2Password);
   }
 
+  // Mint the subscription token only now that the credentials exist. Keying on
+  // the predicate rather than on `type` means a row that ends up without a usable
+  // credential never receives a token — and so never serves a broken subscription.
+  const subToken = isSubscriptionCapable({
+    type,
+    xray_uuid: xrayUuid,
+    hy2_password: hy2Password,
+  })
+    ? generateSubToken()
+    : null;
+
   // DB first — source of truth
   queries.insertClient({
     id,
@@ -97,6 +111,7 @@ export async function createClient(
     monthly_quota_gb: monthlyQuotaGb ?? null,
     suspend_reason: null,
     wg_cascade_transport: effectiveTransport,
+    sub_token: subToken,
   });
 
   // Rebuild XRay config from DB
@@ -269,6 +284,82 @@ export async function updateWgTransport(client: Client, transport: WgCascadeTran
   logger.info(`Setting cascade transport for "${client.name}" → ${transport}`);
   queries.updateClientTransport(client.id, transport);
   await xrayUplinkService.syncRoutingAndRestart();
+}
+
+/**
+ * Mint a subscription token for a capable client that somehow has none.
+ *
+ * Covers rows created before this feature existed whose backfill has not run,
+ * and any row whose credential arrived after creation. Idempotent.
+ */
+export function ensureSubToken(client: Client): Client {
+  if (!isSubscriptionCapable(client) || client.sub_token) return client;
+  const token = generateSubToken();
+  queries.setClientSubToken(client.id, token);
+  return { ...client, sub_token: token };
+}
+
+/**
+ * Rotate a client's subscription token.
+ *
+ * SCOPE, stated honestly: this invalidates the LINK. Future fetches of the old
+ * token 404, which cuts off anyone still polling it and stops a shared link from
+ * spreading further. It does NOT revoke access already extracted — whoever
+ * imported the config still holds the live xray_uuid / hy2_password, and those
+ * keep working while the client is active. Real revocation is suspend/delete
+ * (data plane) or reissuing the credentials themselves.
+ *
+ * Every piece of user-facing copy must say "invalidate this link", never
+ * "revoke access". Synchronous by nature: nothing on the data plane changes.
+ */
+export function rotateSubToken(client: Client): { client: Client; url: string | null } {
+  if (!isSubscriptionCapable(client)) {
+    throw new Error("This client has no subscription-representable configuration");
+  }
+  const token = generateSubToken();
+  queries.setClientSubToken(client.id, token);
+  logger.info(`Rotated subscription token for "${client.name}"`); // never log the token
+  const updated = { ...client, sub_token: token };
+  return { client: updated, url: subscriptionUrl(updated) };
+}
+
+/**
+ * Send the subscription link + a QR of it to a Telegram chat.
+ *
+ * Kept separate from sendConfigToChat on purpose: that message is the one an
+ * admin forwards to an end user, and the subscription link is a capability URL
+ * granting the client's full credentials. Bundling them would hand the keys to
+ * whoever receives a forwarded config.
+ */
+export async function sendSubLinkToChat(
+  bot: Bot<BotContext>,
+  chatId: number,
+  client: Client,
+  opts: { rotated?: boolean } = {}
+): Promise<void> {
+  const url = subscriptionUrl(client);
+  if (!url) {
+    throw new Error("No subscription link available for this client");
+  }
+
+  const lines = [
+    `🔗 *Subscription for ${escapeMarkdown(client.name)}*\n`,
+    // Code span: base64url yields `_` and `-`, which Markdown would otherwise
+    // try to parse as emphasis.
+    `\`${url}\`\n`,
+    `_Add this as a subscription in Hiddify, v2rayN or Streisand — the app re-polls it and picks up server changes on its own._\n`,
+    `⚠️ Treat this link like a password: anyone who opens it gets this client's credentials.`,
+  ];
+  if (opts.rotated) {
+    lines.push(
+      `\n♻️ *Link regenerated.* The old link now returns 404. This does *not* disconnect anyone already using the config — to revoke access, suspend or delete the client.`
+    );
+  }
+
+  await bot.api.sendMessage(chatId, lines.join("\n"), { parse_mode: "Markdown" });
+  await bot.api.sendPhoto(chatId, new InputFile(await qrService.generate(url), "sub-qr.png"), {
+    caption: `Subscription QR: ${client.name}`,
+  });
 }
 
 /**

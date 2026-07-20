@@ -1,5 +1,8 @@
 import Database, { Database as DatabaseType } from "better-sqlite3";
 import { env } from "../config/env";
+import { isSubscriptionCapable } from "@vpn-relay/shared";
+import type { Client } from "@vpn-relay/shared";
+import { generateSubToken } from "../utils/sub-token";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -154,6 +157,54 @@ function migrateClientsAddHysteria2(): void {
   db.pragma("foreign_keys = ON");
 }
 migrateClientsAddHysteria2();
+
+/**
+ * Subscription capability token (GET /sub/<token>).
+ *
+ * PLACEMENT IS LOAD-BEARING — this must stay AFTER migrateClientsAddHysteria2().
+ * That migration rebuilds `clients` via an explicit CREATE + column-by-column
+ * INSERT ... SELECT, and it runs on FRESH databases too (the base CREATE TABLE
+ * above still declares the pre-hysteria2 CHECK). A column added in the additive
+ * ALTER block would therefore be silently dropped on every new install — the
+ * table would simply come out the other side without it.
+ *
+ * Do NOT "fix" this by adding sub_token to the clients_new DDL instead: that
+ * migration never runs on already-migrated databases, so this ALTER is required
+ * regardless. One mechanism, not two.
+ *
+ * The partial index is what lets every non-capable row keep sub_token NULL
+ * without colliding — SQLite treats NULLs as distinct in a UNIQUE index, but the
+ * WHERE clause makes that explicit and keeps the index small.
+ */
+try { db.exec("ALTER TABLE clients ADD COLUMN sub_token TEXT"); } catch { /* already exists */ }
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_sub_token
+    ON clients(sub_token) WHERE sub_token IS NOT NULL;
+`);
+
+// Backfill tokens for pre-existing capable clients. In JS rather than SQL because
+// each row needs independent randomness. Idempotent — it only touches NULLs, so
+// every boot after the first is a no-op.
+//
+// Raw db.prepare here, deliberately: db/queries.ts imports this module, so
+// importing it back would be a cycle. Same reason isSubscriptionCapable comes
+// from @vpn-relay/shared rather than from services/.
+const _subBackfillRows = db
+  .prepare("SELECT id, type, xray_uuid, hy2_password FROM clients WHERE sub_token IS NULL")
+  .all() as Array<{
+    id: string;
+    type: Client["type"];
+    xray_uuid: string | null;
+    hy2_password: string | null;
+  }>;
+if (_subBackfillRows.length > 0) {
+  const _subSetStmt = db.prepare("UPDATE clients SET sub_token = ? WHERE id = ?");
+  db.transaction(() => {
+    for (const row of _subBackfillRows) {
+      if (isSubscriptionCapable(row)) _subSetStmt.run(generateSubToken(), row.id);
+    }
+  })();
+}
 
 // Alert tables
 db.exec(`

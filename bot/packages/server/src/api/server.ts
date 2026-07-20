@@ -13,6 +13,7 @@ import { serversRoutes } from "./routes/servers";
 import { trafficRoutes } from "./routes/traffic";
 import { settingsRoutes } from "./routes/settings";
 import { alertsRoutes } from "./routes/alerts";
+import { subscriptionRoutes, clientSubRoutes } from "./routes/subscription";
 import type { BotContext } from "../bot/context";
 
 export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInstance> {
@@ -30,6 +31,17 @@ export async function buildApiServer(bot: Bot<BotContext>): Promise<FastifyInsta
   await app.register(trafficRoutes);
   await app.register(settingsRoutes);
   await app.register(alertsRoutes);
+  await app.register(clientSubRoutes, { bot });
+
+  // Public subscription endpoint — no auth hook by design (VPN client apps cannot
+  // produce Telegram initData). Registered before the static/SPA fallback so
+  // /sub/:token wins over the catch-all; a matched route would win regardless,
+  // but the ordering documents the intent.
+  //
+  // CORS (above) is TMA_URL-scoped and irrelevant here: @fastify/cors only omits
+  // the Access-Control-Allow-Origin header on a mismatch, it never rejects, and
+  // VPN apps send no Origin at all.
+  await app.register(subscriptionRoutes);
 
   // Serve static React SPA from packages/web/dist
   const webDist = path.resolve(__dirname, "../../../web/dist");

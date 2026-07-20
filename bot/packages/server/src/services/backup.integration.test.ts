@@ -35,6 +35,7 @@ function addClient(id: string, name: string): void {
     id, name, type: "xray", wg_ip: null, wg_pubkey: null, xray_uuid: `uuid-${id}`,
     hy2_password: null, expires_at: null, is_active: 1, daily_quota_gb: null,
     monthly_quota_gb: null, suspend_reason: null, wg_cascade_transport: "xray",
+    sub_token: `token-${id}`,
   });
 }
 
