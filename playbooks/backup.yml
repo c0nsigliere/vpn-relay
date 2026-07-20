@@ -12,11 +12,19 @@
 #
 # What gets backed up:
 #   Server A: wg-clients.key, wg-clients.pub, wg-clients.conf
-#   Server B: reality.key, reality.pub, shortid, vpn-bot data.db
+#   Server B: reality.key, reality.pub, shortid, obfs.pw (Hy2 nodes),
+#             backup.passphrase, vpn-bot data.db
+#
+# This is the operator COLD path, and it stays that way — the bot's own scheduled
+# encrypted bundles (see "Backups & Restore" in README) are the hot path. The two are
+# reconciled deliberately: this playbook produces a plaintext snapshot on the
+# controller, the bot produces an AES-GCM bundle off-site, and restore.yml consumes
+# either layout.
 #
 # Security:
 #   - artifacts/backup/ is gitignored
 #   - Key fetch tasks use no_log: true
+#   - The snapshot is PLAINTEXT on the controller. Treat artifacts/backup/ as secret.
 
 # =========================================================================
 # Step 1: Prepare backup directory on controller
@@ -113,6 +121,21 @@
         dest: "{{ backup_dir }}/server-b/shortid"
         flat: true
 
+    # Hysteria 2 obfs password — without it a rebuilt node regenerates the secret and
+    # every distributed Hy2 URI stops working.
+    - name: Check for sing-box obfs password
+      ansible.builtin.stat:
+        path: /etc/sing-box/obfs.pw
+      register: _obfs_stat
+
+    - name: Fetch sing-box obfs password
+      ansible.builtin.fetch:
+        src: /etc/sing-box/obfs.pw
+        dest: "{{ backup_dir }}/server-b/obfs.pw"
+        flat: true
+      when: _obfs_stat.stat.exists
+      no_log: true
+
     # Bot DB: stop service for consistent SQLite snapshot
     - name: Check if vpn-bot service exists
       ansible.builtin.systemd:
@@ -126,23 +149,66 @@
         state: stopped
       when: _vpn_bot_service.status is defined and _vpn_bot_service.status.ActiveState == "active"
 
-    - name: Check if bot database exists
-      ansible.builtin.stat:
-        path: /var/lib/vpn-bot/data.db
-      register: _bot_db_stat
+    # always: block so a failed guard still brings the bot back up
+    - name: Snapshot bot state
+      block:
+        # A clean db.close() checkpoints and removes the WAL. If one survives a
+        # systemd stop, the last shutdown was unclean and data.db alone is incomplete.
+        # Failing hard here is what lets every artifact in artifacts/backup/ be a
+        # single self-contained file, so restore.yml never has to reason about
+        # DB+WAL pairs and its "drop -wal/-shm on the target" step can never destroy
+        # backed-up data.
+        - name: Check for leftover WAL after stopping vpn-bot
+          ansible.builtin.stat:
+            path: /var/lib/vpn-bot/data.db-wal
+          register: _bot_wal_stat
 
-    - name: Fetch bot database
-      ansible.builtin.fetch:
-        src: /var/lib/vpn-bot/data.db
-        dest: "{{ backup_dir }}/server-b/vpn-bot-data.db"
-        flat: true
-      when: _bot_db_stat.stat.exists
+        - name: Fail if a WAL survived the stop
+          ansible.builtin.fail:
+            msg: |
+              /var/lib/vpn-bot/data.db-wal still exists after stopping vpn-bot, so the
+              last shutdown was unclean and data.db is missing recent transactions.
 
-    - name: Start vpn-bot after DB snapshot
-      ansible.builtin.systemd:
-        name: vpn-bot
-        state: started
-      when: _vpn_bot_service.status is defined and _vpn_bot_service.status.ActiveState == "active"
+              Remediation:
+                systemctl start vpn-bot   # let it run for a few seconds
+                systemctl stop vpn-bot    # a clean db.close() checkpoints the WAL
+              then re-run this playbook.
+          when: _bot_wal_stat.stat.exists
+
+        - name: Check if bot database exists
+          ansible.builtin.stat:
+            path: /var/lib/vpn-bot/data.db
+          register: _bot_db_stat
+
+        - name: Fetch bot database
+          ansible.builtin.fetch:
+            src: /var/lib/vpn-bot/data.db
+            dest: "{{ backup_dir }}/server-b/vpn-bot-data.db"
+            flat: true
+          when: _bot_db_stat.stat.exists
+
+        # The passphrase that decrypts the bot's own scheduled bundles. Without it in
+        # the cold artifact, an operator restoring from here cannot open the encrypted
+        # history sitting in the admin's Telegram chat.
+        - name: Check for backup passphrase
+          ansible.builtin.stat:
+            path: /var/lib/vpn-bot/backup.passphrase
+          register: _backup_passphrase_stat
+
+        - name: Fetch backup passphrase
+          ansible.builtin.fetch:
+            src: /var/lib/vpn-bot/backup.passphrase
+            dest: "{{ backup_dir }}/server-b/backup.passphrase"
+            flat: true
+          when: _backup_passphrase_stat.stat.exists
+          no_log: true
+
+      always:
+        - name: Start vpn-bot after DB snapshot
+          ansible.builtin.systemd:
+            name: vpn-bot
+            state: started
+          when: _vpn_bot_service.status is defined and _vpn_bot_service.status.ActiveState == "active"
 
 # =========================================================================
 # Step 4: Create latest symlink + summary

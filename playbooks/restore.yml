@@ -8,12 +8,22 @@
 #   # Restore from a specific snapshot:
 #   ansible-playbook playbooks/restore.yml -e "backup_name=2026-03-01T12-00-00"
 #
-# What gets restored:
-#   Server A: wg-clients.key, wg-clients.pub, wg-clients.conf
-#   Server B: reality.key, reality.pub, shortid, vpn-bot data.db
+# Accepts TWO input layouts:
+#   1. A snapshot from playbooks/backup.yml (carries wg-clients.pub and .conf).
+#   2. A decrypted bot bundle laid out as artifacts/backup/<name>/ per the DR runbook
+#      in README. That layout deliberately omits wg-clients.pub and wg-clients.conf,
+#      because both are derived data: the pubkey comes from the private key, and the
+#      peer blocks are rebuilt from the DB by the bot's WG sync on startup.
 #
-# The bot DB is the single source of truth for clients. On startup,
-# the bot rebuilds config.json from DB + restarts XRay automatically.
+# What gets restored:
+#   Server A: wg-clients.key, wg-clients.pub (derived if absent),
+#             wg-clients.conf (optional — re-rendered by wg_cascade.yml if absent)
+#   Server B: reality.key, reality.pub, shortid, obfs.pw (optional),
+#             backup.passphrase (optional), vpn-bot data.db (optional)
+#
+# The bot DB is the single source of truth for clients. On startup, the bot rebuilds
+# config.json, sing-box config, Server A's cascade routing AND Server A's WG peers
+# from the DB — so a restored DB propagates to the whole data plane by itself.
 #
 # After restore, run stack.yml to re-template derived configs:
 #   ansible-playbook playbooks/stack.yml
@@ -54,7 +64,10 @@
       ansible.builtin.set_fact:
         backup_dir: "{{ _backup_real_path.stdout }}"
 
-    - name: Check required Server A files
+    # Only the private key is mandatory. The pubkey is derivable from it, and the conf
+    # is derived data — see the header. Requiring all three would reject every bundle
+    # produced by the bot.
+    - name: Check Server A files
       ansible.builtin.stat:
         path: "{{ backup_dir }}/server-a/{{ item }}"
       register: _server_a_files
@@ -63,14 +76,18 @@
         - wg-clients.pub
         - wg-clients.conf
 
-    - name: Assert Server A files present
+    - name: Set Server A file presence facts
+      ansible.builtin.set_fact:
+        _wg_key_present: "{{ (_server_a_files.results | selectattr('item', 'eq', 'wg-clients.key') | first).stat.exists }}"
+        _wg_pub_present: "{{ (_server_a_files.results | selectattr('item', 'eq', 'wg-clients.pub') | first).stat.exists }}"
+        _wg_conf_present: "{{ (_server_a_files.results | selectattr('item', 'eq', 'wg-clients.conf') | first).stat.exists }}"
+
+    - name: Assert WG private key present
       ansible.builtin.assert:
         that:
-          - item.stat.exists
-        fail_msg: "Missing: {{ item.item }} in backup"
-      loop: "{{ _server_a_files.results }}"
-      loop_control:
-        label: "{{ item.item }}"
+          - _wg_key_present | bool
+        fail_msg: "Missing: server-a/wg-clients.key in backup (required)"
+      when: groups.get('wg_cascade', []) | length > 0
 
     - name: Check required Server B files
       ansible.builtin.stat:
@@ -95,6 +112,19 @@
         path: "{{ backup_dir }}/server-b/vpn-bot-data.db"
       register: _bot_db_backup
 
+    - name: Check for optional Server B secrets
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/server-b/{{ item }}"
+      register: _server_b_optional
+      loop:
+        - obfs.pw
+        - backup.passphrase
+
+    - name: Set optional Server B presence facts
+      ansible.builtin.set_fact:
+        _obfs_present: "{{ (_server_b_optional.results | selectattr('item', 'eq', 'obfs.pw') | first).stat.exists }}"
+        _passphrase_present: "{{ (_server_b_optional.results | selectattr('item', 'eq', 'backup.passphrase') | first).stat.exists }}"
+
     - name: Note bot DB status
       ansible.builtin.debug:
         msg: "{{ 'Bot database found in backup — will restore' if _bot_db_backup.stat.exists else 'No bot database in backup — skipping bot DB restore' }}"
@@ -110,6 +140,8 @@
 
   vars:
     backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
+    _wg_pub_present: "{{ hostvars['localhost']['_wg_pub_present'] }}"
+    _wg_conf_present: "{{ hostvars['localhost']['_wg_conf_present'] }}"
 
   tasks:
     - name: Ensure WireGuard keys directory exists
@@ -136,7 +168,28 @@
         mode: '0600'
         owner: root
         group: root
+      when: _wg_pub_present | bool
 
+    # Bot bundles carry only the private key — the pubkey is derivable, so it is not
+    # backup payload. Same idempotent shape as roles/wg_cascade/tasks/keys.yml.
+    - name: Derive wg-clients public key from the restored private key
+      ansible.builtin.shell:
+        cmd: "wg pubkey < /etc/wireguard/keys/wg-clients.key > /etc/wireguard/keys/wg-clients.pub"
+        executable: /bin/bash
+      when: not (_wg_pub_present | bool)
+      changed_when: true
+
+    - name: Set derived public key permissions
+      ansible.builtin.file:
+        path: /etc/wireguard/keys/wg-clients.pub
+        mode: '0600'
+        owner: root
+        group: root
+      when: not (_wg_pub_present | bool)
+
+    # Optional by design. When absent, the [Interface] section is re-rendered by
+    #   ansible-playbook playbooks/wg_cascade.yml --tags configs
+    # and the peer blocks are rebuilt from the DB by the bot's WG sync on startup.
     - name: Restore wg-clients config
       ansible.builtin.copy:
         src: "{{ backup_dir }}/server-a/wg-clients.conf"
@@ -144,13 +197,22 @@
         mode: '0600'
         owner: root
         group: root
+      when: _wg_conf_present | bool
       register: _wg_conf_restored
+
+    - name: Note that the WG conf will be rebuilt
+      ansible.builtin.debug:
+        msg: >-
+          No wg-clients.conf in this backup (expected for bot bundles). Run
+          'ansible-playbook playbooks/wg_cascade.yml --tags configs' to re-render the
+          [Interface] section; peer blocks are rebuilt from the DB when the bot starts.
+      when: not (_wg_conf_present | bool)
 
     - name: Reload WireGuard config
       ansible.builtin.shell:
         cmd: "wg syncconf wg-clients <(wg-quick strip wg-clients)"
         executable: /bin/bash
-      when: _wg_conf_restored.changed
+      when: _wg_conf_present | bool and _wg_conf_restored.changed
       failed_when: false
 
 # =========================================================================
@@ -165,6 +227,8 @@
   vars:
     backup_dir: "{{ hostvars['localhost']['backup_dir'] }}"
     _bot_db_exists: "{{ hostvars['localhost']['_bot_db_backup']['stat']['exists'] }}"
+    _obfs_present: "{{ hostvars['localhost']['_obfs_present'] }}"
+    _passphrase_present: "{{ hostvars['localhost']['_passphrase_present'] }}"
 
   tasks:
     # --- XRay keys ---
@@ -200,6 +264,50 @@
         mode: '0600'
         owner: root
         group: root
+
+    # --- Hysteria 2 obfs password + the bot's backup passphrase ---
+    - name: Restore sing-box obfs password
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-b/obfs.pw"
+        dest: /etc/sing-box/obfs.pw
+        mode: '0600'
+        owner: root
+        group: root
+      when: _obfs_present | bool
+      no_log: true
+
+    # Restoring this is what lets the rebuilt node keep decrypting the OLDER bundles
+    # already sitting in the admin's Telegram chat.
+    - name: Restore bot backup passphrase
+      ansible.builtin.copy:
+        src: "{{ backup_dir }}/server-b/backup.passphrase"
+        dest: /var/lib/vpn-bot/backup.passphrase
+        mode: '0400'
+        owner: vpn-bot
+        group: vpn-bot
+      when: _passphrase_present | bool
+      no_log: true
+
+    # ansible.builtin.copy writes a temp file and renames it, which replaces the inode
+    # and DISCARDS its POSIX ACLs. Every key copied above therefore lost the vpn-bot
+    # read ACL that roles/telegram_bot grants. Without re-applying it here the first
+    # post-restore scheduled backup fails outright on the reality.key read.
+    - name: Re-apply vpn-bot read ACLs on restored key material
+      ansible.posix.acl:
+        path: "{{ item.path }}"
+        entity: vpn-bot
+        etype: user
+        permissions: r
+        state: present
+      loop:
+        - { path: /etc/xray/keys/reality.key, required: true }
+        - { path: /etc/xray/keys/reality.pub, required: true }
+        - { path: /etc/xray/keys/shortid, required: true }
+        - { path: /etc/sing-box/obfs.pw, required: false }
+      loop_control:
+        label: "{{ item.path }}"
+      when: item.required or (_obfs_present | bool)
+      failed_when: false
 
     # --- Re-template config.json from restored keys (static entries only) ---
     - name: Import key facts from xray_server role
@@ -238,11 +346,23 @@
         - _vpn_bot_service.status is defined
         - _vpn_bot_service.status.ActiveState == "active"
 
+    # The OLD database's WAL must not survive into the NEW file — SQLite would replay
+    # it on first open and corrupt or silently mix the two. Safe to drop precisely
+    # because backup.yml refuses to produce an artifact whose source had a live WAL.
+    - name: Drop stale WAL/SHM before swapping the database
+      ansible.builtin.file:
+        path: "/var/lib/vpn-bot/{{ item }}"
+        state: absent
+      loop:
+        - data.db-wal
+        - data.db-shm
+      when: _bot_db_exists | bool
+
     - name: Restore bot database
       ansible.builtin.copy:
         src: "{{ backup_dir }}/server-b/vpn-bot-data.db"
         dest: /var/lib/vpn-bot/data.db
-        mode: '0644'
+        mode: '0600'
         owner: vpn-bot
         group: vpn-bot
       when: _bot_db_exists | bool

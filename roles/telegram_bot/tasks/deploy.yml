@@ -76,6 +76,42 @@
   notify: restart vpn-bot
   tags: [deploy, bot]
 
+- name: Create backup directory
+  file:
+    path: "{{ bot_backup_dir }}"
+    state: directory
+    owner: "{{ bot_user }}"
+    group: "{{ bot_group }}"
+    mode: "0700"
+  tags: [deploy, bot]
+
+# Generate-if-missing, mirroring roles/singbox_server/tasks/keys.yml. Idempotence is
+# load-bearing beyond the usual reason: regenerating this would orphan every bundle
+# already sitting in the admin's Telegram history.
+- name: Check for existing backup passphrase
+  stat:
+    path: "{{ bot_backup_passphrase_file }}"
+  register: _backup_passphrase_stat
+  tags: [deploy, bot]
+
+- name: Generate backup passphrase
+  when: not _backup_passphrase_stat.stat.exists
+  no_log: true
+  block:
+    - name: Generate random backup passphrase
+      command: openssl rand -hex 24
+      register: _backup_passphrase_gen
+      changed_when: true
+
+    - name: Write backup passphrase
+      copy:
+        content: "{{ _backup_passphrase_gen.stdout }}\n"
+        dest: "{{ bot_backup_passphrase_file }}"
+        owner: "{{ bot_user }}"
+        group: "{{ bot_group }}"
+        mode: "0400"
+  tags: [deploy, bot]
+
 - name: Set ACL — vpn-bot execute on xray keys dir (traverse to read files)
   acl:
     path: "{{ xray_keys_dir }}"
@@ -95,6 +131,23 @@
   loop:
     - "{{ xray_keys_dir }}/reality.pub"
     - "{{ xray_keys_dir }}/shortid"
+  tags: [deploy, bot]
+
+# The Reality PRIVATE key, for the backup bundle. Without it a from-scratch restore
+# regenerates the keypair, every distributed client URI's `pbk` changes, and every
+# client breaks — which is the whole reason backups are a bundle and not just the DB.
+#
+# This does not widen the trust boundary: /etc/xray/config.json is owned by vpn-bot
+# (see the config ACLs below) and already contains this exact value in
+# realitySettings.privateKey. The bot possesses the secret either way; this only lets
+# it read the canonical copy instead of scraping its own config.
+- name: Set ACL — vpn-bot reads the Reality private key (for backup bundles)
+  acl:
+    path: "{{ xray_keys_dir }}/reality.key"
+    entity: "{{ bot_user }}"
+    etype: user
+    permissions: r
+    state: present
   tags: [deploy, bot]
 
 - name: Set ACL — vpn-bot write-execute on xray config dir (needed to create temp files)

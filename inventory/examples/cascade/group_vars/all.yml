@@ -85,3 +85,18 @@ port_b_udp: "{{ hy2_port | default(443) }}"
 # Empty leaves the cascade on the VLESS uplink. Generate with:
 #   python3 -c "import secrets; print(secrets.token_hex(16))"
 # hy2_uplink_password: ""
+
+# --- Backups (roles/telegram_bot) ---
+# The bot builds a daily AES-256-GCM DR bundle (DB + Reality keys + Hy2 obfs
+# password + Server A's WG server key), sends it to the admin's Telegram chat and
+# keeps the last N locally in {{ bot_data_dir }}/backups.
+#
+# The encryption passphrase is generated once by Ansible into
+# {{ bot_data_dir }}/backup.passphrase (0400). SAVE IT OFF THE NODE — without it
+# the bundles are unreadable. The bot reminds you once, in chat, after the first
+# successful run. See "Backups & Restore" in README.md.
+#
+# All three are role defaults; uncomment only to override.
+# backup_enabled: true
+# backup_hour_utc: 3       # UTC hour of the daily run
+# backup_retention: 7      # local bundles kept before the oldest is rotated out

@@ -65,3 +65,18 @@ singbox_v2ray_api_port: 10086
 # "warn" to cut log volume at the cost of no IP/ISP for Hy2 clients.
 singbox_log_level: "info"
 # hy2_uplink_password: ""   # phase 3 (WG-over-Hy2 cascade) only; empty in phase 1
+
+# --- Backups (roles/telegram_bot) ---
+# The bot builds a daily AES-256-GCM DR bundle (DB + Reality keys + Hy2 obfs
+# password + Server A's WG server key), sends it to the admin's Telegram chat and
+# keeps the last N locally in {{ bot_data_dir }}/backups.
+#
+# The encryption passphrase is generated once by Ansible into
+# {{ bot_data_dir }}/backup.passphrase (0400). SAVE IT OFF THE NODE — without it
+# the bundles are unreadable. The bot reminds you once, in chat, after the first
+# successful run. See "Backups & Restore" in README.md.
+#
+# All three are role defaults; uncomment only to override.
+# backup_enabled: true
+# backup_hour_utc: 3       # UTC hour of the daily run
+# backup_retention: 7      # local bundles kept before the oldest is rotated out

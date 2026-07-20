@@ -14,6 +14,17 @@ bot_group: "vpn-bot"
 # SSH keypair for bot → Server A access
 bot_ssh_key_path: "/var/lib/vpn-bot/.ssh/id_ed25519"
 
+# Backups — daily encrypted DR bundle to the admin's Telegram chat + local rotation.
+# Defined here rather than in group_vars so existing inventories need no edit at all;
+# override any of them per-deployment when the defaults don't fit.
+backup_enabled: true
+backup_hour_utc: 3
+backup_retention: 7
+bot_backup_dir: "{{ bot_data_dir }}/backups"
+# The passphrase is a file, not an .env value: it mirrors the sing-box obfs idiom and
+# gives the DR runbook one canonical artifact to save off the node.
+bot_backup_passphrase_file: "{{ bot_data_dir }}/backup.passphrase"
+
 # Node.js version
 node_major_version: 24
 
