@@ -132,17 +132,30 @@ export interface StagedRestore {
 
 // ── Pure helpers (exported for tests) ────────────────────────────────────────
 
+/** The YYYYMMDD-HHmm stamp both filename shapes embed. */
+const STAMP_RE = /(\d{8}-\d{4})/;
+
 /**
  * Which bundles to delete, keeping the newest `keep`.
  *
- * Ordered by the timestamp embedded in the filename, never by mtime: rsync, cp and
- * restore all rewrite mtime, and a rotation that deletes the wrong file is the one
- * bug in this subsystem with no undo. The anchored pattern is also what keeps
- * pre-restore snapshots from ever being counted against the bundle quota.
+ * Ordered by the timestamp *extracted* from the filename — not by mtime (rsync, cp
+ * and restore all rewrite it) and not by sorting the whole name. The latter looks
+ * equivalent and isn't: the label precedes the stamp, so a node whose label ever
+ * changes (a TMA domain added, or the IP fallback kicking in) would sort by label
+ * first and could delete its newest bundle as "oldest". A rotation that deletes the
+ * wrong file is the one action in this subsystem with no undo.
+ *
+ * A name with no parseable stamp is never deleted and never counted — refusing to
+ * date a file is a reason to keep it, not to guess.
  */
 export function selectForRotation(names: string[], keep: number, pattern: RegExp = BUNDLE_RE): string[] {
-  const matching = names.filter((n) => pattern.test(n)).sort();
-  return matching.length <= keep ? [] : matching.slice(0, matching.length - keep);
+  const dated = names
+    .filter((n) => pattern.test(n))
+    .map((name) => ({ name, stamp: STAMP_RE.exec(name)?.[1] }))
+    .filter((e): e is { name: string; stamp: string } => e.stamp !== undefined)
+    .sort((a, b) => (a.stamp < b.stamp ? -1 : a.stamp > b.stamp ? 1 : a.name < b.name ? -1 : 1));
+
+  return dated.length <= keep ? [] : dated.slice(0, dated.length - keep).map((e) => e.name);
 }
 
 /** `heimdall` from a TMA domain, else the host with dots → dashes. Filename-safe. */

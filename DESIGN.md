@@ -433,6 +433,42 @@ ansible-playbook playbooks/verify_all.yml
 
 Клиенты управляются через Telegram бота / TMA (DB — единственный source of truth).
 
+### WireGuard: desired-state пиры
+
+Инвариант «БД — источник истины» для WG раньше выполнялся только на словах. XRay,
+sing-box и cascade-роутинг пересобираются из БД при каждом старте; WG-пиры же жили
+исключительно как `# BEGIN/END CLIENT` блоки, которые мутации правили на месте
+(append / `sed -i` / `sed` для переименования). Отсюда два следствия:
+
+* восстановленная БД **не воскрешала** удалённого WG-клиента — ничто не сверяло conf
+  на A со строками таблицы;
+* `suspendClient` убирал пира только из live-состояния, оставляя блок в conf, поэтому
+  `wg syncconf` при следующем add/remove **воскрешал заблокированного клиента**.
+
+Обе проблемы — отсутствие одного примитива. `wgService.syncPeersFromDb()` рендерит
+всю пир-область из строк БД, побайтово сохраняя Ansible-управляемую секцию
+`[Interface]` (включая `PrivateKey` и TPROXY `PostUp`), и затем приводит live-состояние
+в соответствие. Заблокированные клиенты **рендерятся** (блок — долговременная запись о
+выделенном IP) и снимаются из live-состояния после `syncconf` — так баг с воскрешением
+закрыт конструктивно.
+
+Инкрементальные `wg set` при add/remove сохранены: полный `syncconf` на каждую мутацию
+дёргал бы сессии всех пиров ради изменения одного.
+
+**Порядок обязателен:** `client.service` вызывает синк **после** записи в БД — там же,
+где уже вызывает `xrayService.syncConfigAndRestart()`. Вызов до записи отрендерил бы
+состояние «до мутации».
+
+**Валидация строк** (`name` / `wg_pubkey` / `wg_ip`) — обязательна, потому что после
+restore эти значения приходят из загруженного файла. Плохая строка пропускается и
+логируется, но не роняет синк: одна битая запись не должна лишать связи всех
+остальных. Конфиг едет на A в base64 и кладётся через temp + atomic `mv` — содержимое
+файла никогда не попадает в шелл-строку.
+
+**Выделение IP** идёт из `union(БД, conf-на-A, in-flight резервации)`. Раньше читался
+только conf — под desired-state это неверное направление: сразу после restore conf ещё
+не пересобран, и IP, уже принадлежащий записи в БД, был бы выдан повторно.
+
 ---
 
 # 📌 Текущее состояние
@@ -445,6 +481,8 @@ ansible-playbook playbooks/verify_all.yml
 * Реализован single-entry entrypoint `stack.yml`
 * DPI hardening: порт 8443 на relay, SNI `www.googletagmanager.com`, flow `xtls-rprx-vision` — активны по умолчанию
 * Control-plane (Telegram бот) — реализован (`bot/`, роль `telegram_bot`, `playbooks/deploy_bot.yml`)
+* Автоматические шифрованные бэкапы + restore из чата — реализованы (`backup.service`,
+  `backup.worker`, `scripts/backup-decrypt.mjs`); WG-пиры переведены на desired-state
 
 ---
 
@@ -574,28 +612,98 @@ ClientRow shows ISP as a compact label. IPs collected by traffic worker every 10
 
 ## 5️⃣ Backup & Restore
 
+Два пути, намеренно. **Бот** — автоматический горячий путь (ежедневно, off-site,
+зашифровано). **Плейбуки** — холодный операторский путь и исполнитель DR.
+
+### Горячий путь (бот на Server B)
+
+```
+ daily 03:00Z ──► backup.worker ──► backupService.runBackup()
+                       │  1. db.backup() → staging/data.db   (консистентный снимок под WAL)
+                       │  2. xray/reality.{key,pub}, shortid; singbox/obfs.pw (если hy2)
+                       │  3. ssh A: cat wg-clients.key       (best-effort, 10s)
+                       │  4. manifest.json (host, label, counts, reality_pub)
+                       │  5. tar.gz → AES-256-GCM(scrypt(passphrase))
+                       │  6. /var/lib/vpn-bot/backups/ (ротация, keep N)
+                       │  7. sendDocument → чат админа
+                       └── ошибка → backup_failed; alert.worker следит за backup_stale
+```
+
+Формат контейнера: `magic "VPNRB1"(6) | salt(16) | iv(12) | ciphertext | tag(16)`,
+ключ = `scryptSync(passphrase, salt, 32)`, `{N:16384, r:8, p:1}`.
+
+**Почему бандл, а не только БД:** без `reality.key` и `obfs.pw` восстановление с нуля
+регенерирует ключи → у всех выданных URI меняются `pbk` / `obfs-password` → все
+клиенты умирают. `wg-clients.key` — то же самое для WG (приватные ключи клиентов
+нигде не хранятся, серверного ключа + pubkey'ев из БД достаточно).
+
+**Почему passphrase лежит внутри бандла:** это то, чем бандл *зашифрован* — тот, кто
+не может расшифровать, ничего и не узнает. Выигрыш: восстановленная нода продолжает
+читать свои **старые** бандлы без переинициализации секретов.
+
+**Три статуса.** `success` — бандл записан локально И доставлен. `degraded` — записан,
+но не доставлен (бэкап есть, off-site копии нет); считается за «бэкап есть» для
+`backup_stale`, но поднимает `backup_failed`. `failed` — валидного бандла нет.
+Ротация привязана к *существованию* бандла, не к доставке, и сортирует по метке
+времени **из имени файла** (не mtime — его переписывают rsync/cp/restore).
+
+**Расписание — абсолютное** (`setTimeout` до следующего `BACKUP_HOUR_UTC`), не
+`setInterval(24h)`: иначе время съезжает при каждом рестарте деплоя. Догон при старте —
+**по слотам**, не по возрасту: «последний успех старше 25ч» пропускает случай
+«бэкап в 03:00, хост лежал 02:50–03:45» (успеху всего 24ч45м) и молча растягивает
+разрыв до 48 часов.
+
+### Restore из бота
+
+```
+админ шлёт .enc в чат → getFile (≤19 MB) → decrypt (GCM = целостность+подлинность)
+  → распаковка со строгим allowlist'ом имён/типов/размеров → валидация
+     (manifest.format, PRAGMA integrity_check, COUNT(*) FROM clients, reality_pub)
+  → кнопки подтверждения → снимок текущей БД в pre-restore-<ts>.db
+  → teardown в порядке F8 → rm -f data.db-wal/-shm → rename → exit(0)
+  → systemd поднимает бота → стартовые синки восстанавливают data plane
+```
+
+Бот применяет **только БД** — ключи пишет root (у бота нет прав на запись в
+`/etc/xray/keys`, и это правильный раздел: при restore на том же сервере ключи уже
+верные, а при мёртвом сервере бота ещё нет). Ключевая зависимость: **стартовый синк
+WG-пиров** (§ WireGuard desired-state) — без него восстановленная БД не воскресила бы
+удалённого WG-клиента.
+
+`lifecycle.ts` — реестр teardown-шагов: restore обязан выполнить ту же
+последовательность, что и SIGTERM, но из сервиса, который не может импортировать
+`index.ts` без цикла.
+
+### Холодный путь (контроллер)
+
 ```
 Controller (local)
     │
     ├── backup.yml ──fetch──► Server A: wg-clients.key, .pub, .conf
-    │                  └────► Server B: reality.key, .pub, shortid, data.db
+    │                  └────► Server B: reality.key, .pub, shortid, obfs.pw,
+    │                                   backup.passphrase, data.db
     │
     └── artifacts/backup/
-          2026-03-01T12-00-00/
-            server-a/   (WG keys + config)
-            server-b/   (Reality keys + bot DB)
+          2026-03-01T12-00-00/{server-a,server-b}/
           latest -> 2026-03-01T12-00-00/
 ```
 
-**Backup:** `ansible-playbook playbooks/backup.yml` — timestamped snapshots, `latest` symlink.
-Bot service stopped during DB copy for SQLite consistency.
+`backup.yml` останавливает `vpn-bot` вокруг копирования и **падает**, если после
+остановки остался `data.db-wal` (значит прошлое выключение было грязным и `data.db`
+неполон). Это гарантирует, что каждый артефакт — самодостаточный одиночный файл, и
+`restore.yml` никогда не разбирает пары DB+WAL.
 
-**Restore:** `ansible-playbook playbooks/restore.yml` — defaults to `latest`, override with
-`-e "backup_name=<timestamp>"`. Re-templates `config.json` from restored keys.
+`restore.yml` принимает **две раскладки**: снимок от `backup.yml` и распакованный
+бандл бота. `wg-clients.pub` выводится из приватного ключа, если отсутствует;
+`wg-clients.conf` — производные данные (пиры пересобирает бот). После копирования
+ключей **переприменяет ACL** — `ansible.builtin.copy` подменяет inode и стирает их.
 
-**Recovery flow:** `restore.yml` → `stack.yml` → all existing client configs continue working.
+### Новые алерты
 
----
+| Ключ | Порог по умолчанию | Смысл |
+|------|--------------------|-------|
+| `backup_failed` | cooldown 360 мин | Прогон упал или бандл не ушёл off-site. Снимается явно при следующем успехе |
+| `backup_stale` | 36 ч, cooldown 720 | Давно не было успешных прогонов. Отдельный сторож в `alert.worker` — ловит сломанное расписание, когда прогона нет и ошибки тоже нет |
 
 ---
 

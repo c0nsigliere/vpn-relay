@@ -17,6 +17,8 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"],
+  // Tests are colocated with the code they cover; excluding them keeps vitest's
+  // own types out of the build and test files out of dist/.
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"],
   "references": [{ "path": "../shared" }]
 }

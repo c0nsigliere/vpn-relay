@@ -265,38 +265,132 @@ ansible-playbook playbooks/stack.yml \
 - Full Telegram theme support (light/dark auto-switch)
 - Works on all Telegram clients (iOS, Android, Desktop)
 
-### 10. Backup & Restore (recommended)
+### 10. Backups & Restore
 
-Back up critical server state (keys, configs, bot SQLite DB) to the local controller:
+Two paths, on purpose. The **bot** runs automatic encrypted backups off-site; the
+**playbooks** are the operator cold path and the disaster-recovery executor.
+
+#### Automatic (the bot — nothing to set up)
+
+Once the bot is deployed, it builds a full DR bundle every night at
+`backup_hour_utc` (default 03:00 UTC), encrypts it, sends it to the admin's Telegram
+chat, and keeps the last `backup_retention` locally in `/var/lib/vpn-bot/backups/`.
+Chat history doubles as free versioned off-site storage.
+
+The bundle is a **full recovery set**, not just the database:
+
+| Entry | Why it's in there |
+|-------|-------------------|
+| `data.db` | Every client, quota and traffic total. Consistent snapshot, not a raw copy |
+| `xray/reality.key`, `.pub`, `shortid` | Without these a rebuild regenerates the keypair, every client URI's `pbk` changes, and **every client breaks** |
+| `singbox/obfs.pw` | Same, for Hysteria 2 `obfs-password` (Hy2 nodes only) |
+| `wg/wg-clients.key` | Server A's WG server key, so existing WG configs survive A being rebuilt (cascade only, best-effort) |
+| `backup.passphrase` | So a restored node can still open its own **older** bundles |
+
+Encryption is AES-256-GCM with a per-node passphrase Ansible generates into
+`/var/lib/vpn-bot/backup.passphrase` (mode 0400).
+
+> **Save the passphrase somewhere off the node.** Without it the bundles are
+> unreadable — including by you. The bot messages you once, after the first
+> successful backup, with a fingerprint so you can verify your saved copy:
+> ```bash
+> ssh root@<server-b> cat /var/lib/vpn-bot/backup.passphrase
+> ```
+> The passphrase itself is never sent to Telegram — it would sit in the same chat as
+> the bundles it protects.
+
+From the bot: **Settings → 💾 Backup Now** for an on-demand bundle. Two alerts watch
+the schedule — `backup_failed` (a run failed, or the bundle never left the node) and
+`backup_stale` (nothing has completed in `threshold` hours, default 36). Both are
+tunable in the TMA settings screen.
+
+#### Restore from the bot
+
+Send a `vpn-backup-*.enc` file back to the bot chat → it validates the bundle
+(authenticity, `PRAGMA integrity_check`, client count) and shows a confirmation →
+confirm → the bot swaps the database and restarts itself. On startup it rebuilds
+XRay's config, sing-box's config, Server A's cascade routing **and Server A's WG
+peers** from the restored DB, so the data plane converges by itself.
+
+The bot restores the **database only**. Key material is root's job — the bot has no
+write access to `/etc/xray/keys` by design. That costs nothing in the common case
+(a bad migration, a fat-fingered delete): the keys on that server are already
+correct. For a bundle from a *different* server the bot says so explicitly and
+restores only the DB; use the runbook below to put the keys back.
+
+#### Operator cold path (controller-side snapshot)
 
 ```bash
-# Create a timestamped backup:
+# Create a timestamped plaintext snapshot on the controller:
 ansible-playbook playbooks/backup.yml
-# → artifacts/backup/2026-03-01T12-00-00/
+# → artifacts/backup/2026-03-01T12-00-00/   (gitignored — treat as secret)
 # → artifacts/backup/latest (symlink)
-```
 
-Restore from backup (e.g., after server reprovisioning):
-
-```bash
-# Restore from latest backup:
+# Restore it:
 ansible-playbook playbooks/restore.yml
-
-# Restore from a specific snapshot:
 ansible-playbook playbooks/restore.yml -e "backup_name=2026-03-01T12-00-00"
 
 # Then re-template all derived configs:
 ansible-playbook playbooks/stack.yml
 ```
 
-**What gets backed up:**
+`backup.yml` stops `vpn-bot` around the fetch so the SQLite copy is consistent. If it
+aborts complaining about a leftover `data.db-wal`, the previous shutdown was unclean
+and `data.db` alone is incomplete — start the bot, let it run a few seconds, stop it
+(a clean close checkpoints the WAL), then re-run.
 
-| Server | Files |
-|--------|-------|
-| A | WG private/public keys, `wg-clients.conf` |
-| B | Reality private/public keys, shortId, bot SQLite DB (`data.db`) |
+#### Disaster recovery: Server B is gone
 
-All existing client configs continue working after restore (same keys, same UUIDs).
+```bash
+# 1. Rebuild the server from scratch (fresh keys get generated — that's fine,
+#    they are about to be replaced).
+ansible-playbook playbooks/stack.yml -i inventory/<node>/
+
+# 2. Decrypt the newest bundle from your Telegram chat.
+#    The passphrase comes from your password manager.
+node bot/scripts/backup-decrypt.mjs vpn-backup-<node>-<stamp>Z.tar.gz.enc \
+  | tar xz -C /tmp/bundle
+
+# 3. Lay it out where restore.yml expects it:
+mkdir -p artifacts/backup/dr/{server-a,server-b}
+cp /tmp/bundle/data.db             artifacts/backup/dr/server-b/vpn-bot-data.db
+cp /tmp/bundle/xray/reality.key    artifacts/backup/dr/server-b/
+cp /tmp/bundle/xray/reality.pub    artifacts/backup/dr/server-b/
+cp /tmp/bundle/xray/shortid        artifacts/backup/dr/server-b/
+cp /tmp/bundle/backup.passphrase   artifacts/backup/dr/server-b/
+cp /tmp/bundle/singbox/obfs.pw     artifacts/backup/dr/server-b/   # Hy2 nodes
+cp /tmp/bundle/wg/wg-clients.key   artifacts/backup/dr/server-a/   # cascade nodes
+
+# 4. Restore, then re-render derived configs:
+ansible-playbook playbooks/restore.yml -e "backup_name=dr"
+ansible-playbook playbooks/wg_cascade.yml --tags configs   # cascade only
+ansible-playbook playbooks/stack.yml
+```
+
+The bundle deliberately carries no `wg-clients.pub` or `wg-clients.conf`: the public
+key is derived from the private key (`restore.yml` does it), and the peer blocks are
+rebuilt from the database when the bot starts. Everything else on Server A is
+re-derivable from Ansible.
+
+**Restore onto the same or a newer code tag.** An older bundle under newer code is
+fine — migrations are additive and run on startup. A *newer* bundle under older code
+is not detectable and not supported.
+
+Decrypt options:
+
+```bash
+node bot/scripts/backup-decrypt.mjs bundle.enc -o bundle.tar.gz  # prompts
+BACKUP_PASSPHRASE=… node bot/scripts/backup-decrypt.mjs bundle.enc > bundle.tar.gz
+node bot/scripts/backup-decrypt.mjs bundle.enc --passphrase-file ./backup.passphrase
+```
+
+The script is dependency-free, so it also runs on a rebuilt server before the bot is
+installed (it ships to `/opt/vpn-bot/scripts/` with every deploy). `openssl enc`
+cannot open these bundles — it has no AES-GCM support.
+
+> The TMA's **Download DB Snapshot** button is a *plaintext* SQLite file. It is a
+> consistent snapshot (not a torn copy), and the transfer is TLS — but the file lands
+> unencrypted on your device. Treat it like `artifacts/backup/`.
 
 ---
 
