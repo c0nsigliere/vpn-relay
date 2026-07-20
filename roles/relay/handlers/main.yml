@@ -17,10 +17,29 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
+# ── CANONICAL `reload ufw` — keep IDENTICAL in relay, wg_cascade, xray_server ──
+#
+# `ufw reload` rebuilds only the filter chains it owns; the *nat and *mangle
+# blocks in before.rules are re-applied by APPENDING. So without flushing first,
+# every before.rules change leaves a second copy of every custom rule behind.
+#
+# Observed live on 2026-07-20: one relay change produced duplicate DNAT,
+# MASQUERADE, MSS-clamp and TPROXY-jump rules on Server A.
+#
+# Handler names are global per play and the LAST definition wins. relay imports
+# xray_server (tasks/xray_uplink.yml) and stack.yml loads wg_cascade alongside,
+# so whichever role's definition wins is not predictable — which is exactly why
+# all three must be identical. Change one, change all three.
+#
+# Only builtin chains are flushed; custom chains (e.g. XRAY_WG_TPROXY) survive,
+# and their jumps are restored from before.rules by the reload. On Server B both
+# tables are empty, so the flush is a no-op there.
 - name: reload ufw
   ansible.builtin.shell: >-
     iptables -t nat -F PREROUTING &&
     iptables -t nat -F POSTROUTING &&
+    iptables -t mangle -F PREROUTING &&
+    iptables -t mangle -F FORWARD &&
     ufw reload
   when: manage_ufw == "keep"
 
