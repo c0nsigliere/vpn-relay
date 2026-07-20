@@ -408,6 +408,73 @@ cannot open these bundles — it has no AES-GCM support.
 
 ---
 
+### 11. Subscription URLs
+
+A client's `vless://` / `hysteria2://` URI is a **static** artifact: rotate the Reality
+keys, change a port, or bring a relay online, and every config you handed out is
+silently dead. A subscription URL fixes that — the client app adds one HTTPS link once
+and re-polls it, so server-side changes propagate on their own.
+
+**Requires `tma_domain`** (the link needs a public HTTPS origin). Without it the bot and
+TMA hide the option.
+
+#### Handing one out
+
+Bot → client card → **🔗 Subscription**, or TMA → client → **Send Link to Chat**. You get
+the link plus a QR of it:
+
+```
+https://<tma_domain>:8444/sub/<token>
+```
+
+Paste it into Hiddify, v2rayN, Streisand, NekoBox or sing-box as a *subscription* (not as
+a single config). The app fetches the current URIs — direct first, relay second where a
+cascade exists — and refreshes them on its own schedule.
+
+Only clients with a URI-representable credential get a link: `xray`/`both` (VLESS) and
+`hysteria2`. **WireGuard cannot be subscribed** — its private key is shown once at
+creation and never stored, so wg-only clients keep the one-time `.conf`.
+
+#### What the app shows without opening the bot
+
+The response carries `Subscription-Userinfo`, so the client app displays the quota bar
+and expiry itself. One quota is reported with its own period's usage — monthly if a
+monthly quota is set, otherwise daily, otherwise "unlimited". A suspended client still
+gets **HTTP 200** with the profile marked exhausted or expired: the data plane already
+blocks the connection, so this leaks nothing and tells the user *why* they are offline.
+Resume them and the app recovers on its next poll, with no reinstall.
+
+#### The link is a credential
+
+Anyone who opens it gets that client's UUID or password. It is an unguessable
+192-bit capability URL — the same trust model every subscription VPN uses — but treat it
+like a password, not like a public URL. nginx keeps it out of the access log
+(`access_log off`), and the response is `no-store` + `noindex`. It can still reach error
+logs, browser history, and the Telegram message you sent it in.
+
+**Invalidating a leaked link** — bot → **♻️ Invalidate & regenerate link**, or TMA →
+**Invalidate & Resend**:
+
+> This invalidates the **link**. The old URL 404s, which cuts off anyone still polling
+> it. It does **NOT** disconnect anyone who already imported the config — they hold the
+> live credentials. To actually revoke access, **suspend or delete the client**.
+
+#### If Server B gets blocked (DPI runbook)
+
+Cascade nodes pre-stage a blind L4 forward `A:8444 → B:8444` (`sub_fallback_enabled`,
+enabled on Heimdall and Heisenberg). It sits dormant — nothing reaches `A:8444` until DNS
+says so. When Server B's IP is blocked and clients can no longer fetch updates:
+
+1. Point `tma_domain`'s A record at **Server A**.
+2. Done. Clients keep using the identical URL; Server A forwards at L4 and TLS still
+   terminates on B, so the certificate stays valid and no `insecure` flag is needed.
+3. Flip DNS back when the incident passes.
+
+No Ansible run under pressure — that is the entire point of pre-staging it. Server A
+holds no token, no certificate and no bot secret; it stays a dumb pipe.
+
+---
+
 ## Multiple Deployments
 
 You can manage multiple independent deployments from one repo:
@@ -513,6 +580,7 @@ All port numbers (`xray_port`, `port_a_tcp`, `port_b_tcp`, `port_a_udp`, `port_b
 | `singbox_v2ray_api_port` | `10086` | Loopback gRPC stats port (bot ↔ sing-box) |
 | `singbox_log_level` | `warn` | sing-box log level (phase 2 IP parsing needs `info`) |
 | `hy2_uplink_password` | `""` | Shared secret for the WG-over-Hy2 cascade uplink. Set → brings up a sing-box client on A + the `wg-clients@hy2` user on B, enabling the per-client WG→Hy2 transport. Empty → WG cascade uses VLESS only. |
+| `sub_fallback_enabled` | `false` | Cascade only. Pre-stages a blind L4 forward `A:tma_https_port → B:tma_https_port` so subscription URLs survive a block of B's IP. Dormant until DNS points `tma_domain` at A — activation is a DNS flip, not a deploy. Requires `tma_https_port != port_a_tcp` (hard-asserted). |
 | `manage_ufw` | `keep` | Firewall mode: `keep` or `disable` |
 | `wan_if` | auto-detect | WAN interface override |
 | `do_dist_upgrade` | `false` | Enable dist-upgrade in maintenance |

@@ -170,6 +170,49 @@ Hy2 credentials, no cert, no sing-box.
 
 ---
 
+## 2️⃣.7 Subscription URL (config-delivery plane)
+
+```
+Client app → https://<tma_domain>:8444/sub/<token>   (unauthenticated)
+           → nginx (access_log off) → Fastify GET/HEAD /sub/:token
+           → base64(URIs rebuilt live from the DB)
+```
+
+Данные-плоскость от этого не зависит — это **канал доставки конфигов**. Статический
+`vless://`/`hysteria2://` URI умирает при любой смене на сервере (ротация Reality-ключей,
+смена порта, появление релея); подписка превращает это в фоновый re-poll на стороне
+клиента. Предпосылка для ротации ключей (#5) и self-service (#2).
+
+* **Маршрут (`api/routes/subscription.ts`):** два плагина в одном файле —
+  `subscriptionRoutes` (**публичный, без `tmaAuthMiddleware`** — VPN-приложения не умеют
+  отдавать Telegram initData) и `clientSubRoutes` (authed: info / rotate / send /
+  rotate-and-send). `HEAD` объявлен явно: Hiddify тянет user-info именно им.
+* **Токен = credential.** `randomBytes(24).toString("base64url")` → 32 символа, 192 бита.
+  Не угадывается, поэтому rate-limit не нужен; но тело ответа содержит UUID/пароль
+  клиента, так что ссылка — это пароль. `sub_token TEXT` + partial unique index;
+  **ALTER обязан стоять ПОСЛЕ `migrateClientsAddHysteria2()`** — иначе rebuild с явным
+  списком колонок молча выкидывает её на всех свежих БД (регрессия закрыта тестом
+  `db/subtoken.migration.test.ts`).
+* **Кто получает ссылку:** единственный предикат `isSubscriptionCapable()` живёт в
+  `@vpn-relay/shared` (его нужен и `db/index.ts` для backfill, и web — а `db/index.ts`
+  не может импортировать `services/`: там цикл). WG не представим URI → ссылки не имеет.
+* **200 для suspended, не 404.** Доступ режется на data-plane (клиента нет в
+  `config.json`/peer-set), поэтому отдать URI безопасно, а `Subscription-Userinfo`
+  показывает *причину* (квота/срок). 404 зарезервирован за несуществующим токеном.
+  Квота репортится **одна и со своим периодом** (месячная → месячный расход, иначе
+  дневная → дневной); смешивать периоды нельзя — бар будет врать.
+* **Ротация** инвалидирует **ссылку**, а не доступ: уже импортированные креды живут,
+  пока клиент активен. Реальный отзыв — suspend/delete. Копия в боте и TMA обязана
+  говорить «invalidate this link», никогда «revoke access».
+* **DPI-фолбэк (`sub_fallback_enabled`, cascade):** слепой L4-форвард
+  `A:tma_https_port → B:tma_https_port` в обоих firewall-режимах, зеркало VLESS-релея.
+  Лежит **спящим** (на `A:8444` никто не стучится, пока DNS не скажет), активируется
+  **флипом DNS** — `tma_domain` на Server A. TLS терминируется на B, серт остаётся
+  валидным, URL в клиентах не меняется. Ansible под давлением инцидента писать не надо.
+  A по-прежнему не держит ни токена, ни серта, ни секретов бота.
+
+---
+
 # 🧠 Протокол XRay
 
 * Протокол: VLESS
@@ -240,8 +283,22 @@ Hy2 credentials, no cert, no sing-box.
 * **DNAT UDP (`port_a_udp` → B:`port_b_udp`)** — Hy2 relay, phase 4, gated on
   `hy2_enabled`; в обоих режимах firewall (`ufw_keep.yml` `*nat` / `iptables.yml`).
   `nf_conntrack_udp_timeout_stream` поднят для долгих QUIC-сессий
+* **DNAT TCP (`tma_https_port` → B:`tma_https_port`)** — subscription DPI-фолбэк, gated
+  on `sub_fallback_enabled`; спящий, активируется флипом DNS (§2️⃣.7). В `disable`-режиме
+  правила имеют парные `state: absent` — голый `when:` только добавляет, и выключение
+  флага иначе оставило бы живой форвард в persisted-правилах. В `keep`-режиме порт
+  пишется в `/etc/vpn-relay-ports.state` и старый `ufw allow` снимается при смене
 * MASQUERADE + FORWARD rules (TCP + UDP)
 * UFW keep mode
+* ⚠️ **Хендлер `reload ufw` обязан быть ИДЕНТИЧЕН в `relay`, `wg_cascade` и
+  `xray_server`.** Имена хендлеров глобальны в пределах play, а `relay` импортирует
+  `xray_server` (`tasks/xray_uplink.yml`) — кто из них «выиграет», непредсказуемо.
+  Пока определения совпадают, это безвредно. Сам flush нужен потому, что
+  `ufw reload` перечитывает `*nat`/`*mangle` из `before.rules` **добавлением**:
+  без предварительного flush каждая правка `before.rules` оставляет вторую копию
+  всех кастомных правил (наблюдалось живьём 2026-07-20 — дубли DNAT, MASQUERADE,
+  MSS-clamp и TPROXY-jump на Server A). Флашатся только builtin-цепочки; кастомные
+  (`XRAY_WG_TPROXY`) переживают, их jump возвращает reload
 * **XRay TPROXY client** — устанавливает XRay binary, пишет config из шаблона
   `xray-uplink-client.json.j2` (TPROXY inbound + VLESS+Reality outbound)
   Читает Reality pubkey с Server B через delegate_to
