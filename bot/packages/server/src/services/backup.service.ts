@@ -295,7 +295,10 @@ class BackupService {
         const wgKey = await this.fetchWgServerKey();
         if (wgKey) {
           fs.mkdirSync(path.join(stage, "wg"), { recursive: true, mode: 0o700 });
-          fs.writeFileSync(path.join(stage, "wg/wg-clients.key"), wgKey, { mode: 0o600 });
+          // Trailing newline restored: the value arrives .trim()'ed from SSH, and
+          // every other key in the bundle keeps the one it has on disk. Without it a
+          // restored wg-clients.key differs byte-wise from what `wg genkey` writes.
+          fs.writeFileSync(path.join(stage, "wg/wg-clients.key"), `${wgKey}\n`, { mode: 0o600 });
           wgKeyIncluded = true;
         }
       }
