@@ -6,8 +6,10 @@ import { env } from "../../config/env";
 import { db } from "../../db/index";
 import { queries } from "../../db/queries";
 import { backupService } from "../../services/backup.service";
+import { getBackupConfig, setBackupConfig } from "../../services/backup.schedule";
+import { rescheduleBackups } from "../../workers/backup.worker";
 import { tmaAuthMiddleware } from "../middleware/tma-auth";
-import type { DbInfoResponse } from "@vpn-relay/shared";
+import type { BackupConfig, DbInfoResponse, UpdateBackupConfigRequest } from "@vpn-relay/shared";
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", tmaAuthMiddleware);
@@ -27,6 +29,30 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
           }
         : null,
     };
+  });
+
+  // GET /api/settings/backup-config — current schedule + the next computed run
+  app.get("/api/settings/backup-config", async (): Promise<BackupConfig> => getBackupConfig());
+
+  // PATCH /api/settings/backup-config — edit the schedule at runtime.
+  //
+  // Values are clamped rather than rejected (interval 1-30, hour 0-23): the UI already
+  // constrains them, and a schedule is not worth a 400 when the intent is unambiguous.
+  app.patch("/api/settings/backup-config", async (req, reply) => {
+    const body = req.body as UpdateBackupConfigRequest;
+
+    if (body.intervalDays !== undefined && !Number.isFinite(body.intervalDays)) {
+      return reply.code(400).send({ error: "intervalDays must be a number" });
+    }
+    if (body.hourUtc !== undefined && !Number.isFinite(body.hourUtc)) {
+      return reply.code(400).send({ error: "hourUtc must be a number" });
+    }
+
+    const config = setBackupConfig(body);
+    // Re-arm now: on a weekly schedule the pending timer could be six days out, so
+    // without this the change would appear to do nothing until it fired.
+    rescheduleBackups();
+    return config;
   });
 
   // GET /api/settings/backup — download a consistent snapshot of the DB.

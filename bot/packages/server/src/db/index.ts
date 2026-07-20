@@ -230,6 +230,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_backup_runs_started ON backup_runs(started_at);
 `);
 
+// Runtime-editable application settings, edited from the TMA and the bot.
+// Values are strings; callers coerce. Seeded from env on first run (below), after
+// which the DB is authoritative — same contract as alert_settings.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+
+// Seed from env. INSERT OR IGNORE means an operator's later edit in the UI survives
+// every redeploy — and, deliberately, that changing the Ansible variable after the
+// first deploy does NOT move a schedule the operator may have tuned by hand.
+const _appSettingSeeds = [
+  { key: "backup_enabled", value: env.BACKUP_ENABLED ? "1" : "0" },
+  { key: "backup_interval_days", value: String(env.BACKUP_INTERVAL_DAYS) },
+  { key: "backup_hour_utc", value: String(env.BACKUP_HOUR_UTC) },
+];
+const _appSeedStmt = db.prepare(
+  "INSERT OR IGNORE INTO app_settings (key, value) VALUES (@key, @value)"
+);
+for (const row of _appSettingSeeds) _appSeedStmt.run(row);
+
 // Seed default alert settings (INSERT OR IGNORE — never overrides user changes)
 const _alertDefaults = [
   { alert_key: "cascade_down",       enabled: 1, threshold: 100, threshold2: 2,    cooldown_min: 30 },
@@ -248,8 +271,10 @@ const _alertDefaults = [
   { alert_key: "channel_capacity",   enabled: 1, threshold: 100, threshold2: null, cooldown_min: 0 },
   { alert_key: "updates_pending",   enabled: 1, threshold: null, threshold2: null, cooldown_min: 720 },
   { alert_key: "backup_failed",      enabled: 1, threshold: null, threshold2: null, cooldown_min: 360 },
-  // threshold = max age in hours of the newest success/degraded run
-  { alert_key: "backup_stale",       enabled: 1, threshold: 36,  threshold2: null, cooldown_min: 720 },
+  // threshold = GRACE hours allowed on top of the configured backup interval, not an
+  // absolute age. It has to scale with the schedule: a fixed 36h would fire every
+  // single week the moment the interval was set to weekly.
+  { alert_key: "backup_stale",       enabled: 1, threshold: 12,  threshold2: null, cooldown_min: 720 },
 ];
 const _seedStmt = db.prepare(
   "INSERT OR IGNORE INTO alert_settings (alert_key, enabled, threshold, threshold2, cooldown_min) VALUES (@alert_key, @enabled, @threshold, @threshold2, @cooldown_min)"

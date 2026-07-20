@@ -537,6 +537,30 @@ export const queries = {
     `).get(serverId) as MaintenanceJob | undefined;
   },
 
+  // ─── App settings (runtime-editable) ───────────────────────────────────────
+
+  getAppSetting(key: string): string | undefined {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value;
+  },
+
+  setAppSetting(key: string, value: string): void {
+    db.prepare(`
+      INSERT INTO app_settings (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(key, value);
+  },
+
+  /** Coerced read with a fallback, so a hand-edited garbage value cannot break the worker. */
+  getAppSettingInt(key: string, fallback: number): number {
+    const raw = this.getAppSetting(key);
+    if (raw === undefined) return fallback;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : fallback;
+  },
+
   // ─── Backup runs ───────────────────────────────────────────────────────────
 
   insertBackupRun(row: { id: string; trigger: BackupTrigger }): void {

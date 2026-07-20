@@ -67,7 +67,10 @@ const envSchema = z.object({
   // The passphrase is read from a FILE, not inlined here: it mirrors the obfs-password
   // idiom, keeps .env templating simple, and gives the DR runbook one canonical
   // artifact to save and restore.
+  // BACKUP_ENABLED / _INTERVAL_DAYS / _HOUR_UTC only SEED app_settings on first run;
+  // after that the DB wins and the schedule is edited from the TMA or the bot.
   BACKUP_ENABLED: z.string().transform((v) => v === "true" || v === "1").default("true"),
+  BACKUP_INTERVAL_DAYS: z.string().transform(Number).pipe(z.number().int().min(1).max(30)).default("7"),
   BACKUP_HOUR_UTC: z.string().transform(Number).pipe(z.number().int().min(0).max(23)).default("3"),
   BACKUP_RETENTION: z.string().transform(Number).pipe(z.number().int().min(1)).default("7"),
   BACKUP_DIR: z.string().default("/var/lib/vpn-bot/backups"),

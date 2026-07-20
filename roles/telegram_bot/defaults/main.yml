@@ -17,7 +17,12 @@ bot_ssh_key_path: "/var/lib/vpn-bot/.ssh/id_ed25519"
 # Backups — daily encrypted DR bundle to the admin's Telegram chat + local rotation.
 # Defined here rather than in group_vars so existing inventories need no edit at all;
 # override any of them per-deployment when the defaults don't fit.
+# NOTE: backup_enabled / _interval_days / _hour_utc only SEED the schedule on a node's
+# first bot start. After that the DB is authoritative and the schedule is edited from
+# the TMA or the bot — changing these here will NOT move a tuned schedule.
+# backup_retention is read from .env on every start, so it IS changeable from Ansible.
 backup_enabled: true
+backup_interval_days: 7   # 1 = daily, 7 = weekly (weekly runs land on Mondays)
 backup_hour_utc: 3
 backup_retention: 7
 bot_backup_dir: "{{ bot_data_dir }}/backups"

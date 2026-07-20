@@ -26,6 +26,7 @@ import { queries } from "../db/queries";
 import { suspendClient } from "../services/client.service";
 import { metricsCache } from "../services/metrics.cache";
 import { maintenanceService } from "../services/maintenance.service";
+import { describeSchedule, getBackupConfig, staleAfterHours } from "../services/backup.schedule";
 import { env } from "../config/env";
 import { isStandalone } from "../config/standalone";
 import type { ServerStatus } from "../services/system.service";
@@ -499,9 +500,13 @@ async function checkRebootRequired(bot: Bot<BotContext>): Promise<void> {
  * Persistent delivery failure is surfaced by the repeating backup_failed alerts.
  */
 async function checkBackupStale(bot: Bot<BotContext>): Promise<void> {
-  if (!env.BACKUP_ENABLED || !isEnabled("backup_stale")) return;
+  const config = getBackupConfig();
+  if (!config.enabled || !isEnabled("backup_stale")) return;
 
-  const thresholdHours = getThreshold("backup_stale", "threshold", 36);
+  // The threshold is GRACE on top of the configured interval, not an absolute age —
+  // a fixed value would fire every cycle the moment the schedule went weekly.
+  const graceHours = getThreshold("backup_stale", "threshold", 12);
+  const thresholdHours = staleAfterHours(config.intervalDays, graceHours);
   const last = queries.getLastBackupRun(["success", "degraded"]);
   const state = queries.getAlertState("backup_stale");
 
@@ -516,7 +521,11 @@ async function checkBackupStale(bot: Bot<BotContext>): Promise<void> {
     const detail = last?.finished_at
       ? `Last backup: ${last.finished_at} UTC (${Math.floor(ageMs / 3_600_000)}h ago)`
       : "No backup has ever completed on this node.";
-    await fireAlert("backup_stale", `🗄 *Backups are stale*\n\n${detail}`, bot);
+    await fireAlert(
+      "backup_stale",
+      `🗄 *Backups are stale*\n\n${detail}\nSchedule: ${describeSchedule(config)}`,
+      bot
+    );
   } else if (!stale && state?.status === "fired") {
     await clearAlert("backup_stale", "✅ *Backups are current again*", bot);
   }

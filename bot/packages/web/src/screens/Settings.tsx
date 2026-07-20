@@ -2,9 +2,22 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "../components/Layout";
 import { useTelegram } from "../hooks/useTelegram";
-import { downloadBackup, fetchAlertSettings, fetchDbInfo, patchAlertSetting } from "../api/client";
+import {
+  downloadBackup,
+  fetchAlertSettings,
+  fetchBackupConfig,
+  fetchDbInfo,
+  patchAlertSetting,
+  patchBackupConfig,
+} from "../api/client";
 import { formatBytes } from "../utils/format";
-import type { AlertSetting, DbInfoResponse } from "@vpn-relay/shared";
+import type {
+  AlertSetting,
+  BackupConfig,
+  DbInfoResponse,
+  UpdateBackupConfigRequest,
+} from "@vpn-relay/shared";
+import { BACKUP_INTERVAL_PRESETS } from "@vpn-relay/shared";
 
 // ── Alert metadata ────────────────────────────────────────────────────────────
 
@@ -158,10 +171,11 @@ const ALERT_META: Record<string, AlertMeta> = {
   },
   backup_stale: {
     name: "Backups Stale",
-    description: "No backup has completed recently — catches a broken schedule, not just a failed run",
+    description:
+      "No backup has completed within the schedule plus this grace period. Grace is added on top of the configured interval, so it scales when you change daily ↔ weekly",
     group: "warning",
     fields: [
-      { key: "threshold", label: "Max age", unit: "h", min: 1 },
+      { key: "threshold", label: "Grace", unit: "h", min: 1 },
       { key: "cooldown_min", label: "Cooldown", unit: "min", min: 60 },
     ],
   },
@@ -174,6 +188,112 @@ function lastBackupLabel(last: DbInfoResponse["lastBackup"]): string {
   const size = last.bundle_bytes ? formatBytes(last.bundle_bytes) : null;
   const where = last.telegram_ok === 1 ? "sent to chat" : "local only";
   return `Last backup: ${last.finished_at} UTC ${icon}${size ? ` (${size}, ${where})` : ""}`;
+}
+
+/** Presets plus a "Custom" escape hatch that reveals a day-count field. */
+function BackupSchedule({
+  config,
+  onChange,
+  saving,
+}: {
+  config: BackupConfig;
+  onChange: (patch: UpdateBackupConfigRequest) => void;
+  saving: boolean;
+}) {
+  const isPreset = BACKUP_INTERVAL_PRESETS.some((p) => p.days === config.intervalDays);
+  const [custom, setCustom] = useState(!isPreset);
+  const [customDays, setCustomDays] = useState(String(config.intervalDays));
+
+  return (
+    <div className="mt-3 pt-3 border-t border-tg-hint/20">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-tg">Schedule</span>
+        <label className="flex items-center gap-2 text-xs text-tg-hint">
+          <input
+            type="checkbox"
+            checked={config.enabled}
+            disabled={saving}
+            onChange={(e) => onChange({ enabled: e.target.checked })}
+          />
+          Enabled
+        </label>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-2">
+        {BACKUP_INTERVAL_PRESETS.map((preset) => {
+          const active = !custom && config.intervalDays === preset.days;
+          return (
+            <button
+              key={preset.days}
+              disabled={saving || !config.enabled}
+              onClick={() => {
+                setCustom(false);
+                onChange({ intervalDays: preset.days });
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 ${
+                active ? "bg-tg-button text-tg-button" : "bg-tg-bg text-tg-hint"
+              }`}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
+        <button
+          disabled={saving || !config.enabled}
+          onClick={() => setCustom(true)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 ${
+            custom ? "bg-tg-button text-tg-button" : "bg-tg-bg text-tg-hint"
+          }`}
+        >
+          Custom
+        </button>
+      </div>
+
+      {custom && (
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-tg-hint">Every</span>
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={customDays}
+            disabled={saving || !config.enabled}
+            onChange={(e) => setCustomDays(e.target.value)}
+            onBlur={() => {
+              const n = parseInt(customDays, 10);
+              if (Number.isFinite(n)) onChange({ intervalDays: n });
+            }}
+            className="w-16 px-2 py-1 rounded-lg bg-tg-bg text-tg text-xs text-right"
+          />
+          <span className="text-xs text-tg-hint">days (1–30)</span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-tg-hint">At</span>
+        <input
+          type="number"
+          min={0}
+          max={23}
+          value={config.hourUtc}
+          disabled={saving || !config.enabled}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            if (Number.isFinite(n)) onChange({ hourUtc: n });
+          }}
+          className="w-16 px-2 py-1 rounded-lg bg-tg-bg text-tg text-xs text-right"
+        />
+        <span className="text-xs text-tg-hint">:00 UTC</span>
+      </div>
+
+      {config.enabled && (
+        <p className="mt-2 text-xs text-tg-hint">
+          Next run: {config.nextRun.slice(0, 16).replace("T", " ")} UTC
+          {config.intervalDays === 7 && " · weekly runs land on Mondays"}
+        </p>
+      )}
+    </div>
+  );
 }
 
 const GROUP_ORDER: Array<"critical" | "warning" | "info"> = ["critical", "warning", "info"];
@@ -319,6 +439,19 @@ export function Settings() {
     queryFn: fetchDbInfo,
   });
 
+  const { data: backupConfig } = useQuery({
+    queryKey: ["backupConfig"],
+    queryFn: fetchBackupConfig,
+  });
+
+  const backupConfigMutation = useMutation({
+    mutationFn: patchBackupConfig,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["backupConfig"], updated);
+      haptic.impact("light");
+    },
+  });
+
   const { data: alertData } = useQuery({
     queryKey: ["alertSettings"],
     queryFn: fetchAlertSettings,
@@ -385,6 +518,13 @@ export function Settings() {
           </button>
           {backupError && (
             <p className="mt-2 text-xs text-tg-destructive">{backupError}</p>
+          )}
+          {backupConfig && (
+            <BackupSchedule
+              config={backupConfig}
+              saving={backupConfigMutation.isPending}
+              onChange={(patch) => backupConfigMutation.mutate(patch)}
+            />
           )}
         </div>
 

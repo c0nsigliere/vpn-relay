@@ -76,7 +76,9 @@ singbox_log_level: "info"
 # the bundles are unreadable. The bot reminds you once, in chat, after the first
 # successful run. See "Backups & Restore" in README.md.
 #
-# All three are role defaults; uncomment only to override.
+# The schedule is editable at runtime from the TMA and the bot; these values only
+# SEED it on the node's first bot start. backup_retention is re-read on every start.
 # backup_enabled: true
-# backup_hour_utc: 3       # UTC hour of the daily run
+# backup_interval_days: 7  # 1 = daily, 7 = weekly (weekly runs land on Mondays)
+# backup_hour_utc: 3       # UTC hour of the run
 # backup_retention: 7      # local bundles kept before the oldest is rotated out

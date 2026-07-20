@@ -1,15 +1,12 @@
 /**
- * Backup worker — daily encrypted bundle at BACKUP_HOUR_UTC, plus the restore receipt.
+ * Backup worker — runs the encrypted bundle on the configured schedule, and delivers
+ * the receipt for a restore the previous process applied before dying.
  *
- * Scheduling is ABSOLUTE, not interval-based. The rollup.worker style
- * (setInterval(24h) armed at boot) would make backup time drift with every deploy
- * restart and can double-fire around one; an absolute next-occurrence timer re-armed
- * after each run cannot.
- *
- * Catch-up is SLOT-based, not age-based. Consider: backup due 03:00, host down
- * 02:50–03:45. At boot the last success is only 24h45m old, so a "last success older
- * than 25h" check skips it and the gap silently stretches to 48h. Asking "did the
- * 03:00 slot produce a backup?" cannot miss that.
+ * The schedule itself (enabled / interval / hour) lives in the DB and is edited from
+ * the TMA and the bot, so this worker re-reads it every time it arms and exposes
+ * rescheduleBackups() for an immediate re-arm when the operator changes it. See
+ * services/backup.schedule.ts for the slot grid and why it is anchored rather than
+ * measured from the last run.
  */
 
 import { Bot } from "grammy";
@@ -19,47 +16,32 @@ import { queries } from "../db/queries";
 import { env } from "../config/env";
 import { backupService } from "../services/backup.service";
 import { passphraseFingerprint } from "../services/backup.container";
+import {
+  describeSchedule,
+  getBackupConfig,
+  isCatchUpDue,
+  nextSlot,
+} from "../services/backup.schedule";
 import { createLogger } from "../utils/logger";
 import { escapeMarkdown, sendMarkdown } from "../utils/telegram";
 
 const logger = createLogger("backup-worker");
 
 const CATCH_UP_DELAY_MS = 120_000; // let the startup syncs settle first
-const DAY_MS = 86_400_000;
 
 const PASSPHRASE_NOTE_KEY = "backup_passphrase_note";
 
-// ── Slot math (pure, exported for tests) ─────────────────────────────────────
-
-/** Most recent occurrence of `hourUtc` at or before `now`. */
-export function lastDueSlot(now: Date, hourUtc: number): Date {
-  const slot = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hourUtc, 0, 0, 0)
-  );
-  if (slot.getTime() > now.getTime()) slot.setUTCDate(slot.getUTCDate() - 1);
-  return slot;
-}
-
-/** Next occurrence strictly after `now`. UTC has no DST, so +24h is always right. */
-export function nextSlot(now: Date, hourUtc: number): Date {
-  return new Date(lastDueSlot(now, hourUtc).getTime() + DAY_MS);
-}
-
 /**
- * True when the most recent slot has not produced a backup.
- *
- * `finishedAtSql` comes from SQLite's datetime('now'): UTC with no `Z` suffix, so it
- * must be parsed as `new Date(s + "Z")`. Treating it as local time is a silent
- * multi-hour offset on any node with a non-UTC TZ.
+ * Set by the running worker so an API or bot settings change takes effect now rather
+ * than after the currently-armed timer fires — which, on a weekly schedule, could be
+ * six days away. Module-level rather than a returned handle because the workers array
+ * in index.ts is typed to `{ stop }`.
  */
-export function isCatchUpDue(finishedAtSql: string | null, now: Date, hourUtc: number): boolean {
-  if (!finishedAtSql) return true;
-  const finishedAt = new Date(`${finishedAtSql}Z`).getTime();
-  if (Number.isNaN(finishedAt)) return true;
-  return finishedAt < lastDueSlot(now, hourUtc).getTime();
-}
+let rescheduleFn: (() => void) | null = null;
 
-// ─────────────────────────────────────────────────────────────────────────────
+export function rescheduleBackups(): void {
+  rescheduleFn?.();
+}
 
 function alertEnabled(key: string): boolean {
   const s = queries.getAlertSetting(key);
@@ -150,14 +132,39 @@ export function backupWorker(bot: Bot<BotContext>): { stop: () => void } {
     }
   };
 
+  // Re-reads the config on every arm, so a schedule change is picked up without a
+  // restart. `scheduleTimer` is tracked separately from the catch-up timer so a
+  // reschedule cancels only the pending run, never a catch-up already in flight.
+  let scheduleTimer: NodeJS.Timeout | null = null;
+
   const scheduleNext = (): void => {
+    if (scheduleTimer) {
+      clearTimeout(scheduleTimer);
+      timers.delete(scheduleTimer);
+      scheduleTimer = null;
+    }
+    if (stopped) return;
+
+    const config = getBackupConfig();
+    if (!config.enabled) {
+      logger.info("Scheduling paused (backups disabled in settings)");
+      return;
+    }
+
     const now = new Date();
-    const due = nextSlot(now, env.BACKUP_HOUR_UTC);
+    const due = nextSlot(now, config.hourUtc, config.intervalDays);
     const delay = due.getTime() - now.getTime();
-    logger.info(`Next scheduled backup at ${due.toISOString()} (in ${Math.round(delay / 60_000)} min)`);
-    arm(delay, () => {
-      void runOnce("scheduled").finally(scheduleNext);
-    });
+    logger.info(
+      `${describeSchedule(config)} — next run ${due.toISOString()} (in ${Math.round(delay / 60_000)} min)`
+    );
+
+    const t = setTimeout(() => {
+      timers.delete(t);
+      scheduleTimer = null;
+      if (!stopped) void runOnce("scheduled").finally(scheduleNext);
+    }, delay);
+    timers.add(t);
+    scheduleTimer = t;
   };
 
   // Restore receipt first — the process that applied it died by design.
@@ -181,28 +188,30 @@ export function backupWorker(bot: Bot<BotContext>): { stop: () => void } {
     }
   };
 
-  if (!env.BACKUP_ENABLED) {
-    logger.info("disabled (BACKUP_ENABLED=false)");
-    // Still deliver a pending receipt: a restore may have been applied before the
-    // operator turned scheduling off.
-    void deliverRestoreReceipt();
-    return { stop: () => { stopped = true; timers.forEach(clearTimeout); } };
-  }
-
+  // A restore may have been applied before the operator turned scheduling off, so the
+  // receipt is delivered regardless of whether backups are enabled.
   void deliverRestoreReceipt();
 
-  const last = queries.getLastBackupRun(["success", "degraded"]);
-  if (isCatchUpDue(last?.finished_at ?? null, new Date(), env.BACKUP_HOUR_UTC)) {
-    logger.info("Missed the last scheduled slot — catching up shortly");
-    arm(CATCH_UP_DELAY_MS, () => void runOnce("scheduled"));
-  }
-  scheduleNext();
+  const config = getBackupConfig();
 
-  logger.info(`started (daily at ${String(env.BACKUP_HOUR_UTC).padStart(2, "0")}:00 UTC, keep ${env.BACKUP_RETENTION})`);
+  if (config.enabled) {
+    const last = queries.getLastBackupRun(["success", "degraded"]);
+    if (isCatchUpDue(last?.finished_at ?? null, new Date(), config.hourUtc, config.intervalDays)) {
+      logger.info("Missed the last scheduled slot — catching up shortly");
+      arm(CATCH_UP_DELAY_MS, () => void runOnce("scheduled"));
+    }
+    logger.info(`started (${describeSchedule(config)}, keep ${config.retention})`);
+  } else {
+    logger.info("started (backups disabled in settings)");
+  }
+
+  scheduleNext();
+  rescheduleFn = scheduleNext;
 
   return {
     stop: () => {
       stopped = true;
+      rescheduleFn = null;
       timers.forEach(clearTimeout);
       timers.clear();
     },

@@ -272,10 +272,22 @@ Two paths, on purpose. The **bot** runs automatic encrypted backups off-site; th
 
 #### Automatic (the bot — nothing to set up)
 
-Once the bot is deployed, it builds a full DR bundle every night at
-`backup_hour_utc` (default 03:00 UTC), encrypts it, sends it to the admin's Telegram
-chat, and keeps the last `backup_retention` locally in `/var/lib/vpn-bot/backups/`.
-Chat history doubles as free versioned off-site storage.
+Once the bot is deployed, it builds a full DR bundle on a schedule (**weekly by
+default, Mondays at 03:00 UTC**), encrypts it, sends it to the admin's Telegram chat,
+and keeps the last `backup_retention` locally in `/var/lib/vpn-bot/backups/`. Chat
+history doubles as free versioned off-site storage.
+
+**The schedule is editable at runtime** — no redeploy:
+
+- **TMA → Settings → Database Backup**: presets (Daily / Every 3 days / Weekly), a
+  Custom field for any interval from 1 to 30 days, the UTC hour, and an on/off toggle.
+- **Bot → Settings → 🗓 Schedule**: the same presets, hour stepper and toggle.
+
+It lives in the database, so it survives redeploys. The Ansible variables
+(`backup_enabled`, `backup_interval_days`, `backup_hour_utc`) only **seed** it on a
+node's first bot start — changing them later will not move a schedule you have tuned
+by hand. `backup_retention` is the exception: it is read from `.env` on every start,
+so it stays an Ansible-only knob.
 
 The bundle is a **full recovery set**, not just the database:
 
@@ -301,8 +313,10 @@ Encryption is AES-256-GCM with a per-node passphrase Ansible generates into
 
 From the bot: **Settings → 💾 Backup Now** for an on-demand bundle. Two alerts watch
 the schedule — `backup_failed` (a run failed, or the bundle never left the node) and
-`backup_stale` (nothing has completed in `threshold` hours, default 36). Both are
-tunable in the TMA settings screen.
+`backup_stale` (nothing has completed within the interval plus a grace period,
+default 12 h). Note that the stale threshold is **grace on top of the configured
+interval**, not an absolute age: an absolute value would fire every cycle as soon as
+the schedule went weekly. Both are tunable in the TMA settings screen.
 
 #### Restore from the bot
 

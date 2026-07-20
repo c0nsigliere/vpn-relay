@@ -268,6 +268,34 @@ export interface DbInfoResponse {
   > | null;
 }
 
+/**
+ * Runtime-editable backup schedule. Lives in the DB, not in .env — the .env values
+ * only seed it on first run, exactly like alert_settings seeds from code defaults.
+ * Changing the Ansible variable after the first deploy therefore has no effect.
+ */
+export interface BackupConfig {
+  enabled: boolean;
+  /** 1 = daily, 7 = weekly. Grid is anchored so 7 lands on Mondays. */
+  intervalDays: number;
+  /** UTC hour of the run, 0-23. */
+  hourUtc: number;
+  /** Local bundles kept. Not runtime-editable — Ansible only. */
+  retention: number;
+  /** ISO timestamp of the next scheduled run, computed from the above. */
+  nextRun: string;
+}
+
+export type UpdateBackupConfigRequest = Partial<
+  Pick<BackupConfig, "enabled" | "intervalDays" | "hourUtc">
+>;
+
+/** Presets offered in the UI. Any other value is accepted as "custom". */
+export const BACKUP_INTERVAL_PRESETS = [
+  { days: 1, label: "Daily" },
+  { days: 3, label: "Every 3 days" },
+  { days: 7, label: "Weekly" },
+] as const;
+
 // ─── Alert settings ──────────────────────────────────────────────────────────
 
 export type AlertKey =
