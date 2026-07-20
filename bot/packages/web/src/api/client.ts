@@ -21,6 +21,7 @@ import type {
   MaintenanceAction,
   MaintenanceJob,
   MaintenanceStatusResponse,
+  DbInfoResponse,
 } from "@vpn-relay/shared";
 
 function getInitData(): string {
@@ -211,8 +212,8 @@ export function patchAlertSetting(key: string, body: PatchAlertSettingRequest): 
   });
 }
 
-export function fetchDbInfo(): Promise<{ size: number }> {
-  return apiFetch<{ size: number }>("/api/settings/db-info");
+export function fetchDbInfo(): Promise<DbInfoResponse> {
+  return apiFetch<DbInfoResponse>("/api/settings/db-info");
 }
 
 export async function downloadBackup(): Promise<void> {

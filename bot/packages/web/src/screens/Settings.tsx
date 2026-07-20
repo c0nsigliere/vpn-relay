@@ -4,7 +4,7 @@ import { Layout } from "../components/Layout";
 import { useTelegram } from "../hooks/useTelegram";
 import { downloadBackup, fetchAlertSettings, fetchDbInfo, patchAlertSetting } from "../api/client";
 import { formatBytes } from "../utils/format";
-import type { AlertSetting } from "@vpn-relay/shared";
+import type { AlertSetting, DbInfoResponse } from "@vpn-relay/shared";
 
 // ── Alert metadata ────────────────────────────────────────────────────────────
 
@@ -148,7 +148,33 @@ const ALERT_META: Record<string, AlertMeta> = {
       { key: "cooldown_min", label: "Cooldown", unit: "min", min: 60 },
     ],
   },
+  backup_failed: {
+    name: "Backup Failed",
+    description: "A scheduled backup failed, or was kept locally because delivery to Telegram failed",
+    group: "warning",
+    fields: [
+      { key: "cooldown_min", label: "Cooldown", unit: "min", min: 30 },
+    ],
+  },
+  backup_stale: {
+    name: "Backups Stale",
+    description: "No backup has completed recently — catches a broken schedule, not just a failed run",
+    group: "warning",
+    fields: [
+      { key: "threshold", label: "Max age", unit: "h", min: 1 },
+      { key: "cooldown_min", label: "Cooldown", unit: "min", min: 60 },
+    ],
+  },
 };
+
+/** "Last backup: 2026-07-20 03:00 UTC ✅ (1.9 MB, sent to chat)" */
+function lastBackupLabel(last: DbInfoResponse["lastBackup"]): string {
+  if (!last || !last.finished_at) return "Last backup: never";
+  const icon = last.status === "success" ? "✅" : last.status === "degraded" ? "⚠️" : "❌";
+  const size = last.bundle_bytes ? formatBytes(last.bundle_bytes) : null;
+  const where = last.telegram_ok === 1 ? "sent to chat" : "local only";
+  return `Last backup: ${last.finished_at} UTC ${icon}${size ? ` (${size}, ${where})` : ""}`;
+}
 
 const GROUP_ORDER: Array<"critical" | "warning" | "info"> = ["critical", "warning", "info"];
 const GROUP_LABELS: Record<string, string> = {
@@ -343,17 +369,19 @@ export function Settings() {
         <div className="bg-tg-secondary rounded-xl p-4">
           <h2 className="font-medium text-sm text-tg mb-1">Database Backup</h2>
           <p className="text-xs text-tg-hint mb-3">
-            Download a copy of the SQLite database containing all clients and traffic history.
+            Encrypted backups run daily and are sent to the admin chat. Restore from
+            the bot by sending a bundle back to the chat.
             {dbInfo && (
               <span className="block mt-1">Size: {formatBytes(dbInfo.size)}</span>
             )}
+            <span className="block mt-1">{lastBackupLabel(dbInfo?.lastBackup ?? null)}</span>
           </p>
           <button
             onClick={handleBackup}
             disabled={downloading}
             className="w-full px-4 py-3 rounded-xl bg-tg-button text-tg-button font-medium text-sm disabled:opacity-60"
           >
-            {downloading ? "Downloading…" : "💾 Download DB Backup"}
+            {downloading ? "Downloading…" : "💾 Download DB Snapshot"}
           </button>
           {backupError && (
             <p className="mt-2 text-xs text-tg-destructive">{backupError}</p>

@@ -14,6 +14,7 @@ import { showServerStatus } from "./bot/menus/server-status";
 import { handleMaintenanceCallback } from "./bot/menus/maintenance";
 import { showSettings, handleSettingsCallback } from "./bot/menus/settings";
 import { textInputHandler } from "./bot/handlers/text-input";
+import { documentInputHandler, handleRestoreCallback } from "./bot/handlers/restore";
 import { trafficWorker } from "./workers/traffic.worker";
 import { ttlWorker } from "./workers/ttl.worker";
 import { healthWorker } from "./workers/health.worker";
@@ -114,11 +115,20 @@ bot.on("callback_query:data", async (ctx) => {
     return;
   }
 
+  if (data.startsWith("restore:")) {
+    await handleRestoreCallback(ctx);
+    return;
+  }
+
   await ctx.answerCallbackQuery("Unknown action");
 });
 
 // Text input (session-driven)
 bot.on("message:text", textInputHandler);
+
+// Backup bundles sent to the chat are restore candidates. Inert for every other
+// document — the handler returns immediately unless the filename looks like ours.
+bot.on("message:document", documentInputHandler);
 
 // Error handler — prevent unhandled Telegram API errors from crashing the bot
 bot.catch((err) => {
