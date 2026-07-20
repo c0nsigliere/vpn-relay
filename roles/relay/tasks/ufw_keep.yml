@@ -37,6 +37,7 @@
   ansible.builtin.set_fact:
     prev_port_a_tcp: "{{ (vpn_relay_state.content | b64decode | from_yaml).port_a_tcp | string }}"
     prev_port_a_udp: "{{ (vpn_relay_state.content | b64decode | from_yaml).port_a_udp | default('') | string }}"
+    prev_sub_relay_port: "{{ (vpn_relay_state.content | b64decode | from_yaml).sub_relay_port | default('') | string }}"
   when: vpn_relay_state.content is defined
 
 - name: Remove old UFW allow rule for TCP port (port changed)
@@ -62,6 +63,18 @@
     - prev_port_a_udp != (port_a_udp | string if hy2_enabled | default(false) else '')
   failed_when: false
 
+- name: Remove old UFW allow rule for subscription relay port (port changed or fallback disabled)
+  community.general.ufw:
+    rule: allow
+    port: "{{ prev_sub_relay_port }}"
+    proto: tcp
+    delete: true
+  when:
+    - prev_sub_relay_port is defined
+    - prev_sub_relay_port | length > 0
+    - prev_sub_relay_port != (tma_https_port | string if sub_fallback_enabled | default(false) else '')
+  failed_when: false
+
 - name: Allow entry port TCP through UFW
   community.general.ufw:
     rule: allow
@@ -77,12 +90,23 @@
     comment: "VPN Relay entry port UDP (Hy2)"
   when: hy2_enabled | default(false)
 
+- name: Allow subscription relay port TCP through UFW (DPI fallback)
+  community.general.ufw:
+    rule: allow
+    port: "{{ tma_https_port }}"
+    proto: tcp
+    comment: "VPN Relay subscription fallback (A -> B)"
+  when: sub_fallback_enabled | default(false)
+
 - name: Save current ports to state file
   ansible.builtin.copy:
     content: |
       port_a_tcp: {{ port_a_tcp }}
       {% if hy2_enabled | default(false) %}
       port_a_udp: {{ port_a_udp }}
+      {% endif %}
+      {% if sub_fallback_enabled | default(false) %}
+      sub_relay_port: {{ tma_https_port }}
       {% endif %}
     dest: /etc/vpn-relay-ports.state
     mode: '0600'
@@ -104,6 +128,13 @@
       -A PREROUTING -i {{ wan_if_final }} -p udp --dport {{ port_a_udp }} -j DNAT --to-destination {{ server_b_public_ip }}:{{ port_b_udp }}
       -A POSTROUTING -o {{ wan_if_final }} -p udp -d {{ server_b_public_ip }} --dport {{ port_b_udp }} -j MASQUERADE
       {% endif %}
+      {% if sub_fallback_enabled | default(false) %}
+      # Subscription fallback (TMA/HTTPS) — dormant until DNS points tma_domain at A.
+      # Pure L4: TLS terminates on B, whose cert is valid for tma_domain, so A holds
+      # no cert, no token and no bot secret.
+      -A PREROUTING -i {{ wan_if_final }} -p tcp --dport {{ tma_https_port }} -j DNAT --to-destination {{ server_b_public_ip }}:{{ tma_https_port }}
+      -A POSTROUTING -o {{ wan_if_final }} -p tcp -d {{ server_b_public_ip }} --dport {{ tma_https_port }} -j MASQUERADE
+      {% endif %}
       COMMIT
     state: present
   notify: reload ufw
@@ -123,6 +154,12 @@
       -A ufw-before-forward -i {{ wan_if_final }} -p udp -d {{ server_b_public_ip }} --dport {{ port_b_udp }} -j ACCEPT
       # UDP forward from Server B (established/related)
       -A ufw-before-forward -i {{ wan_if_final }} -p udp -s {{ server_b_public_ip }} --sport {{ port_b_udp }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      {% endif %}
+      {% if sub_fallback_enabled | default(false) %}
+      # TCP forward to Server B (subscription fallback)
+      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -d {{ server_b_public_ip }} --dport {{ tma_https_port }} -j ACCEPT
+      # TCP forward from Server B (established/related)
+      -A ufw-before-forward -i {{ wan_if_final }} -p tcp -s {{ server_b_public_ip }} --sport {{ tma_https_port }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
       {% endif %}
     state: present
   notify: reload ufw

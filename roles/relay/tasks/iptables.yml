@@ -107,3 +107,73 @@
     comment: "VPN Relay UDP FORWARD from B (Hy2)"
   when: hy2_enabled | default(false)
   notify: save netfilter rules
+
+# ── Subscription DPI fallback (TCP) — only when sub_fallback_enabled ─────────
+# A blind L4 forward of tma_https_port to Server B, mirroring the VLESS relay:
+# TLS terminates on B (whose LE cert covers tma_domain), so A stays a dumb pipe
+# holding no cert, no token and no bot secret.
+#
+# Dormant by design: the DNAT only fires on packets that actually arrive at
+# A:tma_https_port, which happens only once DNS for tma_domain is pointed at A
+# during an incident. Pre-staging it means that response is a DNS flip rather
+# than writing Ansible under pressure.
+#
+# Appended rather than inserted at rule_num 1, same reasoning as the Hy2 block:
+# it must not fight the TCP DNAT for slot 1 across re-runs. Different dport, so
+# no conflict.
+#
+# NOTE the state: absent twins below. A bare `when:` only ever ADDS rules, so
+# disabling the flag (or changing the port) would otherwise leave the old rules
+# live and persisted by netfilter-persistent — an open forward nobody expects.
+- name: TCP DNAT - Redirect incoming subscription traffic to Server B
+  ansible.builtin.iptables:
+    table: nat
+    chain: PREROUTING
+    in_interface: "{{ wan_if_final }}"
+    protocol: tcp
+    destination_port: "{{ tma_https_port }}"
+    jump: DNAT
+    to_destination: "{{ server_b_public_ip }}:{{ tma_https_port }}"
+    action: append
+    state: "{{ 'present' if sub_fallback_enabled | default(false) else 'absent' }}"
+    comment: "VPN Relay TCP DNAT (subscription fallback)"
+  notify: save netfilter rules
+
+- name: TCP MASQUERADE - SNAT for outgoing subscription traffic to Server B
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    out_interface: "{{ wan_if_final }}"
+    protocol: tcp
+    destination: "{{ server_b_public_ip }}"
+    destination_port: "{{ tma_https_port }}"
+    jump: MASQUERADE
+    state: "{{ 'present' if sub_fallback_enabled | default(false) else 'absent' }}"
+    comment: "VPN Relay TCP MASQUERADE (subscription fallback)"
+  notify: save netfilter rules
+
+- name: TCP FORWARD to Server B (subscription fallback)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: "{{ wan_if_final }}"
+    protocol: tcp
+    destination: "{{ server_b_public_ip }}"
+    destination_port: "{{ tma_https_port }}"
+    ctstate: NEW,ESTABLISHED,RELATED
+    jump: ACCEPT
+    state: "{{ 'present' if sub_fallback_enabled | default(false) else 'absent' }}"
+    comment: "VPN Relay TCP FORWARD to B (subscription fallback)"
+  notify: save netfilter rules
+
+- name: TCP FORWARD from Server B (subscription fallback)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: "{{ wan_if_final }}"
+    protocol: tcp
+    source: "{{ server_b_public_ip }}"
+    source_port: "{{ tma_https_port }}"
+    ctstate: ESTABLISHED,RELATED
+    jump: ACCEPT
+    state: "{{ 'present' if sub_fallback_enabled | default(false) else 'absent' }}"
+    comment: "VPN Relay TCP FORWARD from B (subscription fallback)"
+  notify: save netfilter rules

@@ -50,6 +50,14 @@ maintenance_trigger_dir: /run/vpn-maintenance     # tmpfs: a trigger must NOT su
 tma_https_port: 8444
 tma_backend_port: 3000
 
+# --- Subscription DPI fallback (cascade only; needs tma_domain) ---
+# Pre-stages a blind L4 forward A:tma_https_port -> B:tma_https_port on Server A so
+# client subscription URLs survive a block of Server B's IP. Costs nothing while
+# idle: no traffic reaches A:8444 until DNS says so. To activate during an incident,
+# point tma_domain at Server A — TLS still terminates on B, so the cert stays valid
+# and the URL baked into every client app is unchanged. Flip DNS back afterwards.
+# sub_fallback_enabled: true
+
 # --- Ports ---
 # DPI evasion: both entry and exit use 443 to look like normal HTTPS
 xray_port: 443

@@ -16,6 +16,9 @@
       {% if hy2_enabled | default(false) %}
         UDP Relay (Hy2): {{ ansible_default_ipv4.address }}:{{ port_a_udp }} -> {{ server_b_public_ip }}:{{ port_b_udp }}
       {% endif %}
+      {% if sub_fallback_enabled | default(false) %}
+        Subscription fallback: {{ ansible_default_ipv4.address }}:{{ tma_https_port }} -> {{ server_b_public_ip }}:{{ tma_https_port }} (dormant until DNS points {{ tma_domain | default('tma_domain') }} at this host)
+      {% endif %}
   changed_when: false
 
 - name: Show NAT PREROUTING rules
@@ -66,6 +69,29 @@
     var: ufw_status.stdout_lines
   when: ufw_status.rc == 0
   changed_when: false
+
+# The subscription fallback is dormant by design (no traffic until DNS is flipped),
+# so a live connectivity probe would prove nothing. Assert the DNAT rule exists
+# instead — that is the part that must already be in place when an incident starts.
+- name: Verify subscription fallback DNAT is present
+  ansible.builtin.assert:
+    that:
+      # Deliberately tolerant of what sits between the two anchors: in `disable`
+      # mode the rule carries `-m comment --comment "..."` there, so a literal
+      # "--dport N -j DNAT" would match in keep mode and falsely fail in the other.
+      - prerouting_rules.stdout is search('--dport ' ~ tma_https_port ~ '\s.*DNAT')
+    fail_msg: >-
+      sub_fallback_enabled is true but no DNAT rule for {{ tma_https_port }}/tcp was found
+      in nat PREROUTING. The subscription would be unreachable via Server A during a
+      Server-B block.
+    success_msg: "Subscription fallback DNAT present: {{ tma_https_port }}/tcp -> {{ server_b_public_ip }}"
+  when:
+    - sub_fallback_enabled | default(false)
+    # Meaningless in check mode, and actively misleading: the `iptables -S` command
+    # above is skipped (so stdout is empty), and the blockinfile changes this would
+    # verify were only simulated anyway. Asserting here would fail every --check run
+    # made before the first real deploy.
+    - not ansible_check_mode
 
 - name: Verify IP forwarding is enabled
   ansible.builtin.command:

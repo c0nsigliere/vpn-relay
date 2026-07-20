@@ -18,6 +18,24 @@ server {
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
 
+    # Subscription endpoint. nginx picks the LONGEST matching prefix location, so
+    # this wins over `location /` regardless of ordering; it is placed first for
+    # readability only.
+    #
+    # access_log off is the point of having a dedicated block: the token in the URL
+    # IS the client's credential, and it would otherwise be written to disk on every
+    # poll (apps re-fetch daily). This is narrow — it suppresses only the access log,
+    # not error logs or upstream diagnostics — so the link still has to be treated
+    # like a password. Cache-Control/X-Robots-Tag come from Fastify instead of here,
+    # so they hold on every path including Server A's L4 fallback.
+    location /sub/ {
+        access_log off;
+        proxy_pass http://127.0.0.1:{{ tma_backend_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     # Proxy API requests to Fastify
     location /api/ {
         proxy_pass http://127.0.0.1:{{ tma_backend_port }};
