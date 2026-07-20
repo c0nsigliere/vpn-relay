@@ -109,8 +109,10 @@ export async function createClient(
     await hysteriaService.syncConfigAndRestart();
   }
 
-  // Apply the WG cascade transport choice to Server A's XRay routing
+  // Write the new peer into Server A's conf (DB is now current) and apply the
+  // cascade transport choice to Server A's XRay routing
   if (type === "wg" || type === "both") {
+    await wgService.syncPeersFromDb();
     await xrayUplinkService.syncRoutingAndRestart();
   }
 
@@ -216,11 +218,13 @@ export async function updateExpiry(
 
 export async function renameClient(client: Client, newName: string): Promise<void> {
   logger.info(`Renaming "${client.name}" → "${newName}"`);
-  if (client.type === "wg" || client.type === "both") {
-    await wgService.renameClient(client.name, newName);
-  }
-  // DB first — syncConfigAndRestart reads names from DB
+  // DB first — every sync below reads names from DB. A WG rename is purely a
+  // change of the conf's comment markers, so the peer-region rebuild covers it;
+  // live state is keyed on the pubkey and needs no touching at all.
   queries.updateClientName(client.id, newName);
+  if (client.type === "wg" || client.type === "both") {
+    await wgService.syncPeersFromDb();
+  }
   if (client.type === "xray" || client.type === "both") {
     await xrayService.syncConfigAndRestart();
   }
@@ -232,7 +236,7 @@ export async function renameClient(client: Client, newName: string): Promise<voi
 export async function deleteClient(client: Client): Promise<void> {
   logger.info(`Deleting "${client.name}"`);
   if ((client.type === "wg" || client.type === "both") && client.wg_pubkey) {
-    await wgService.removeClient(client.name, client.wg_pubkey);
+    await wgService.removeClient(client.wg_pubkey);
   }
   // DB first — syncConfigAndRestart reads active clients from DB
   queries.deleteClient(client.id);
@@ -242,8 +246,9 @@ export async function deleteClient(client: Client): Promise<void> {
   if (client.type === "hysteria2" && client.hy2_password) {
     await hysteriaService.syncConfigAndRestart();
   }
-  // Drop the client's A-routing rule before its WG IP can be reused
+  // Drop the peer block, then the client's A-routing rule, before its WG IP can be reused
   if (client.type === "wg" || client.type === "both") {
+    await wgService.syncPeersFromDb();
     await xrayUplinkService.syncRoutingAndRestart();
   }
 }

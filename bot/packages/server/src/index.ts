@@ -26,6 +26,7 @@ import { sshPool } from "./services/ssh";
 import { xrayService } from "./services/xray.service";
 import { hysteriaService } from "./services/hysteria.service";
 import { xrayUplinkService } from "./services/xray-uplink.service";
+import { wgService } from "./services/wg.service";
 import { isStandalone } from "./config/standalone";
 import { startApiServer } from "./api/server";
 import type { FastifyInstance } from "fastify";
@@ -144,6 +145,14 @@ if (!isStandalone) {
   xrayUplinkService.syncRoutingAndRestart()
     .then(() => logger.info("Server A cascade routing synced from DB"))
     .catch(logOnError(logger, "Server A routing sync failed"));
+
+  // Rebuild Server A's WireGuard peer region from the DB. Unlike XRay and sing-box,
+  // WG peers had no startup sync at all, so a restored DB could not resurrect a
+  // deleted WG client — and any drift on A stayed until someone noticed. Cascade
+  // only, best-effort: if A is unreachable the next startup or mutation heals it.
+  wgService.syncPeersFromDb()
+    .then((r) => logger.info(`Server A WG peers synced from DB (${r.applied} peers)`))
+    .catch(logOnError(logger, "Server A WG peer sync failed"));
 }
 
 // Workers
