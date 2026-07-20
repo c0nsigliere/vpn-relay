@@ -24,6 +24,8 @@ import type {
   DbInfoResponse,
   BackupConfig,
   UpdateBackupConfigRequest,
+  SubInfoResponse,
+  SubRotateResponse,
 } from "@vpn-relay/shared";
 
 function getInitData(): string {
@@ -141,6 +143,29 @@ export function updateExpiry(id: string, expiresAt: string | null): Promise<Clie
 
 export function sendConfig(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/api/clients/${id}/send-config`, {
+    method: "POST",
+  });
+}
+
+// ─── Subscription ───
+
+export function fetchSubInfo(id: string): Promise<SubInfoResponse> {
+  return apiFetch<SubInfoResponse>(`/api/clients/${id}/sub`);
+}
+
+export function sendSubLink(id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/clients/${id}/sub/send`, { method: "POST" });
+}
+
+/**
+ * Regenerate the link and push it to the admin chat.
+ *
+ * Resolves with the NEW url even when `sent` is false: rotation has already
+ * invalidated the old link by then, so the caller must show the new one rather
+ * than treat a delivery failure as "nothing happened".
+ */
+export function rotateAndSendSub(id: string): Promise<SubRotateResponse> {
+  return apiFetch<SubRotateResponse>(`/api/clients/${id}/sub/rotate-and-send`, {
     method: "POST",
   });
 }

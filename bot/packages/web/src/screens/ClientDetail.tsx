@@ -15,8 +15,9 @@ import { useTelegram } from "../hooks/useTelegram";
 import {
   fetchClient, patchClient, deleteClient, sendConfig, renameClient,
   fetchTrafficHistory, fetchClientMonthly, fetchClientDaily, updateQuota, updateExpiry,
-  fetchServersStatus, setTransport,
+  fetchServersStatus, setTransport, fetchSubInfo, sendSubLink, rotateAndSendSub,
 } from "../api/client";
+import { isSubscriptionCapable } from "@vpn-relay/shared";
 import { QuotaProgressBar } from "../components/QuotaProgressBar";
 import { formatBytesLong, formatMonth, formatDay, formatRelativeTime } from "../utils/format";
 
@@ -193,6 +194,49 @@ export function ClientDetail() {
     onSuccess: () => {
       haptic.notification("success");
       alert("Config sent to your Telegram chat!");
+    },
+    onError: (err: Error) => {
+      haptic.notification("error");
+      alert(err.message);
+    },
+  });
+
+  // ─── Subscription ───
+  // These hooks must stay ABOVE the loading/error early returns below — hooks
+  // cannot be called conditionally. Hence the `client ? … : false` guard rather
+  // than computing this after the returns.
+  const subCapable = client ? isSubscriptionCapable(client) : false;
+
+  const { data: subInfo } = useQuery({
+    queryKey: ["client-sub", id],
+    queryFn: () => fetchSubInfo(id!),
+    enabled: !!id && subCapable,
+  });
+
+  const subSendMutation = useMutation({
+    mutationFn: () => sendSubLink(id!),
+    onSuccess: () => {
+      haptic.notification("success");
+      alert("Subscription link sent to your Telegram chat!");
+    },
+    onError: (err: Error) => {
+      haptic.notification("error");
+      alert(err.message);
+    },
+  });
+
+  const subRotateMutation = useMutation({
+    mutationFn: () => rotateAndSendSub(id!),
+    // The new link is authoritative even when delivery failed — rotation already
+    // killed the old one, so refresh the visible URL BEFORE reporting anything.
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ["client-sub", id] });
+      haptic.notification(res.sent ? "success" : "warning");
+      alert(
+        res.sent
+          ? "Link regenerated and sent to your Telegram chat.\n\nThe old link now returns 404. This does NOT disconnect anyone already using the config — to revoke access, suspend or delete the client."
+          : `Link regenerated, but sending it to Telegram failed.\n\nThe new link is shown on this screen — copy it now:\n\n${res.url ?? ""}`
+      );
     },
     onError: (err: Error) => {
       haptic.notification("error");
@@ -673,6 +717,52 @@ export function ClientDetail() {
         >
           {configMutation.isPending ? "Sending…" : "📩 Send Config to Chat"}
         </button>
+
+        {/* Subscription. The URL is rendered selectable rather than behind a Copy
+            button: there is no clipboard plumbing in this app, and a button that
+            silently fails inside Telegram's WebView is worse than long-press
+            selection plus the reliable "send to chat" path. */}
+        {subCapable && subInfo?.url && (
+          <div className="rounded-xl bg-tg-secondary border border-tg p-3 space-y-2">
+            <div className="text-tg-hint text-xs">
+              Subscription URL — treat it like a password
+            </div>
+            <div className="text-tg font-mono text-[11px] break-all select-all">
+              {subInfo.url}
+            </div>
+            <button
+              onClick={() => subSendMutation.mutate()}
+              disabled={subSendMutation.isPending}
+              className="w-full px-4 py-2 rounded-lg bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+            >
+              {subSendMutation.isPending ? "Sending…" : "📩 Send Link to Chat"}
+            </button>
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Invalidate this link and generate a new one?\n\nThe old link stops working immediately. Anyone already using the config keeps access until you suspend or delete the client."
+                  )
+                ) {
+                  subRotateMutation.mutate();
+                }
+              }}
+              disabled={subRotateMutation.isPending}
+              className="w-full px-4 py-2 rounded-lg bg-tg-secondary text-tg font-medium text-sm border border-tg disabled:opacity-60"
+            >
+              {subRotateMutation.isPending ? "Regenerating…" : "♻️ Invalidate & Resend"}
+            </button>
+            <div className="text-tg-hint text-[11px]">
+              Apps show your monthly allowance and expiry from this link. The
+              non-standard port (:8444) is expected.
+            </div>
+          </div>
+        )}
+        {subCapable && subInfo && !subInfo.url && (
+          <div className="text-tg-hint text-xs px-1">
+            Subscriptions require a configured domain (TMA_URL).
+          </div>
+        )}
 
         {isActive ? (
           <button

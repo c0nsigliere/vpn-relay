@@ -8,7 +8,14 @@ import {
   resumeClient as doResume,
   deleteClient as doDelete,
   updateWgTransport,
+  ensureSubToken,
+  rotateSubToken,
 } from "../../services/client.service";
+import {
+  subscriptionUrl,
+  subscriptionsAvailable,
+  isSubscriptionCapable,
+} from "../../services/subscription.service";
 import { chartsService } from "../../services/charts.service";
 import { qrService } from "../../services/qr.service";
 import { formatBytes } from "../../utils/format";
@@ -44,6 +51,14 @@ function clientKeyboard(c: Client): InlineKeyboard {
     .text("Get Config", `card:config:${c.id}`)
     .text("Traffic Graph", `card:graph:${c.id}`)
     .row();
+
+  // Gate on "can we actually produce a link", not merely on protocol capability:
+  // without a configured public origin (TMA_URL) the button would lead nowhere.
+  // Kept side-effect free — the token is minted lazily in the handler, because a
+  // keyboard renderer must not write to the DB on every card view.
+  if (isSubscriptionCapable(c) && subscriptionsAvailable()) {
+    kb.text("🔗 Subscription", `card:sub:${c.id}`).row();
+  }
 
   // WG cascade transport toggle — only when the Hy2 uplink is available.
   if ((c.type === "wg" || c.type === "both") && wgHy2Available) {
@@ -134,8 +149,70 @@ export async function handleClientCardCallback(ctx: BotContext): Promise<void> {
     case "transport":
       await toggleTransport(ctx, client);
       break;
+    case "sub":
+      await sendSubscription(ctx, client);
+      break;
+    case "subrotate":
+      await rotateSubscription(ctx, client);
+      break;
     default:
       await showClientCard(ctx, clientId);
+  }
+}
+
+function subKeyboard(id: string): InlineKeyboard {
+  return new InlineKeyboard()
+    // "Invalidate", never "revoke" — rotation kills the link, not the credentials
+    // someone already imported. See rotateSubToken().
+    .text("♻️ Invalidate & regenerate link", `card:subrotate:${id}`)
+    .row()
+    .text("Back", `client:${id}`);
+}
+
+async function sendSubscription(
+  ctx: BotContext,
+  client: Client,
+  rotated = false
+): Promise<void> {
+  if (!isSubscriptionCapable(client)) {
+    await ctx.reply("This client has no subscription-representable configuration.");
+    return;
+  }
+  // Lazy mint: covers rows that predate the feature or whose credential arrived late.
+  const c = ensureSubToken(client);
+  const url = subscriptionUrl(c);
+  if (!url) {
+    await ctx.reply("Subscriptions require a configured TMA domain (TMA_URL is unset).");
+    return;
+  }
+
+  const lines = [
+    `🔗 *Subscription for ${client.name}*\n`,
+    // Code span: base64url produces `_` and `-`, which Markdown would otherwise
+    // try to read as emphasis and mangle the link.
+    `\`${url}\`\n`,
+    `_Add this as a subscription in Hiddify, v2rayN or Streisand — the app re-polls it and picks up server changes on its own._\n`,
+    `⚠️ Treat this link like a password: anyone who opens it gets this client's credentials.`,
+  ];
+  if (rotated) {
+    lines.push(
+      `\n♻️ *Link regenerated.* The old link now returns 404. This does *not* disconnect anyone already using the config — to revoke access, suspend or delete the client.`
+    );
+  }
+
+  await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
+  await ctx.replyWithPhoto(new InputFile(await qrService.generate(url), "sub-qr.png"), {
+    caption: `Subscription QR: ${client.name}`,
+    reply_markup: subKeyboard(client.id),
+  });
+}
+
+async function rotateSubscription(ctx: BotContext, client: Client): Promise<void> {
+  try {
+    const { client: rotated } = rotateSubToken(client);
+    await sendSubscription(ctx, rotated, true);
+  } catch (err) {
+    await ctx.reply(`Could not regenerate the link: ${(err as Error).message}`);
   }
 }
 
